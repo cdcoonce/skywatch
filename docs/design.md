@@ -183,7 +183,9 @@ detectors are possible; single-star detectors simply loop.
 Planned detectors, in order:
 
 1. `rolling_z` — the predecessor's method. Per star, rolling mean and std over a
-   window, flag |z| above a threshold. Baseline.
+   window, flag |z| above a threshold. Baseline. The window is per night; the
+   first `warmup` (5) samples of a night are blind, and samples `warmup` to `window`
+   use the samples seen so far, with z scaled by `sqrt(i / window)`.
 2. `median_residual` — subtract a running median, flag residual outliers. Should
    beat rolling_z on flares and cosmic rays.
 3. `field_common_mode` — estimate the field-wide multiplicative trend from the

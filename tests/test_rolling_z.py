@@ -53,9 +53,10 @@ def test_min_run_drops_short():
 
 
 def test_warmup_and_short_curve():
+    # warmup >= window restores the pre-growing-window rule: a curve with n <= window is blind
     f = noisy(20)
     f[5] += 50
-    assert RollingZDetector().detect({1: curve(f)}, C) == []
+    assert RollingZDetector(warmup=30).detect({1: curve(f)}, C) == []
 
 
 def test_gaps_treated_by_index():
@@ -149,7 +150,7 @@ def test_night_2_spike_still_detected_after_held_step():
 def test_first_window_of_each_night_is_unflaggable():
     t = two_night_t()
     f = held_step_flux()
-    f[NIGHT + 5] += 50  # inside night 2's warm-up: treated like the start of a curve
+    f[NIGHT + 2] += 50  # inside night 2's warm-up: treated like the start of a curve
     out = RollingZDetector().detect({1: curve(f, t=t)}, C)
     assert [d for d in out if d.t_start >= 86400] == []
 
@@ -214,3 +215,147 @@ def test_night_gap_cadences_param():
     t = two_night_t()
     out = RollingZDetector(night_gap_cadences=10_000).detect({1: curve(held_step_flux(), t=t)}, C)
     assert any(d.t_start == 86400 for d in out)
+
+
+# --- growing window at the start of each night (issue 16) ---
+
+
+def brute_old_z(flux, err, window):
+    """The pre-issue-16 rule, written out sample by sample: the first `window` samples are 0."""
+    flux = np.asarray(flux, float)
+    z = np.zeros(len(flux))
+    for i in range(window, len(flux)):
+        w = flux[i - window : i]
+        sd = max(w.std(), err[i])
+        z[i] = (flux[i] - w.mean()) / sd
+    return z
+
+
+def night_two_spike(sample, amp=30.0, seed=0):
+    t = two_night_t()
+    f = 100 + np.random.default_rng(seed).normal(0, 1, 2 * NIGHT)
+    f[NIGHT + sample] += amp
+    return t, f
+
+
+@pytest.mark.parametrize("sample", [5, 6, 12, 29])
+def test_cosmic_ray_just_after_warmup_is_flagged_in_night_2(sample):
+    t, f = night_two_spike(sample)
+    out = RollingZDetector().detect({1: curve(f, t=t)}, C)
+    night2 = [d for d in out if d.t_start >= 86400]
+    assert [(d.t_start, d.t_end) for d in night2] == [
+        (int(t[NIGHT + sample]), int(t[NIGHT + sample]) + C)
+    ]
+
+
+@pytest.mark.parametrize("sample", [0, 1, 2, 3, 4])
+def test_cosmic_ray_inside_warmup_is_not_flagged_in_night_2(sample):
+    t, f = night_two_spike(sample, amp=1000.0)
+    out = RollingZDetector().detect({1: curve(f, t=t)}, C)
+    assert [d for d in out if d.t_start >= 86400] == []
+
+
+def test_warmup_parameter_moves_the_blind_edge():
+    t, f = night_two_spike(3)
+    assert [
+        d for d in RollingZDetector(warmup=5).detect({1: curve(f, t=t)}, C) if d.t_start >= 86400
+    ] == []
+    out = RollingZDetector(warmup=3).detect({1: curve(f, t=t)}, C)
+    assert [d.t_start for d in out if d.t_start >= 86400] == [int(t[NIGHT + 3])]
+    f2 = f.copy()
+    f2[NIGHT + 3] -= 30  # undo; put the spike at sample 2 instead
+    f2[NIGHT + 2] += 30
+    assert [
+        d for d in RollingZDetector(warmup=3).detect({1: curve(f2, t=t)}, C) if d.t_start >= 86400
+    ] == []
+
+
+def test_default_warmup_is_five():
+    assert RollingZDetector().warmup == 5
+
+
+def test_negative_warmup_rejected():
+    with pytest.raises(ValueError, match="warmup"):
+        RollingZDetector(warmup=-1)
+    with pytest.raises(ValueError, match="warmup"):
+        rolling_z_scores(np.ones(10), np.ones(10), 5, warmup=-1)
+
+
+@pytest.mark.parametrize("warmup", [0, 30, 31, 500])
+def test_warmup_zero_or_at_least_window_reproduces_old_scores(warmup):
+    f = noisy(120, seed=4)
+    f[10] += 40
+    f[60] += 40
+    err = np.full(120, 1.0)
+    got = rolling_z_scores(f, err, 30, warmup=warmup)
+    assert got == pytest.approx(brute_old_z(f, err, 30), abs=1e-12)
+    assert not got[:30].any()
+
+
+@pytest.mark.parametrize("warmup", [0, 30, 99])
+@pytest.mark.parametrize("seed", range(3))
+def test_warmup_disabled_detector_matches_old_per_night_behaviour(warmup, seed):
+    t = two_night_t()
+    rng = np.random.default_rng(seed)
+    f = 100 + rng.normal(0, 1, 2 * NIGHT)
+    f[rng.integers(5, 29, 3)] += 40  # first-window spikes: blind when warmup is off
+    f[NIGHT + rng.integers(5, 29, 3)] += 40
+    f[rng.integers(40, NIGHT - 1, 5)] += 15
+    f[NIGHT + rng.integers(40, NIGHT - 1, 5)] += 15
+    det = RollingZDetector(warmup=warmup)
+    got = [(d.t_start, d.t_end, d.score) for d in det.detect({1: curve(f, t=t)}, C)]
+    want = []
+    for lo, hi in ((0, NIGHT), (NIGHT, 2 * NIGHT)):
+        z = np.abs(brute_old_z(f[lo:hi], np.ones(hi - lo), 30))
+        want += [
+            (int(t[lo + i]), int(t[lo + i]) + C, float(z[i])) for i in np.flatnonzero(z >= 4.0)
+        ]
+    assert got == pytest.approx(want)
+    assert got
+
+
+def test_growing_window_hand_computed_and_threshold_scaled():
+    f = np.array([1.0, 2.0, 3.0, 10.0, 9.0, 2.0, 5.0, 1.0])
+    err = np.full(8, 0.1)
+    z = rolling_z_scores(f, err, 4, warmup=2)
+    assert z[:2].tolist() == [0.0, 0.0]
+    # i=2: window [1,2] (mean 1.5, std 0.5), scaled by sqrt(2/4)
+    assert z[2] == pytest.approx((3 - 1.5) / 0.5 * np.sqrt(2 / 4))
+    # i=3: window [1,2,3] (mean 2, std sqrt(2/3)), scaled by sqrt(3/4)
+    assert z[3] == pytest.approx((10 - 2) / np.sqrt(2 / 3) * np.sqrt(3 / 4))
+    # i=4: first full window [1,2,3,10], no scaling
+    m, sd = 4.0, np.sqrt(((3) ** 2 + (2) ** 2 + (1) ** 2 + (6) ** 2) / 4)
+    assert z[4] == pytest.approx((9 - m) / sd)
+
+
+def test_growing_window_nan_gives_zero():
+    f = np.array([1.0, np.nan, 3.0, 10.0, 4.0, 2.0, 5.0, 1.0])
+    z = rolling_z_scores(f, np.full(8, 0.1), 5, warmup=2)
+    assert z[2] == 0.0 and z[3] == 0.0 and z[4] == 0.0
+    assert z[5] == 0.0  # window [nan,3,10,4,2]... still poisoned
+
+
+@pytest.mark.parametrize("seed", range(4))
+def test_night_boundary_is_not_a_step_with_growing_window(seed):
+    # The key risk: a short window right after the boundary must not bring the night-start
+    # alarm back. The window never crosses a night, so a held step across the gap stays silent.
+    t = two_night_t()
+    for factor in (0.7, 1.4):
+        f = 100 + np.random.default_rng(seed).normal(0, 1, 2 * NIGHT)
+        f[NIGHT // 2 : NIGHT] *= factor
+        out = RollingZDetector(warmup=2).detect({1: curve(f, t=t)}, C)
+        assert [d for d in out if d.t_start >= 86400 and d.t_start < 86400 + 40 * C] == []
+
+
+@pytest.mark.parametrize("warmup", [1, 5, 12])
+def test_growing_window_uses_every_sample_seen_so_far(warmup):
+    # window_i = i (all samples so far, not a fixed small tail), scaled by sqrt(i / window)
+    w = 30
+    f = noisy(80, seed=9)
+    err = np.full(80, 0.5)
+    z = rolling_z_scores(f, err, w, warmup=warmup)
+    for i in range(warmup, w):
+        head = f[:i]
+        want = (f[i] - head.mean()) / max(head.std(), 0.5) * np.sqrt(i / w)
+        assert z[i] == pytest.approx(want)
+    assert not z[:warmup].any()
