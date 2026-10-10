@@ -33,13 +33,18 @@ the detector, needed fixing),
 [0003](docs/log/0003-two-more-detectors-and-what-the-night-gap-does.md) (the
 two new detectors trade recall for span quality; only the field detector can
 name a cloud; windowing across the night gap is the baseline's biggest flaw),
-and [0004](docs/log/0004-two-fixes-and-what-each-cost.md) (per-night windows
-and scorer edge tolerance landed; rolling_z's seed-7 false alarms went from 199
-to 7, with the recall cost split into withdrawn fake credit and a real
-first-window blind spot, issue 16).
+[0004](docs/log/0004-two-fixes-and-what-each-cost.md) (per-night windows
+and scorer edge tolerance; rolling_z's seed-7 false alarms went from 199 to 7,
+with the recall cost split into withdrawn fake credit and a real first-window
+blind spot), and
+[0005](docs/log/0005-the-drift-the-warm-up-and-the-labels-nobody-could-see.md)
+(the field detector now catches the held drift with a causal baseline, a
+growing window recovers the first-window events, and truth labels that touch
+no sample are excluded from the denominator and shown as `unobs`).
 
-Next: issue 16 (first-window blind spot), 13 (held drift), 5 (zero-footprint
-labels), then a way to look at one star's night.
+Every issue filed from the first two days is closed. Next: a way to look at one
+star's night with truth and every detector's spans drawn on it; hosting is
+decided after that exists.
 
 ## Develop
 
