@@ -147,10 +147,10 @@ def test_night_2_spike_still_detected_after_held_step():
     ]
 
 
-def test_first_window_of_each_night_is_unflaggable():
+def test_warmup_prefix_of_each_night_is_unflaggable():
     t = two_night_t()
     f = held_step_flux()
-    f[NIGHT + 2] += 50  # inside night 2's warm-up: treated like the start of a curve
+    f[NIGHT + 2] += 50  # inside night 2's warmup prefix: treated like the start of a curve
     out = RollingZDetector().detect({1: curve(f, t=t)}, C)
     assert [d for d in out if d.t_start >= 86400] == []
 
@@ -359,3 +359,56 @@ def test_growing_window_uses_every_sample_seen_so_far(warmup):
         want = (f[i] - head.mean()) / max(head.std(), 0.5) * np.sqrt(i / w)
         assert z[i] == pytest.approx(want)
     assert not z[:warmup].any()
+
+
+def test_short_night_under_default_warmup_is_detected_without_error():
+    # warmup <= n < window with the default warmup: the growing loop must stop at n
+    f = noisy(20, seed=3)
+    f[5] += 30
+    out = RollingZDetector().detect({1: curve(f)}, C)
+    assert [(d.t_start, d.t_end) for d in out] == [(5 * C, 6 * C)]
+    assert out[0].score > 4.0
+
+
+def test_run_starting_in_growing_region_records_the_scaled_score():
+    f = noisy(80, seed=5)
+    f[10] += 30
+    z = rolling_z_scores(f, np.ones(80), 30, warmup=5)
+    head = f[:10]
+    by_hand = abs(f[10] - head.mean()) / max(head.std(), 1.0) * np.sqrt(10 / 30)
+    assert abs(z[10]) == pytest.approx(by_hand, abs=1e-12)
+    out = RollingZDetector().detect({1: curve(f)}, C)
+    assert [(d.t_start, d.t_end) for d in out] == [(10 * C, 11 * C)]
+    assert out[0].score == pytest.approx(by_hand, abs=1e-12)
+
+
+def test_threshold_equal_to_growing_region_score_flags():
+    f = noisy(80, seed=5)
+    f[10] += 30
+    z_exact = float(abs(rolling_z_scores(f, np.ones(80), 30, warmup=5)[10]))
+    out = RollingZDetector(z_threshold=z_exact).detect({1: curve(f)}, C)
+    assert [d.t_start for d in out] == [10 * C]
+
+
+def test_growing_window_nan_current_sample_gives_zero():
+    f = np.array([1.0, 2.0, 1.5, 2.5, np.nan, 2.0, 1.0, 2.0])
+    z = rolling_z_scores(f, np.full(8, 0.1), 5, warmup=2)
+    assert z[4] == 0.0
+
+
+def test_steady_state_nan_current_sample_gives_zero_and_never_flags():
+    f = noisy(60, seed=1)
+    f[40] = np.nan
+    z = rolling_z_scores(f, np.ones(60), 30, warmup=5)
+    assert z[40] == 0.0
+    assert not np.isnan(z[:40]).any()
+    assert RollingZDetector().detect({1: curve(f)}, C) == []
+
+
+def test_nan_flux_err_gives_zero_in_both_regions():
+    f = np.array([1.0, 2.0, 1.5, 2.5, 9.0, 2.0, 1.0, 2.0, 30.0])
+    err = np.full(9, 0.1)
+    err[4] = np.nan  # growing region (window 6, warmup 2)
+    err[8] = np.nan  # steady state
+    z = rolling_z_scores(f, err, 6, warmup=2)
+    assert z[4] == 0.0 and z[8] == 0.0

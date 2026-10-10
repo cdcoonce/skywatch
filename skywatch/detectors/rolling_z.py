@@ -18,8 +18,9 @@ def rolling_z_scores(
     """Signed z-score of each sample against the trailing `window` samples.
 
     The window for sample i is flux[i - window : i]; it excludes sample i. The std is
-    floored at the sample's flux_err. A NaN anywhere in a window (or the sample itself)
-    gives z = 0, so that sample is unflaggable.
+    floored at the sample's flux_err. A NaN anywhere in a window, in the sample itself, or
+    in its flux_err gives z = 0, so that sample is unflaggable (in both the growing and the
+    steady-state region).
 
     Start of the curve: the first ``min(warmup, window)`` samples are always 0 (never
     flagged). For samples ``warmup <= i < window`` the window is the ``i`` samples seen so
@@ -39,7 +40,7 @@ def rolling_z_scores(
     if warmup > 0:
         for i in range(warmup, min(w, n)):
             head = flux[:i]
-            std = max(head.std(), err[i])
+            std = np.maximum(head.std(), err[i])
             with np.errstate(divide="ignore", invalid="ignore"):
                 zi = (flux[i] - head.mean()) / std * np.sqrt(i / w)
             z[i] = zi if std > 0 and np.isfinite(zi) else 0.0
@@ -51,7 +52,7 @@ def rolling_z_scores(
     std = np.maximum(windows.std(axis=1), err[w:])
     with np.errstate(divide="ignore", invalid="ignore"):
         zz = (flux[w:] - mean) / std
-    z[w:] = np.where(std > 0, zz, 0.0)
+    z[w:] = np.where((std > 0) & np.isfinite(zz), zz, 0.0)
     return z
 
 

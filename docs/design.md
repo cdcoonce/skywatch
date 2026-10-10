@@ -186,6 +186,9 @@ Planned detectors, in order:
    window, flag |z| above a threshold. Baseline. The window is per night; the
    first `warmup` (5) samples of a night are blind, and samples `warmup` to `window`
    use the samples seen so far, with z scaled by `sqrt(i / window)`.
+   `warmup <= 0` or `warmup >= window` switches the growing window off (the first
+   `window` samples of a night are then blind), so `--window 5` or smaller switches it
+   off too. A NaN in the window, the sample or its `flux_err` gives z = 0 and never flags.
 2. `median_residual` — subtract a running median, flag residual outliers. Should
    beat rolling_z on flares and cosmic rays.
 3. `field_common_mode` — estimate the field-wide multiplicative trend from the
