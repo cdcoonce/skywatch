@@ -1,8 +1,9 @@
 import numpy as np
+import pytest
 
 from skywatch.types import TruthLabel
 from skywatch.world.field import FieldConfig
-from skywatch.world.survey import SurveyConfig, simulate
+from skywatch.world.survey import SurveyConfig, _injector_rng, simulate
 
 SMALL = FieldConfig(n_stars=6, planet_rate=0.0)
 
@@ -122,3 +123,71 @@ def test_dim_is_visible_and_masked_absent():
         len(set(lc0.t.tolist()) & {int(res.night_starts[0] + 60 * k) for k in range(10, 20)}) == 0
     )
     assert lc0.flux[:5].mean() > 1.5 * lc0.flux[5:10].mean()
+
+
+class Bright0:
+    kind = "bright"
+
+    def inject(self, scene, rng):
+        scene.flux[0, :] = 100.0
+        return []
+
+
+class Recorder:
+    kind = "recorder"
+
+    def __init__(self):
+        self.seen = []
+
+    def inject(self, scene, rng):
+        self.seen.append(float(scene.flux[0, 0]))
+        return []
+
+
+class Zero0:
+    kind = "zero"
+
+    def inject(self, scene, rng):
+        scene.flux[0, :] = 0.0
+        return []
+
+
+def test_science_runs_before_instrument():
+    rec = Recorder()
+    simulate(_cfg(), science=[Bright0()], instrument=[rec])
+    assert rec.seen == [100.0] * 3
+
+
+def test_injector_rng_keyed_by_kind():
+    alone = simulate(_cfg(), science=[DimStar0()]).truth
+    second = simulate(_cfg(), science=[Dummy(), DimStar0()]).truth
+    assert alone == second
+
+    a = _injector_rng(7, 1, "transit").uniform()
+    assert a != _injector_rng(7, 1, "flare").uniform()
+    assert a == _injector_rng(7, 1, "transit").uniform()
+
+
+def test_noise_applied_after_injectors():
+    field = FieldConfig(n_stars=2, planet_rate=0.0, noise_floor_range=(0.01, 0.01))
+    res = simulate(_cfg(field=field), science=[Zero0()])
+    lc = res.curves[0]
+    assert len(lc) > 0
+    assert np.all(lc.flux == 0.0)
+    assert np.all(lc.flux_err == 0.0)
+    assert np.any(res.curves[1].flux_err > 0.0)
+
+
+@pytest.mark.parametrize(
+    ("kw", "name"),
+    [
+        ({"cadence_s": 0}, "cadence_s"),
+        ({"n_nights": 0}, "n_nights"),
+        ({"seed": -1}, "seed"),
+        ({"night_gap_s": -1}, "night_gap_s"),
+        ({"night_length_s": 30}, "night_length_s"),
+    ],
+)
+def test_survey_config_validation(kw, name):
+    with pytest.raises(ValueError, match=name):
+        SurveyConfig(**kw)

@@ -13,7 +13,9 @@ KEYS = {
 
 
 def _gen(seed=1, **kw):
-    return generate_field(FieldConfig(**kw), np.random.default_rng(seed))
+    return generate_field(
+        FieldConfig(**kw), np.random.default_rng(seed), np.random.default_rng(seed + 1000)
+    )
 
 
 def test_determinism():
@@ -31,7 +33,7 @@ def test_ids_sequential_and_counts():
 
 def test_star_ranges():
     cfg = FieldConfig(n_stars=400)
-    stars, _ = generate_field(cfg, np.random.default_rng(5))
+    stars, _ = generate_field(cfg, np.random.default_rng(5), np.random.default_rng(6))
     for s in stars:
         assert 10**3.0 <= s.flux0 <= 10**6.0
         assert 0.002 <= s.noise_floor <= 0.02
@@ -79,3 +81,29 @@ def test_single_class_weights(cls):
 def test_planet_rate_zero():
     _, planets = _gen(4, planet_rate=0.0)
     assert planets == []
+
+
+def test_planet_rate_does_not_perturb_stars():
+    a, _ = _gen(4, n_stars=20, planet_rate=0.0)
+    b, planets = _gen(4, n_stars=20, planet_rate=2.0)
+    assert planets and a == b
+
+
+def test_growing_n_stars_keeps_earlier_stars():
+    a, _ = _gen(4, n_stars=10)
+    b, _ = _gen(4, n_stars=11)
+    assert a == b[:10]
+
+
+@pytest.mark.parametrize(
+    ("kw", "name"),
+    [
+        ({"n_stars": 0}, "n_stars"),
+        ({"planet_rate": -0.1}, "planet_rate"),
+        ({"variability_weights": {"constant": 0.0, "sinusoidal": 0.0}}, "variability_weights"),
+        ({"variability_weights": {"constant": 1.0, "sinusoidal": -0.5}}, "variability_weights"),
+    ],
+)
+def test_field_config_validation(kw, name):
+    with pytest.raises(ValueError, match=name):
+        FieldConfig(**kw)
