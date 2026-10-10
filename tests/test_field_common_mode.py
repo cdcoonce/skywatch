@@ -199,3 +199,69 @@ def test_smoothing_is_centered():
     assert len(out) == 1
     t_mid = (t[100] + t[140]) / 2
     assert abs((out[0].t_start + out[0].t_end) / 2 - t_mid) <= C
+
+
+# --- night_gap_cadences wiring -------------------------------------------------------
+# A "hole of G cadences" means consecutive observed times G * C apart. split_nights
+# splits only when the spacing is strictly greater than night_gap_cadences * C, so with
+# night_gap_cadences=10 a spacing of 10 stays one night and 11 starts a new one. The
+# detector reads the setting at two sites (_baseline and detect); one test per site per
+# side of the boundary, each blind to the other site's value.
+
+GAP = 10
+N_NIGHT = 40
+
+
+def two_night_field(spacing, night2_dip):
+    """Two noise-free 40-sample nights `spacing` cadences apart; night 2 dipped to 0.9
+    over the slice `night2_dip`. Returns (t, flux, t2_first_index)."""
+    t1 = np.arange(N_NIGHT, dtype=np.int64) * C
+    t2 = t1[-1] + spacing * C + np.arange(N_NIGHT, dtype=np.int64) * C
+    f2 = np.ones(N_NIGHT)
+    f2[night2_dip] = 0.9
+    t = np.concatenate([t1, t2])
+    f = np.concatenate([np.ones(N_NIGHT), f2])
+    return t, np.tile(1000.0 * f, (8, 1)), N_NIGHT
+
+
+def small_gap_detector():
+    return FieldCommonModeDetector(night_gap_cadences=GAP, baseline_window=21, smooth=1, min_run=1)
+
+
+def test_baseline_splits_when_spacing_exceeds_night_gap():
+    # Dip on night 2's first 8 samples. Split: the shrunken edge window absorbs the first
+    # five (documented limitation), so the cloud starts at sample 5. A baseline that
+    # crossed the gap would see 10 flat samples from night 1 and flag from sample 0.
+    t, flux, i2 = two_night_field(GAP + 1, slice(0, 8))
+    clouds = [
+        d for d in small_gap_detector().detect(to_curves(t, flux), C) if d.kind_guess == "cloud"
+    ]
+    assert [(d.t_start, d.t_end) for d in clouds] == [(int(t[i2 + 5]), int(t[i2 + 7]) + C)]
+
+
+def test_baseline_window_crosses_spacing_of_exactly_night_gap():
+    t, flux, i2 = two_night_field(GAP, slice(0, 8))
+    clouds = [
+        d for d in small_gap_detector().detect(to_curves(t, flux), C) if d.kind_guess == "cloud"
+    ]
+    assert [(d.t_start, d.t_end) for d in clouds] == [(int(t[i2]), int(t[i2 + 7]) + C)]
+
+
+def test_detect_splits_when_spacing_exceeds_night_gap():
+    # Mid-night dip, far from any edge, so the baseline site cannot matter. The 11-cadence
+    # spacing is between nights, not a field dropout, and the dip is in the second night (n1).
+    t, flux, _ = two_night_field(GAP + 1, slice(20, 26))
+    out = small_gap_detector().detect(to_curves(t, flux), C)
+    assert [d.det_id for d in out] == ["field_common_mode-n1-0"]
+    assert out[0].kind_guess == "cloud"
+
+
+def test_detect_treats_spacing_of_exactly_night_gap_as_dropout():
+    t, flux, i2 = two_night_field(GAP, slice(20, 26))
+    out = small_gap_detector().detect(to_curves(t, flux), C)
+    assert [(d.det_id, d.kind_guess) for d in out] == [
+        ("field_common_mode-n0-0", "dropout"),
+        ("field_common_mode-n0-1", "cloud"),
+    ]
+    assert out[0].score == GAP
+    assert (out[0].t_start, out[0].t_end) == (int(t[N_NIGHT - 1]) + C, int(t[i2]))
