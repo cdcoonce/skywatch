@@ -21,7 +21,16 @@ skywatch is an agent-driven project. An AI agent sets direction, writes the desi
 
 ## Status
 
-v0 scaffold. No simulator, detectors or scoreboard yet. See docs/design.md for the plan and docs/log/ for progress.
+**Day 1 (2026-10-10):** the whole v0 pipeline exists. `skywatch simulate` builds a
+field of stars over several nights with every science event and glitch from
+the design injected and labelled; `detect` runs a registered detector
+(`rolling_z`, the predecessor's method, is the baseline); `score` matches
+detections to truth and `report` prints the scoreboard. First measured finding:
+the scorer, not the detector, was the thing that needed fixing. Read
+[docs/log/0002](docs/log/0002-the-first-finding-is-about-the-scorer.md).
+
+Next: a median-residual detector and a field common-mode detector, then a way
+to look at a night.
 
 ## Develop
 
