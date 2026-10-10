@@ -211,9 +211,12 @@ Planned detectors, in order:
   between the half-open spans: `det.t_start - label.t_end` after a label,
   `label.t_start - det.t_end` before it, and the detection is eligible when
   `0 <= distance < k * cadence_s` (0 = abutting, the first sample after or last sample
-  before the label). Nearest edge wins, then the lowest `label_id`. The grade is
-  **touched** if the label is still unclaimed, and **corroborating** if this detector
-  already claimed it: the end of a hot-pixel plateau or the decay of a flare crossing the
+  before the label). A detection that overlaps any label on its star (claimed or not)
+  is not edge-eligible and stays unmatched, as before. Among eligible labels any
+  still-unclaimed one is preferred over an already-claimed one, even a nearer claimed
+  one; within the chosen group the nearest edge wins, then the lowest `label_id`. The
+  grade is **touched** if the label is still unclaimed, and **corroborating** if this
+  detector already claimed it: the end of a hot-pixel plateau or the decay of a flare crossing the
   threshold is evidence of an event the detector already counted, not a false alarm.
   Bounded stays IoU-based and is never affected.
 - A **field-wide** label (`star_id` None) accepts many detections from one detector:
