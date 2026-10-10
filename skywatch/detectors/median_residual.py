@@ -4,6 +4,10 @@ Unlike rolling_z (trailing window, usable online), this detector is offline: the
 baseline for sample i is the median over a window centered on i, so it sees the
 future. An event longer than about window/2 samples is absorbed into the baseline
 and shows only at its edges. Gaps in t are ignored; windows work by sample index.
+
+NaN: a NaN sample poisons the median of every window that touches it, so the
+baseline and sigma are NaN there and z = 0 (sigma > 0 fails): the detector is blind
+to all samples within half a window of a NaN, even a large spike next to it.
 """
 
 from __future__ import annotations
@@ -22,15 +26,15 @@ def _running_median(x: np.ndarray, window: int) -> np.ndarray:
     n = len(x)
     half = window // 2
     out = np.empty(n)
-    if n > window:
-        out[half : n - half] = np.median(sliding_window_view(x, window), axis=1)
-        edge = half
-    else:
-        edge = n
-    for i in range(min(edge, n)):
+    if n <= window:
+        for i in range(n):
+            out[i] = np.median(x[max(0, i - half) : i + half + 1])
+        return out
+    out[half : n - half] = np.median(sliding_window_view(x, window), axis=1)
+    for i in range(half):
         out[i] = np.median(x[: i + half + 1])
         j = n - 1 - i
-        out[j] = np.median(x[max(j - half, 0) :])
+        out[j] = np.median(x[j - half :])
     return out
 
 
@@ -54,13 +58,22 @@ def median_residual_scores(flux: np.ndarray, flux_err: np.ndarray, window: int) 
 
 @register
 class MedianResidualDetector:
-    """Flags runs where |z| >= threshold (see `median_residual_scores`)."""
+    """Flags runs where |z| >= threshold (see `median_residual_scores`).
+
+    A NaN sample blinds every window touching it (z = 0 within half a window).
+    """
 
     name = "median_residual"
 
     def __init__(self, window: int = 61, threshold: float = 4.0, min_run: int = 1) -> None:
         if window % 2 == 0:
             raise ValueError(f"window must be odd, got {window}")
+        if window < 3:
+            raise ValueError(f"window must be >= 3, got {window}")
+        if not threshold > 0:
+            raise ValueError(f"threshold must be > 0, got {threshold}")
+        if min_run < 1:
+            raise ValueError(f"min_run must be >= 1, got {min_run}")
         self.window = window
         self.threshold = threshold
         self.min_run = min_run

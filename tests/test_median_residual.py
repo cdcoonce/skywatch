@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 
 from skywatch.detectors import REGISTRY, load_all
-from skywatch.detectors.median_residual import MedianResidualDetector, median_residual_scores
+from skywatch.detectors.median_residual import (
+    MedianResidualDetector,
+    _running_median,
+    median_residual_scores,
+)
 from skywatch.types import LightCurve
 
 C = 60
@@ -122,3 +126,56 @@ def test_event_longer_than_window_is_absorbed():
     f = noisy(400)
     f[150:250] += 5
     assert all(not (d.t_start <= 150 * C < d.t_end) for d in run(f))
+
+
+@pytest.mark.parametrize("n", [1, 3, 9, 10, 11, 12, 40])
+def test_running_median_matches_brute_force(n):
+    window, half = 11, 5
+    x = np.random.default_rng(n).normal(0, 1, n)
+    expected = [np.median(x[max(0, i - half) : i + half + 1]) for i in range(n)]
+    np.testing.assert_allclose(_running_median(x, window), expected)
+
+
+def test_score_is_peak_abs_z():
+    f = noisy()
+    f[149:152] += np.array([6.0, 12.0, 6.0])
+    (d,) = run(f)
+    z = median_residual_scores(f, np.full(len(f), 1.0), 61)
+    assert d.score == pytest.approx(np.max(np.abs(z)))
+
+
+def test_two_spikes_get_sequential_ids():
+    f = noisy()
+    f[80] += 12
+    f[220] += 12
+    out = run(f)
+    assert [d.det_id for d in out] == ["median_residual-s1-0", "median_residual-s1-1"]
+
+
+def test_mixed_sign_run_guess():
+    # Rule: positive guess only if run.max() >= threshold and run.mean() > 0.
+    f = np.full(300, 100.0)
+    f[100:103] += [8, -9, 8]
+    f[200:203] += [-9, 4.5, -9]
+    pos, neg = run(f + np.random.default_rng(5).normal(0, 0.01, 300), threshold=2.0)[:2]
+    assert pos.t_start == 100 * C and pos.kind_guess == "flare"
+    assert neg.t_start == 200 * C and neg.kind_guess is None
+
+
+def test_nan_blinds_neighbourhood():
+    f = noisy(400)
+    f[100] = np.nan
+    f[101] += 15  # spike adjacent to NaN: inside blinded windows
+    f[300] += 15  # far from NaN
+    out = run(f, window=21)
+    assert all(not (d.t_start <= 101 * C < d.t_end) for d in out)
+    assert all(abs(d.t_start // C - 100) > 10 for d in out)
+    assert any(d.t_start <= 300 * C < d.t_end for d in out)
+
+
+@pytest.mark.parametrize(
+    "kw", [{"window": 1}, {"window": -3}, {"threshold": 0}, {"threshold": -1.0}, {"min_run": 0}]
+)
+def test_bad_args_rejected(kw):
+    with pytest.raises(ValueError):
+        MedianResidualDetector(**kw)
