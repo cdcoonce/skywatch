@@ -141,6 +141,17 @@ Rules:
   `eclipsing_binary` -> `period_s, epoch_s, depth_primary, depth_secondary, duration_s`;
   `sinusoidal` -> `period_s, amplitude, phase`; `flare_star` -> `flare_rate_per_day`.
   `constant` has an empty dict.
+- **Footprint.** Every truth label carries `params["footprint_samples"]`: the number of
+  samples the event actually changed, counted by the injector from the scene itself (flux
+  and mask before against after, restricted to samples observed at injection time), never
+  from span arithmetic. For a one-star label it counts that star's samples; for a field-wide
+  label it counts grid columns where any star changed. Dropouts count the samples they
+  newly masked; a drift counts its persistent tail, not just the ramp. `0` means the event
+  fell between samples (a flare peaking after the night's last sample, a sub-cadence
+  dropout at a coarse cadence, a span clipped to a sliver) and no detector could ever see
+  it. The label is still written, because truth records what was placed; the scorer
+  excludes it. A later injector can still hide samples this one changed (a dropout over a
+  cosmic ray); that is not counted.
 - Each injector receives its own `rng` spawned from the survey seed, keyed by
   `(night_index, kind)`, so adding or removing one kind does not perturb another.
 - The survey applies noise after all injectors: `flux_obs = flux * (1 + N(0, noise_floor)) + N(0, sqrt(flux))`
@@ -162,7 +173,7 @@ observations star_id, t, flux, flux_err, quality      (t = int seconds)
 truth        label_id, kind, origin, star_id|NULL(field-wide), t_start, t_end, params(json)
 detections   detector, det_id, star_id, t_start, t_end, score, kind_guess|NULL
 matches      detector, det_id, label_id|NULL, iou
-scores       detector, kind, tp, fp, fn, precision, recall, f1
+scores       detector, kind, tp, fp, fn, precision, recall, f1, ..., unobservable
 ```
 
 One **run** is one directory: `runs/<run_id>/` holding these files plus
@@ -223,8 +234,17 @@ Planned detectors, in order:
   the first is its TP; each later eligible detection is **corroborating** and
   counts as neither TP nor FP. Only detections eligible for nothing (overlap, single-cadence
   tolerance or edge tolerance) are FP.
+- **Unobservable labels.** A label with `footprint_samples == 0` is dropped before
+  matching: it is never matched, never an FN, and not in recall's denominator. A detection
+  over one is treated as if the label were absent, so it is matched to something else if
+  it can be and is otherwise an FP (a detector that flags a spot where nothing was
+  injected is wrong, whatever the truth file says about that spot). The count is reported
+  per detector and kind as `unobservable` (the `unobs` column) so the exclusion is visible
+  rather than silent, and the confusion table has no `missed` row for such a label. A label
+  with no `footprint_samples` key (a run simulated before #5) is treated as observable, and
+  `score` prints a one-line warning to stderr saying how many labels lack it.
 - Per detector and per `kind`: `tp_bounded`, `tp_touched`, `corroborating`, `fp`,
-  `fn`. `tp = tp_bounded + tp_touched`; precision = tp / (tp + fp); recall =
+  `fn`, `unobservable`. `tp = tp_bounded + tp_touched`; precision = tp / (tp + fp); recall =
   tp / (tp + fn); F1 from those; `bounded_rate = tp_bounded / tp` (how well the
   detector spans what it finds). FP is counted against the kind the detector
   guessed if it guessed, else against `unknown`.
