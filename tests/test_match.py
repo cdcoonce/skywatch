@@ -131,3 +131,11 @@ def test_star_level_labels_stay_one_to_one():
     ms = {m.det_id: m for m in match_detections(dets, [label], C)}
     assert ms["d1"].grade == "bounded"
     assert ms["d2"].label_id is None and ms["d2"].grade is None
+
+
+def test_single_cadence_bounded_beats_higher_iou_touched():
+    """The bounded-first preference is only observable through the single-cadence rule."""
+    a = TruthLabel("A", "cosmic_ray", "instrument", 1, 600, 660)
+    b = TruthLabel("B", "flare", "science", 1, 0, 10000)
+    (m,) = match_detections([Detection("d", "x", 1, 660, 1000, 1.0)], [a, b], 60)
+    assert m.label_id == "A" and m.grade == "bounded"
