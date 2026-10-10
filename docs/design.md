@@ -104,13 +104,59 @@ kind of event). Adding a new event kind must not change the draws of existing
 kinds; that is what the spawned streams buy. Timestamps are integers of seconds
 since the survey epoch.
 
+## Injector contract
+
+Nights are built as a `Scene`, injectors mutate it, and the survey turns the
+scene into light curves plus truth. This is what lets science, glitches and the
+survey loop be built independently.
+
+```python
+@dataclass
+class Scene:
+    t: np.ndarray          # int64 seconds since survey epoch, one shared grid per night
+    flux: np.ndarray       # float64 (n_stars, n_t): true flux before noise; starts at flux0
+    mask: np.ndarray       # bool (n_stars, n_t): True = observed. Dropouts clear it.
+    stars: list[Star]      # row i of flux/mask is stars[i]
+    night_index: int
+    cadence_s: int
+
+class Injector(Protocol):
+    kind: str
+    def inject(self, scene: Scene, rng: np.random.Generator) -> list[TruthLabel]: ...
+```
+
+Rules:
+
+- Injectors mutate `scene.flux` and `scene.mask` in place and return the truth
+  labels for what they placed. They never add noise; the survey does that last.
+- Order per night: science injectors first, then instrument injectors. A cloud
+  multiplies everything under it, transits included; a hot pixel overwrites; a
+  dropout masks. Truth labels record the injected span regardless of what later
+  injectors did on top.
+- Deterministic science (transits from `planets`, eclipses and pulsations from
+  `Star.params`) is derived from the field, so it is reproducible across nights
+  by construction. Stochastic science (flares) and all glitches are Poisson
+  per night with rates from `SurveyConfig`.
+- `Star.params` is a small dict holding class-specific parameters:
+  `eclipsing_binary` -> `period_s, epoch_s, depth_primary, depth_secondary, duration_s`;
+  `sinusoidal` -> `period_s, amplitude, phase`; `flare_star` -> `flare_rate_per_day`.
+  `constant` has an empty dict.
+- Each injector receives its own `rng` spawned from the survey seed, keyed by
+  `(night_index, kind)`, so adding or removing one kind does not perturb another.
+- The survey applies noise after all injectors: `flux_obs = flux * (1 + N(0, noise_floor)) + N(0, sqrt(flux))`
+  and `flux_err = sqrt(flux + (noise_floor * flux) ** 2)`. Masked samples are
+  dropped, so a light curve's `t` is the night grid minus dropouts.
+- `quality` is a bitmask the survey sets from what it knows about the
+  instrument (bit 0 = inside a field-wide glitch span). Detectors may read it
+  but it is not truth; it is what a real pipeline would also have.
+
 ## Data model
 
 All tables are plain columnar records, written as Parquet and queried through
 DuckDB. No ORM, no pandas requirement in the core.
 
 ```
-stars        star_id, flux0, noise_floor, variability, ra, dec
+stars        star_id, flux0, noise_floor, variability, params(json), ra, dec
 planets      planet_id, star_id, period_s, epoch_s, depth, duration_s
 observations star_id, t, flux, flux_err, quality      (t = int seconds)
 truth        label_id, kind, origin, star_id|NULL(field-wide), t_start, t_end, params(json)

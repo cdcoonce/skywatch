@@ -24,6 +24,7 @@ class Star:
     variability: str
     ra: float
     dec: float
+    params: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
