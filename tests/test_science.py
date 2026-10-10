@@ -179,7 +179,7 @@ def test_pulsation_values_and_one_label_per_star():
     lab0 = next(lab for lab in labels if lab.star_id == 0)
     assert lab0.label_id == "pulsation-n0-s0-0" and lab0.origin == "science"
     assert (lab0.t_start, lab0.t_end) == (0, N * CAD)
-    assert lab0.params == {"period_s": 7200.0, "amplitude": 0.01}
+    assert lab0.params == {"period_s": 7200.0, "amplitude": 0.01, "footprint_samples": N}
     expect = 1000.0 * (1 + 0.01 * np.sin(2 * np.pi * sc.t / 7200.0 + 0.5))
     assert np.allclose(sc.flux[0], expect)
     assert np.all(sc.flux[1] == 1000.0)

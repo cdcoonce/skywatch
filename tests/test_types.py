@@ -59,3 +59,15 @@ def test_detection_round_trips():
     d = Detection("rolling_z", "d1", 3, 0, 60, 4.2, "flare")
     assert Detection(**d.__dict__) == d
     assert Detection("x", "d2", None, 0, 1, 1.0).kind_guess is None
+
+
+def test_truth_label_observable_only_when_footprint_is_not_zero():
+    def lab(params):
+        return TruthLabel("l", "flare", "science", 1, 0, 10, params)
+
+    assert lab({"footprint_samples": 0}).observable is False
+    assert lab({"footprint_samples": 1}).observable is True
+    assert lab({"footprint_samples": 40}).observable is True
+    assert lab({}).observable is True  # an older run: no key, treated as observable
+    assert lab({}).has_footprint is False
+    assert lab({"footprint_samples": 0}).has_footprint is True
