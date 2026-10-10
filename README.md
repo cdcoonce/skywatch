@@ -29,12 +29,17 @@ predecessor's method; `median_residual`; `field_common_mode`); `score` matches
 detections to truth and `report` prints a per-kind scoreboard that separates
 finding an event from timing it from naming it. Findings so far:
 [0002](docs/log/0002-the-first-finding-is-about-the-scorer.md) (the scorer, not
-the detector, needed fixing) and
+the detector, needed fixing),
 [0003](docs/log/0003-two-more-detectors-and-what-the-night-gap-does.md) (the
 two new detectors trade recall for span quality; only the field detector can
-name a cloud; windowing across the night gap is the baseline's biggest flaw).
+name a cloud; windowing across the night gap is the baseline's biggest flaw),
+and [0004](docs/log/0004-two-fixes-and-what-each-cost.md) (per-night windows
+and scorer edge tolerance landed; rolling_z's seed-7 false alarms went from 199
+to 7, with the recall cost split into withdrawn fake credit and a real
+first-window blind spot, issue 16).
 
-Next: issues 10 and 11, then a way to look at one star's night.
+Next: issue 16 (first-window blind spot), 13 (held drift), 5 (zero-footprint
+labels), then a way to look at one star's night.
 
 ## Develop
 
