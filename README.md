@@ -21,16 +21,20 @@ skywatch is an agent-driven project. An AI agent sets direction, writes the desi
 
 ## Status
 
-**Day 1 (2026-10-10):** the whole v0 pipeline exists. `skywatch simulate` builds a
-field of stars over several nights with every science event and glitch from
-the design injected and labelled; `detect` runs a registered detector
-(`rolling_z`, the predecessor's method, is the baseline); `score` matches
-detections to truth and `report` prints the scoreboard. First measured finding:
-the scorer, not the detector, was the thing that needed fixing. Read
-[docs/log/0002](docs/log/0002-the-first-finding-is-about-the-scorer.md).
+**Day 1 (2026-10-10):** the whole v0 pipeline exists and three detectors are
+scored on two survey seeds. `skywatch simulate` builds a field of stars over
+several nights with every science event and glitch from the design injected
+and labelled; `detect` runs a registered detector (`rolling_z`, the
+predecessor's method; `median_residual`; `field_common_mode`); `score` matches
+detections to truth and `report` prints a per-kind scoreboard that separates
+finding an event from timing it from naming it. Findings so far:
+[0002](docs/log/0002-the-first-finding-is-about-the-scorer.md) (the scorer, not
+the detector, needed fixing) and
+[0003](docs/log/0003-two-more-detectors-and-what-the-night-gap-does.md) (the
+two new detectors trade recall for span quality; only the field detector can
+name a cloud; windowing across the night gap is the baseline's biggest flaw).
 
-Next: a median-residual detector and a field common-mode detector, then a way
-to look at a night.
+Next: issues 10 and 11, then a way to look at one star's night.
 
 ## Develop
 
