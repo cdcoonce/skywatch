@@ -79,14 +79,26 @@ def test_detections_round_trip(tmp_path, result):
 
 def test_scores_round_trip(tmp_path, result):
     run = store.write_run(tmp_path, result)
-    scores = [KindScore("a", "flare", 1, 2, 3, 0.25, 0.5, 0.3)]
+    scores = [KindScore("a", "flare", 3, 2, 3, 0.6, 0.5, 0.55, 2, 1, 4, 2 / 3)]
+    matches = [
+        Match("a", "a-0", None, 0.0),
+        Match("a", "a-1", "l", 0.5, "bounded"),
+        Match("a", "a-2", "w", 0.1, "corroborating"),
+    ]
     store.write_scores(
         run,
         scores,
-        [Match("a", "a-0", None, 0.0), Match("a", "a-1", "l", 0.5)],
+        matches,
         {("a", "flare", "missed"): 3},
     )
     assert store.read_scores(run) == scores
+    import pyarrow.parquet as pq
+
+    assert pq.read_table(run / "matches.parquet")["grade"].to_pylist() == [
+        None,
+        "bounded",
+        "corroborating",
+    ]
     assert (run / "confusion.parquet").exists()
     assert (run / "matches.parquet").exists()
 

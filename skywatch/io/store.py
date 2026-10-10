@@ -100,6 +100,7 @@ _MATCHES = pa.schema(
         ("det_id", pa.string()),
         ("label_id", pa.string()),
         ("iou", pa.float64()),
+        ("grade", pa.string()),
     ]
 )
 _SCORES = pa.schema(
@@ -112,6 +113,10 @@ _SCORES = pa.schema(
         ("precision", pa.float64()),
         ("recall", pa.float64()),
         ("f1", pa.float64()),
+        ("tp_bounded", pa.int64()),
+        ("tp_touched", pa.int64()),
+        ("corroborating", pa.int64()),
+        ("bounded_rate", pa.float64()),
     ]
 )
 _CONFUSION = pa.schema(

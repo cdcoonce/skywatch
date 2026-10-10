@@ -17,8 +17,8 @@ dets = [
     Detection("d", "d4", 1, 0, 100, 0.5, None),  # FP unknown
 ]
 matches = [
-    Match("d", "d1", "t1", 1.0),
-    Match("d", "d2", "c1", 1.0),
+    Match("d", "d1", "t1", 1.0, "bounded"),
+    Match("d", "d2", "c1", 1.0, "bounded"),
     Match("d", "d3", None, 0.0),
     Match("d", "d4", None, 0.0),
 ]
@@ -62,16 +62,40 @@ def test_confusion():
 
 def test_confusion_unknown_guess():
     d = [Detection("d", "x", 1, 0, 100, 1.0)]
-    m = [Match("d", "x", "t1", 1.0)]
+    m = [Match("d", "x", "t1", 1.0, "bounded")]
     assert confusion(m, d, truth)[("d", "transit", "unknown")] == 1
 
 
 def test_scoreboard():
     text = format_scoreboard(score(matches, dets, truth))
     lines = text.splitlines()
-    assert "detector" in lines[0] and "F1" in lines[0]
+    assert lines[0].split() == [
+        "detector",
+        "kind",
+        "tpB",
+        "tpT",
+        "corr",
+        "fp",
+        "fn",
+        "P",
+        "R",
+        "F1",
+        "bounded",
+    ]
     row = next(ln for ln in lines if ln.split()[:2] == ["d", "transit"])
-    assert row.split() == ["d", "transit", "1", "0", "1", "1.000", "0.500", "0.667"]
+    assert row.split() == [
+        "d",
+        "transit",
+        "1",
+        "0",
+        "0",
+        "0",
+        "1",
+        "1.000",
+        "0.500",
+        "0.667",
+        "1.000",
+    ]
 
 
 def test_silent_detector_gets_fn_rows():
@@ -95,3 +119,49 @@ def test_kinds_arg_restricts_rows():
     assert {s.kind for s in rows} == {"transit", "cosmic_ray", "flare", "unknown", "all"}
     rows = score([], [], truth, detectors=["q"], kinds=["transit"])
     assert [s.kind for s in rows] == ["cosmic_ray", "transit", "all"]
+
+
+def test_grades_corroborating_and_formulas_by_hand():
+    wide = TruthLabel("w", "cloud", "instrument", None, 0, 1000)
+    flares = [TruthLabel(f"f{i}", "flare", "science", i, 0, 1000) for i in range(1, 5)]
+    tr = [wide, *flares]
+    ds = [Detection("d", f"x{i}", i, 0, 10, 1.0, "flare") for i in range(1, 6)]
+    ms = [
+        Match("d", "x1", "f1", 0.9, "bounded"),
+        Match("d", "x2", "f2", 0.01, "touched"),
+        Match("d", "x3", "w", 0.01, "touched"),
+        Match("d", "x4", "w", 0.01, "corroborating"),
+        Match("d", "x5", None, 0.0, None),
+    ]
+    k = by_kind(score(ms, ds, tr))
+    f = k["flare"]
+    assert (f.tp_bounded, f.tp_touched, f.corroborating, f.tp, f.fp, f.fn) == (1, 1, 0, 2, 1, 2)
+    assert f.precision == pytest.approx(2 / 3)
+    assert f.recall == 0.5
+    assert f.f1 == pytest.approx(2 * (2 / 3) * 0.5 / (2 / 3 + 0.5))
+    assert f.bounded_rate == 0.5
+    c = k["cloud"]
+    assert (c.tp_bounded, c.tp_touched, c.corroborating, c.fp, c.fn) == (0, 1, 1, 0, 0)
+    assert c.recall == 1.0 and c.bounded_rate == 0.0
+    a = k["all"]
+    assert (a.tp_bounded, a.tp_touched, a.corroborating, a.fp, a.fn) == (1, 2, 1, 1, 2)
+    assert a.bounded_rate == pytest.approx(1 / 3)
+    conf = confusion(ms, ds, tr)
+    assert conf == {
+        ("d", "flare", "flare"): 2,
+        ("d", "cloud", "flare"): 1,
+        ("d", "flare", "missed"): 2,
+    }
+
+
+def test_three_stars_one_field_wide_label():
+    wide = TruthLabel("w", "cloud", "instrument", None, 0, 1000)
+    ds = [Detection("d", f"x{i}", i, 0, 10, 1.0) for i in (1, 2, 3)]
+    ms = [
+        Match("d", "x1", "w", 0.01, "touched"),
+        Match("d", "x2", "w", 0.01, "corroborating"),
+        Match("d", "x3", "w", 0.01, "corroborating"),
+    ]
+    c = by_kind(score(ms, ds, [wide]))["cloud"]
+    assert (c.tp_touched, c.corroborating, c.fp, c.fn) == (1, 2, 0, 0)
+    assert by_kind(score(ms, ds, [wide]))["all"].fp == 0
