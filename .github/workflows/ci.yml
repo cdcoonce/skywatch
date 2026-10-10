@@ -1,0 +1,24 @@
+name: ci
+
+on:
+  pull_request:
+    paths-ignore: ["docs/**", "**.md"]
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**.md"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --group dev
+      - run: uv run ruff check .
+      - run: uv run pytest -q
