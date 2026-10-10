@@ -1,6 +1,7 @@
 import time
 
 import numpy as np
+import pytest
 
 from skywatch.detectors import REGISTRY, Detector, load_all
 from skywatch.detectors.field_common_mode import FieldCommonModeDetector
@@ -72,14 +73,26 @@ def test_drift_held_to_end():
     assert d.t_end == t[-1] + C
 
 
-def test_default_baseline_absorbs_held_drift():
-    # documented limitation: the shrinking centered median follows a held step
+def test_centered_baseline_absorbs_held_drift():
+    # documented limitation of the centered baseline: the shrinking median follows a held step
+    t, flux = make_field()
+    f = np.ones(240)
+    f[150:200] = 1 - 0.05 * (np.arange(150, 200) - 150) / 50
+    f[200:] = 0.95
+    out = FieldCommonModeDetector(baseline="centered").detect(to_curves(t, flux * f), C)
+    assert all(d.t_end < t[-1] + C for d in out)
+
+
+def test_causal_baseline_does_not_absorb_the_same_held_drift():
+    # the same field under the default (causal) baseline: the held tail is still a
+    # departure from the past, so the run reaches the night end and is a drift
     t, flux = make_field()
     f = np.ones(240)
     f[150:200] = 1 - 0.05 * (np.arange(150, 200) - 150) / 50
     f[200:] = 0.95
     out = FieldCommonModeDetector().detect(to_curves(t, flux * f), C)
-    assert all(d.t_end < t[-1] + C for d in out)
+    assert [d.kind_guess for d in out] == ["tracking_drift"]
+    assert out[0].t_end == t[-1] + C
 
 
 def test_dropout_all_stars():
@@ -224,27 +237,46 @@ def two_night_field(spacing, night2_dip):
     return t, np.tile(1000.0 * f, (8, 1)), N_NIGHT
 
 
-def small_gap_detector():
-    return FieldCommonModeDetector(night_gap_cadences=GAP, baseline_window=21, smooth=1, min_run=1)
+def small_gap_detector(baseline="causal"):
+    return FieldCommonModeDetector(
+        night_gap_cadences=GAP, baseline_window=21, smooth=1, min_run=1, baseline=baseline
+    )
 
 
-def test_baseline_splits_when_spacing_exceeds_night_gap():
-    # Dip on night 2's first 8 samples. Split: the shrunken edge window absorbs the first
-    # five (documented limitation), so the cloud starts at sample 5. A baseline that
-    # crossed the gap would see 10 flat samples from night 1 and flag from sample 0.
-    t, flux, i2 = two_night_field(GAP + 1, slice(0, 8))
-    clouds = [
-        d for d in small_gap_detector().detect(to_curves(t, flux), C) if d.kind_guess == "cloud"
+# The dip is placed where the two baselines each tell "crossed the gap" from "split":
+# centered absorbs a night's first samples through its shrunken edge window, so the dip
+# starts at the edge; causal absorbs whatever it has already seen, so the dip starts 4
+# samples in and the baseline's only memory of "flat" is the pre-dip samples. Offsets are
+# (first, one-past-last) in samples from night 2's first sample.
+EDGE_CASES = [
+    ("centered", slice(0, 8), (5, 8), (0, 8)),
+    ("causal", slice(4, 12), (4, 8), (4, 12)),
+]
+
+
+def cloud_offsets(det, t, flux, i2):
+    out = det.detect(to_curves(t, flux), C)
+    return [
+        ((d.t_start - int(t[i2])) // C, (d.t_end - int(t[i2])) // C)
+        for d in out
+        if d.kind_guess == "cloud"
     ]
-    assert [(d.t_start, d.t_end) for d in clouds] == [(int(t[i2 + 5]), int(t[i2 + 7]) + C)]
 
 
-def test_baseline_window_crosses_spacing_of_exactly_night_gap():
-    t, flux, i2 = two_night_field(GAP, slice(0, 8))
-    clouds = [
-        d for d in small_gap_detector().detect(to_curves(t, flux), C) if d.kind_guess == "cloud"
-    ]
-    assert [(d.t_start, d.t_end) for d in clouds] == [(int(t[i2]), int(t[i2 + 7]) + C)]
+@pytest.mark.parametrize(("baseline", "dip", "split_expected", "_"), EDGE_CASES)
+def test_baseline_splits_when_spacing_exceeds_night_gap(baseline, dip, split_expected, _):
+    # Split: the baseline never sees night 1's flat samples. A baseline that crossed the
+    # gap would see 10 flat samples from night 1 and flag the whole dip.
+    t, flux, i2 = two_night_field(GAP + 1, dip)
+    det = small_gap_detector(baseline)
+    assert cloud_offsets(det, t, flux, i2) == [split_expected]
+
+
+@pytest.mark.parametrize(("baseline", "dip", "_", "joined_expected"), EDGE_CASES)
+def test_baseline_window_crosses_spacing_of_exactly_night_gap(baseline, dip, _, joined_expected):
+    t, flux, i2 = two_night_field(GAP, dip)
+    det = small_gap_detector(baseline)
+    assert cloud_offsets(det, t, flux, i2) == [joined_expected]
 
 
 def test_detect_splits_when_spacing_exceeds_night_gap():
@@ -265,3 +297,135 @@ def test_detect_treats_spacing_of_exactly_night_gap_as_dropout():
     ]
     assert out[0].score == GAP
     assert (out[0].t_start, out[0].t_end) == (int(t[N_NIGHT - 1]) + C, int(t[i2]))
+
+
+# --- causal baseline and the long-negative-run kind rule (issue #13) -------------------
+
+
+def spans(out):
+    return [(d.det_id, d.t_start, d.t_end, d.score, d.kind_guess) for d in out]
+
+
+def iou(det, s, e):
+    inter = max(0, min(det.t_end, e) - max(det.t_start, s))
+    return inter / (max(det.t_end, e) - min(det.t_start, s))
+
+
+def test_centered_baseline_reproduces_pre_change_output():
+    # Golden values captured on main (e08cdbe), before the baseline option existed.
+    det = FieldCommonModeDetector(baseline="centered")
+
+    t, flux = make_field()
+    out = det.detect(to_curves(t, flux * cosine_dip(240, 100, 130, 0.05)), C)
+    assert spans(out) == [("field_common_mode-n0-0", 6420, 7440, 2.5332160585244954, "cloud")]
+
+    t, flux = make_field(n=300)
+    f = np.ones(300)
+    f[150:200] = 1 - 0.05 * (np.arange(150, 200) - 150) / 50
+    f[200:] = 0.95
+    wide = FieldCommonModeDetector(baseline="centered", baseline_window=301)
+    out = wide.detect(to_curves(t, flux * f), C)
+    assert spans(out) == [
+        ("field_common_mode-n0-0", 10800, 18000, 2.2061733948392113, "tracking_drift")
+    ]
+
+    t, flux = make_field()
+    f = np.ones(240)
+    f[150:200] = 1 - 0.05 * (np.arange(150, 200) - 150) / 50
+    f[200:] = 0.95
+    assert det.detect(to_curves(t, flux * f), C) == []
+
+    n = 240
+    t1, f1 = make_field(n=n, seed=1)
+    t2, f2 = make_field(n=n, seed=2, t0=int(t1[-1]) + C + 16 * 3600)
+    f1 = f1 * cosine_dip(n, 80, 110, 0.06)
+    f2 = f2 * cosine_dip(n, 120, 150, 0.06)
+    t = np.concatenate([t1, t2])
+    out = det.detect(to_curves(t, np.concatenate([f1, f2], axis=1)), C)
+    assert spans(out) == [
+        ("field_common_mode-n0-0", 5220, 6240, 2.9480525514203824, "cloud"),
+        ("field_common_mode-n1-0", 79620, 80640, 2.8514107607497508, "cloud"),
+    ]
+
+    t, flux = make_field()
+    keep = np.ones(flux.shape, bool)
+    keep[:, 60:70] = False
+    out = det.detect(to_curves(t, flux * cosine_dip(240, 100, 130, 0.05), keep), C)
+    assert spans(out) == [
+        ("field_common_mode-n0-0", 3600, 4200, 11.0, "dropout"),
+        ("field_common_mode-n0-1", 6420, 7440, 2.5310068925800953, "cloud"),
+    ]
+
+
+def test_invalid_baseline_raises():
+    with pytest.raises(ValueError, match="baseline"):
+        FieldCommonModeDetector(baseline="trailing")
+
+
+def test_causal_median_never_reads_the_future():
+    from skywatch.detectors.field_common_mode import _trailing_median
+
+    x = np.arange(10.0)
+    out = _trailing_median(x, 5)
+    # shrinking at the start, trailing 5 samples afterwards
+    assert out.tolist() == [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+    y = x.copy()
+    y[7:] = 1e6  # changing the future leaves earlier baselines untouched
+    assert _trailing_median(y, 5)[:7].tolist() == out[:7].tolist()
+
+
+def held_drift_field(n=480, start=200, ramp=90, depth=0.15, **kw):
+    t, flux = make_field(n=n, **kw)
+    f = np.ones(n)
+    f[start : start + ramp] = 1 - depth * (np.arange(ramp)) / ramp
+    f[start + ramp :] = 1 - depth
+    return t, flux * f, start
+
+
+def test_causal_baseline_catches_held_drift_as_tracking_drift():
+    t, flux, start = held_drift_field()
+    out = FieldCommonModeDetector(baseline="causal").detect(to_curves(t, flux), C)
+    assert len(out) == 1
+    d = out[0]
+    assert d.kind_guess == "tracking_drift"
+    assert d.t_start >= t[start]
+    # the run ends before the night does: the baseline absorbed the held step
+    assert d.t_end < t[-1] + C
+    # while the centered baseline, on the same field, still follows the step and misses it
+    centered = FieldCommonModeDetector(baseline="centered").detect(to_curves(t, flux), C)
+    assert all(x.kind_guess != "tracking_drift" for x in centered)
+
+
+def test_causal_baseline_keeps_a_half_hour_cloud_bounded():
+    t, flux = make_field()
+    flux = flux * cosine_dip(240, 100, 130, 0.06)
+    out = FieldCommonModeDetector(baseline="causal").detect(to_curves(t, flux), C)
+    assert len(out) == 1
+    assert out[0].kind_guess == "cloud"
+    assert iou(out[0], int(t[100]), int(t[130])) >= 0.3
+
+
+def test_negative_run_longer_than_max_cloud_is_tracking_drift_even_mid_night():
+    t, flux = make_field(noise=0.002)
+    f = np.ones(240)
+    f[100:180] = 0.93  # 80 samples = 4800 s, ends well before the night does
+    curves = to_curves(t, flux * f)
+    # a window longer than the night makes the baseline a constant, so the run is whole
+    kw = {"baseline_window": 1001, "baseline": "centered"}
+    long_run = FieldCommonModeDetector(**kw).detect(curves, C)
+    assert [d.kind_guess for d in long_run] == ["tracking_drift"]
+    assert long_run[0].t_end < t[-1] + C
+    assert long_run[0].t_end - long_run[0].t_start > 3600
+    # the cutoff is the parameter, not a literal: raise it and the same run is a cloud
+    raised = FieldCommonModeDetector(max_cloud_s=7200, **kw).detect(curves, C)
+    assert [d.kind_guess for d in raised] == ["cloud"]
+
+
+def test_negative_run_at_exactly_max_cloud_is_still_a_cloud():
+    t, flux = make_field(noise=0.002)
+    f = np.ones(240)
+    f[100:160] = 0.93  # 60 samples = 3600 s
+    curves = to_curves(t, flux * f)
+    det = FieldCommonModeDetector(baseline_window=1001, baseline="centered", smooth=1)
+    out = det.detect(curves, C)
+    assert [(d.t_end - d.t_start, d.kind_guess) for d in out] == [(3600, "cloud")]
