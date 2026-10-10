@@ -12,6 +12,7 @@ from skywatch.world.glitches import (
     TrackingDriftInjector,
 )
 from skywatch.world.scene import Injector, Scene
+from skywatch.world.survey import _injector_rng
 
 N_SAMPLES = 600  # 10 h at 60 s
 CADENCE = 60
@@ -180,6 +181,30 @@ def test_hot_pixel_durations_stay_inside_their_own_law():
     assert len(durs) >= 2000
     assert lo <= min(durs) and max(durs) <= hi
     assert min(durs) < lo + 100 and max(durs) > hi - 100
+
+
+def test_cloud_duration_law_literal_value():
+    # changing a law changes every simulated truth set, so it must be a visible edit
+    assert CLOUD_DURATION_S == (300, 3600)
+
+
+def test_hot_pixel_duration_law_literal_value():
+    # changing a law changes every simulated truth set, so it must be a visible edit
+    assert HOT_PIXEL_DURATION_S == (300, 3600)
+
+
+def test_cloud_duration_draws_pin_the_rng_stream_for_seed_7():
+    # first five durations from the survey's own per-injector stream (seed 7, night 0);
+    # an extra draw before the duration, or a reordered draw, shifts them.
+    inj = CloudInjector(20.0)
+    labs = inj.inject(_scene(), _injector_rng(7, 0, inj.kind))
+    assert [lab.params["duration_s"] for lab in labs[:5]] == [588, 541, 3295, 2858, 1475]
+
+
+def test_hot_pixel_duration_draws_pin_the_rng_stream_for_seed_7():
+    inj = HotPixelInjector(5.0)
+    labs = inj.inject(_scene(), _injector_rng(7, 0, inj.kind))
+    assert [lab.params["duration_s"] for lab in labs[:5]] == [2884, 3153, 2496, 841, 685]
 
 
 def test_cloud_single_exact():

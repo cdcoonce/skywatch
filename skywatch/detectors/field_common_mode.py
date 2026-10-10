@@ -37,9 +37,9 @@ Limitations, stated honestly:
   under either baseline.
 * ``kind_guess`` is a heuristic on the shape of the run. A run that reaches the night's
   last grid sample (the departure persists to the end, as a held drift does) is
-  "tracking_drift"; a negative-dominated run longer than ``max_cloud_s`` (default 3600 s,
-  ``CLOUD_DURATION_S[1]`` from the world module: the longest cloud the world injects, an
-  explicit and disclosed prior) is also "tracking_drift", since no cloud lasts that
+  "tracking_drift"; a negative-dominated run longer than ``max_cloud_s`` (defaults to
+  ``CLOUD_DURATION_S[1]`` from the world module, the upper end of the world's cloud
+  duration law: the longest cloud the world injects, an explicit and disclosed prior) is also "tracking_drift", since no cloud lasts that
   long; any other negative-dominated run is a "cloud"; a positive excursion that ends
   earlier is "tracking_drift" (upward drift); anything else gets None. A cloud that
   straddles the night end will therefore be guessed as drift, and a long real step and a
