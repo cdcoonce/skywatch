@@ -39,7 +39,6 @@ Limitations, stated honestly:
 
 from __future__ import annotations
 
-import itertools
 import warnings
 from collections.abc import Mapping
 
@@ -47,6 +46,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 from skywatch.detectors import register
+from skywatch.detectors.nights import split_nights
 from skywatch.types import Detection, LightCurve
 
 
@@ -102,10 +102,9 @@ class FieldCommonModeDetector:
 
     def _baseline(self, t: np.ndarray, flux: np.ndarray, cadence_s: int) -> np.ndarray:
         """Running median computed per night, so a window never spans a night gap."""
-        breaks = np.flatnonzero(np.diff(t) > self.night_gap_cadences * cadence_s) + 1
         base = np.empty(len(flux))
-        for lo, hi in itertools.pairwise(np.concatenate(([0], breaks, [len(flux)]))):
-            base[lo:hi] = _running_median(flux[lo:hi], self.baseline_window)
+        for night in split_nights(t, cadence_s, self.night_gap_cadences):
+            base[night] = _running_median(flux[night], self.baseline_window)
         return base
 
     def _common_mode(
@@ -135,11 +134,10 @@ class FieldCommonModeDetector:
         grid = np.unique(np.concatenate(nonempty))
         cm = self._common_mode(curves, grid, cadence_s)
 
-        breaks = np.flatnonzero(np.diff(grid) > self.night_gap_cadences * cadence_s) + 1
-        bounds = np.concatenate(([0], breaks, [len(grid)]))
         out: list[Detection] = []
-        for night, (lo, hi) in enumerate(itertools.pairwise(bounds)):
-            tg = grid[lo:hi]
+        for night, sl in enumerate(split_nights(grid, cadence_s, self.night_gap_cadences)):
+            lo, hi = sl.start, sl.stop
+            tg = grid[sl]
             events: list[tuple[int, int, float, str | None]] = []
 
             for g in np.flatnonzero(np.diff(tg) > cadence_s):
