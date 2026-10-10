@@ -179,3 +179,106 @@ def test_nan_blinds_neighbourhood():
 def test_bad_args_rejected(kw):
     with pytest.raises(ValueError):
         MedianResidualDetector(**kw)
+
+
+# --- per-night windows (issue 10) ---
+
+NIGHT = 480
+
+
+def two_night_curve(f, star_id=1):
+    n = len(f)
+    t = np.concatenate(
+        [np.arange(n // 2, dtype=np.int64) * C, 86400 + np.arange(n - n // 2, dtype=np.int64) * C]
+    )
+    return LightCurve(
+        star_id, t, np.asarray(f, float), np.full(n, 1.0), np.zeros(n, dtype=np.int64)
+    )
+
+
+def held_step_flux(seed=0):
+    """Night 1 drops to 0.7x for its second half and stays there; night 2 is flat at 1.0."""
+    f = 100 + np.random.default_rng(seed).normal(0, 1, 2 * NIGHT)
+    f[NIGHT // 2 : NIGHT] *= 0.7
+    return f
+
+
+@pytest.mark.parametrize("seed", [13, 54, 0, 1])  # 13 and 54 trip the whole-curve window
+def test_night_boundary_is_not_a_step(seed):
+    c = two_night_curve(held_step_flux(seed))
+    out = MedianResidualDetector().detect({1: c}, C)
+    near_boundary = [d for d in out if int(c.t[NIGHT - 3]) <= d.t_start <= int(c.t[NIGHT + 2])]
+    assert near_boundary == []
+
+
+def test_night_2_spike_still_detected_after_held_step():
+    f = held_step_flux()
+    f[NIGHT + 240] += 12
+    c = two_night_curve(f)
+    out = MedianResidualDetector().detect({1: c}, C)
+    near = [d for d in out if int(c.t[NIGHT - 3]) <= d.t_start <= int(c.t[NIGHT + 240])]
+    assert [(d.t_start, d.kind_guess) for d in near] == [(int(c.t[NIGHT + 240]), "cosmic_ray")]
+
+
+def test_run_does_not_merge_across_nights():
+    f = noisy(2 * NIGHT, seed=3)
+    f[NIGHT - 1] += 40
+    f[NIGHT] += 40
+    c = two_night_curve(f)
+    out = MedianResidualDetector().detect({1: c}, C)
+    assert [(d.t_start, d.t_end, d.det_id) for d in out] == [
+        (int(c.t[NIGHT - 1]), int(c.t[NIGHT - 1]) + C, "median_residual-s1-0"),
+        (int(c.t[NIGHT]), int(c.t[NIGHT]) + C, "median_residual-s1-1"),
+    ]
+
+
+def _legacy_detect(det, c, cadence_s):
+    """The pre-per-night whole-curve loop, kept as a regression oracle."""
+    z = median_residual_scores(c.flux, c.flux_err, det.window)
+    flagged = np.abs(z) >= det.threshold
+    out, k, i, n = [], 0, 0, len(c)
+    while i < n:
+        if not flagged[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and flagged[j + 1]:
+            j += 1
+        length = j - i + 1
+        if length >= det.min_run:
+            run = z[i : j + 1]
+            guess = None
+            if run.max() >= det.threshold and run.mean() > 0:
+                guess = "cosmic_ray" if length == 1 else "flare"
+            out.append(
+                (
+                    f"median_residual-s{c.star_id}-{k}",
+                    int(c.t[i]),
+                    int(c.t[j]) + cadence_s,
+                    float(np.abs(run).max()),
+                    guess,
+                )
+            )
+            k += 1
+        i = j + 1
+    return out
+
+
+@pytest.mark.parametrize("seed", range(5))
+def test_single_night_identical_to_whole_curve_behaviour(seed):
+    f = noisy(seed=seed)
+    rng = np.random.default_rng(seed + 100)
+    f[rng.integers(40, 260, 6)] += 15
+    f[120:124] += 20
+    c = curve(f)
+    det = MedianResidualDetector()
+    got = [(d.det_id, d.t_start, d.t_end, d.score, d.kind_guess) for d in det.detect({1: c}, C)]
+    assert got == _legacy_detect(det, c, C)
+    assert got
+
+
+def test_night_gap_cadences_param():
+    assert MedianResidualDetector().night_gap_cadences == 100
+    c = two_night_curve(held_step_flux(54))
+    out = MedianResidualDetector(night_gap_cadences=10_000).detect({1: c}, C)
+    assert any(int(c.t[NIGHT - 3]) <= d.t_start <= int(c.t[NIGHT + 2]) for d in out)

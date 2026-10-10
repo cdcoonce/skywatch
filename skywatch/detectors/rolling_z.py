@@ -8,6 +8,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 from skywatch.detectors import register
+from skywatch.detectors.nights import split_nights
 from skywatch.types import Detection, LightCurve
 
 
@@ -41,41 +42,53 @@ class RollingZDetector:
 
     name = "rolling_z"
 
-    def __init__(self, window: int = 30, z_threshold: float = 4.0, min_run: int = 1) -> None:
+    def __init__(
+        self,
+        window: int = 30,
+        z_threshold: float = 4.0,
+        min_run: int = 1,
+        night_gap_cadences: int = 100,
+    ) -> None:
         self.window = window
         self.z_threshold = z_threshold
         self.min_run = min_run
+        self.night_gap_cadences = night_gap_cadences
 
     def _z(self, curve: LightCurve) -> np.ndarray:
         return rolling_z_scores(curve.flux, curve.flux_err, self.window)
 
     def detect(self, curves: Mapping[int, LightCurve], cadence_s: int) -> list[Detection]:
+        """Windows and runs never cross a night gap; each night warms up on its own."""
         out: list[Detection] = []
         for star_id in sorted(curves):
             curve = curves[star_id]
-            absz = np.abs(self._z(curve))
-            flagged = absz >= self.z_threshold
             k = 0
-            i = 0
-            n = len(curve)
-            while i < n:
-                if not flagged[i]:
-                    i += 1
-                    continue
-                j = i
-                while j + 1 < n and flagged[j + 1]:
-                    j += 1
-                if j - i + 1 >= self.min_run:
-                    out.append(
-                        Detection(
-                            detector=self.name,
-                            det_id=f"{self.name}-s{star_id}-{k}",
-                            star_id=star_id,
-                            t_start=int(curve.t[i]),
-                            t_end=int(curve.t[j]) + cadence_s,
-                            score=float(absz[i : j + 1].max()),
+            for night in split_nights(curve.t, cadence_s, self.night_gap_cadences):
+                t = curve.t[night]
+                absz = np.abs(
+                    rolling_z_scores(curve.flux[night], curve.flux_err[night], self.window)
+                )
+                flagged = absz >= self.z_threshold
+                i = 0
+                n = len(t)
+                while i < n:
+                    if not flagged[i]:
+                        i += 1
+                        continue
+                    j = i
+                    while j + 1 < n and flagged[j + 1]:
+                        j += 1
+                    if j - i + 1 >= self.min_run:
+                        out.append(
+                            Detection(
+                                detector=self.name,
+                                det_id=f"{self.name}-s{star_id}-{k}",
+                                star_id=star_id,
+                                t_start=int(t[i]),
+                                t_end=int(t[j]) + cadence_s,
+                                score=float(absz[i : j + 1].max()),
+                            )
                         )
-                    )
-                    k += 1
-                i = j + 1
+                        k += 1
+                    i = j + 1
         return out

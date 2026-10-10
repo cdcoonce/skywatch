@@ -3,7 +3,10 @@
 Unlike rolling_z (trailing window, usable online), this detector is offline: the
 baseline for sample i is the median over a window centered on i, so it sees the
 future. An event longer than about window/2 samples is absorbed into the baseline
-and shows only at its edges. Gaps in t are ignored; windows work by sample index.
+and shows only at its edges. Windows work by sample index within a night; nights are
+split where t has a gap larger than ``night_gap_cadences * cadence_s``, and a window
+(and a run) never crosses that gap: the first and last samples of a night get the
+same shrinking window as the ends of a whole curve.
 
 NaN: a NaN sample poisons the median of every window that touches it, so the
 baseline and sigma are NaN there and z = 0 (sigma > 0 fails): the detector is blind
@@ -18,6 +21,7 @@ import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
 
 from skywatch.detectors import register
+from skywatch.detectors.nights import split_nights
 from skywatch.types import Detection, LightCurve
 
 
@@ -65,7 +69,13 @@ class MedianResidualDetector:
 
     name = "median_residual"
 
-    def __init__(self, window: int = 61, threshold: float = 4.0, min_run: int = 1) -> None:
+    def __init__(
+        self,
+        window: int = 61,
+        threshold: float = 4.0,
+        min_run: int = 1,
+        night_gap_cadences: int = 100,
+    ) -> None:
         if window % 2 == 0:
             raise ValueError(f"window must be odd, got {window}")
         if window < 3:
@@ -77,42 +87,45 @@ class MedianResidualDetector:
         self.window = window
         self.threshold = threshold
         self.min_run = min_run
+        self.night_gap_cadences = night_gap_cadences
 
     def detect(self, curves: Mapping[int, LightCurve], cadence_s: int) -> list[Detection]:
         out: list[Detection] = []
         for star_id in sorted(curves):
             curve = curves[star_id]
-            z = median_residual_scores(curve.flux, curve.flux_err, self.window)
-            flagged = np.abs(z) >= self.threshold
-            n = len(curve)
             k = 0
-            i = 0
-            while i < n:
-                if not flagged[i]:
-                    i += 1
-                    continue
-                j = i
-                while j + 1 < n and flagged[j + 1]:
-                    j += 1
-                length = j - i + 1
-                if length >= self.min_run:
-                    run = z[i : j + 1]
-                    peak = float(np.abs(run).max())
-                    if run.max() >= self.threshold and run.mean() > 0:
-                        guess = "cosmic_ray" if length == 1 else "flare"
-                    else:
-                        guess = None
-                    out.append(
-                        Detection(
-                            detector=self.name,
-                            det_id=f"{self.name}-s{star_id}-{k}",
-                            star_id=star_id,
-                            t_start=int(curve.t[i]),
-                            t_end=int(curve.t[j]) + cadence_s,
-                            score=peak,
-                            kind_guess=guess,
+            for night in split_nights(curve.t, cadence_s, self.night_gap_cadences):
+                t = curve.t[night]
+                z = median_residual_scores(curve.flux[night], curve.flux_err[night], self.window)
+                flagged = np.abs(z) >= self.threshold
+                n = len(t)
+                i = 0
+                while i < n:
+                    if not flagged[i]:
+                        i += 1
+                        continue
+                    j = i
+                    while j + 1 < n and flagged[j + 1]:
+                        j += 1
+                    length = j - i + 1
+                    if length >= self.min_run:
+                        run = z[i : j + 1]
+                        peak = float(np.abs(run).max())
+                        if run.max() >= self.threshold and run.mean() > 0:
+                            guess = "cosmic_ray" if length == 1 else "flare"
+                        else:
+                            guess = None
+                        out.append(
+                            Detection(
+                                detector=self.name,
+                                det_id=f"{self.name}-s{star_id}-{k}",
+                                star_id=star_id,
+                                t_start=int(t[i]),
+                                t_end=int(t[j]) + cadence_s,
+                                score=peak,
+                                kind_guess=guess,
+                            )
                         )
-                    )
-                    k += 1
-                i = j + 1
+                        k += 1
+                    i = j + 1
         return out
