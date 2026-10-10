@@ -65,6 +65,16 @@ def _edge_gap(det: Detection, label: TruthLabel) -> int | None:
     return None
 
 
+def _overlaps_any(det: Detection, truth: Sequence[TruthLabel]) -> bool:
+    """True if `det` overlaps any label on its star (or any field-wide label)."""
+    return any(
+        (label.star_id is None or label.star_id == det.star_id)
+        and det.t_start < label.t_end
+        and det.t_end > label.t_start
+        for label in truth
+    )
+
+
 def _edge_pass(
     ordered: Sequence[Detection],
     results: list[Match],
@@ -76,12 +86,14 @@ def _edge_pass(
 
     Runs only on detections the overlap pass left unmatched, so it can never change
     an overlap or single-cadence outcome or take a label an overlapping detection
-    wanted. A detection that overlaps no label but lies within `limit_s` seconds of
-    one's edge takes the nearest unclaimed such label as "touched" (ties by label_id),
-    else is "corroborating" for the nearest already-claimed one, else stays unmatched.
+    wanted. A detection that overlaps any label (claimed or not) is skipped and stays
+    unmatched exactly as before. A detection that overlaps no label but lies within
+    `limit_s` seconds of one's edge takes the nearest unclaimed such label as "touched"
+    (ties by label_id), else is "corroborating" for the nearest already-claimed one, else
+    stays unmatched. Any unclaimed label is preferred over a nearer claimed one.
     """
     for i, (det, res) in enumerate(zip(ordered, results, strict=True)):
-        if res.label_id is not None:
+        if res.label_id is not None or _overlaps_any(det, truth):
             continue
         free: tuple[int, str] | None = None
         claimed: tuple[int, str] | None = None

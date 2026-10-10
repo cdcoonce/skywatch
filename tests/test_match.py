@@ -313,3 +313,18 @@ def test_edge_tolerance_zero_reproduces_the_pre_edge_matcher_exactly():
     for a, b in zip(default, got, strict=True):
         if a.det_id not in changed:
             assert a == b
+
+
+def test_edge_pass_skips_a_detection_that_overlaps_a_claimed_label():
+    # d2 overlaps A (already claimed by d1) and abuts B. On main it was unmatched; the
+    # edge pass is for detections that overlap NO label, so it must stay unmatched.
+    a = lab("A", 1, 600, 1200, kind="hot_pixel")
+    b = lab("B", 1, 1260, 1500, kind="hot_pixel")
+    d1 = det("d1", 1, 600, 1200, score=2.0)
+    d2 = det("d2", 1, 1100, 1260, score=1.0)
+    ms = {m.det_id: m for m in match_detections([d1, d2], [a, b], C)}
+    assert (ms["d1"].label_id, ms["d1"].grade) == ("A", "bounded")
+    assert ms["d2"] == Match("d", "d2", None, 0.0, None)
+    # and it agrees with the overlap-only matcher
+    off = {m.det_id: m for m in match_detections([d1, d2], [a, b], C, edge_tolerance_cadences=0)}
+    assert ms == off
