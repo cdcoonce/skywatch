@@ -328,3 +328,45 @@ def test_edge_pass_skips_a_detection_that_overlaps_a_claimed_label():
     # and it agrees with the overlap-only matcher
     off = {m.det_id: m for m in match_detections([d1, d2], [a, b], C, edge_tolerance_cadences=0)}
     assert ms == off
+
+
+def test_edge_tie_among_unclaimed_labels_takes_lowest_id_not_truth_order():
+    # Equal gap (0) to both; the lower label_id is listed second in truth.
+    a = lab("a", 1, 360, 660)
+    b = lab("b", 1, 720, 1020)
+    (m,) = match_detections([det("x", 1, 660, 720)], [b, a], C)
+    assert (m.label_id, m.grade) == ("a", "touched")
+
+
+def test_edge_tie_among_claimed_labels_takes_lowest_id_not_truth_order():
+    # Both labels are claimed by overlapping detections; x abuts both at gap 0.
+    a = lab("a", 1, 360, 660)
+    b = lab("b", 1, 720, 1020)
+    dets = [
+        det("on_a", 1, 360, 660, score=3.0),
+        det("on_b", 1, 720, 1020, score=2.0),
+        det("x", 1, 660, 720, score=1.0),
+    ]
+    ms = {m.det_id: m for m in match_detections(dets, [b, a], C)}
+    assert ms["on_a"].label_id == "a" and ms["on_b"].label_id == "b"
+    assert (ms["x"].label_id, ms["x"].grade) == ("a", "corroborating")
+
+
+def test_unclaimed_label_beats_a_nearer_claimed_label():
+    # k=2: claimed A at gap 0, unclaimed B one cadence further. Unclaimed wins, touched.
+    a = lab("a", 1, 360, 660)
+    b = lab("b", 1, 780, 1080)
+    dets = [det("on_a", 1, 360, 660, score=2.0), det("x", 1, 660, 720, score=1.0)]
+    ms = {m.det_id: m for m in match_detections(dets, [a, b], C, edge_tolerance_cadences=2)}
+    assert ms["on_a"].label_id == "a"
+    assert (ms["x"].label_id, ms["x"].grade) == ("b", "touched")
+
+
+def test_iou_threshold_is_exactly_point_three():
+    label = lab("o", 1, 0, 1000)
+    just_under = match_detections([det("u", 1, 0, 299)], [label], C)[0]
+    exactly = match_detections([det("e", 1, 0, 300)], [label], C)[0]
+    just_over = match_detections([det("v", 1, 0, 301)], [label], C)[0]
+    assert (just_under.grade, just_under.iou) == ("touched", 0.299)
+    assert (exactly.grade, exactly.iou) == ("bounded", 0.3)
+    assert just_over.grade == "bounded"
