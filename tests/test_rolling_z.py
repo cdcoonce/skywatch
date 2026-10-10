@@ -1,7 +1,8 @@
 import numpy as np
+import pytest
 
 from skywatch.detectors import REGISTRY
-from skywatch.detectors.rolling_z import RollingZDetector
+from skywatch.detectors.rolling_z import RollingZDetector, rolling_z_scores
 from skywatch.types import LightCurve
 
 C = 60
@@ -75,3 +76,34 @@ def test_multi_star_and_determinism():
     b = RollingZDetector().detect(curves, C)
     assert a == b
     assert [(d.star_id, d.det_id) for d in a] == [(1, "rolling_z-s1-0"), (2, "rolling_z-s2-0")]
+
+
+def test_flux_err_floors_zero_std():
+    f = np.full(200, 1000.0)
+    f[100:] += 10
+    f[101:] -= 10
+    out = RollingZDetector(window=30, z_threshold=4.0).detect({1: curve(f)}, C)
+    assert len(out) == 1
+    assert out[0].score == pytest.approx(10.0)
+
+
+def test_negative_dip_flagged():
+    f = noisy()
+    f[100] -= 10
+    out = RollingZDetector().detect({1: curve(f)}, C)
+    assert len(out) == 1 and out[0].t_start == int(curve(f).t[100])
+
+
+def test_trailing_window_excludes_current_sample():
+    f = np.array([1.0, 2.0, 3.0, 10.0, 4.0, 2.0])
+    err = np.full(6, 0.1)
+    z = rolling_z_scores(f, err, 3)
+    assert z[:3].tolist() == [0.0, 0.0, 0.0]
+    # i=3: window [1,2,3], mean 2, population std sqrt(2/3)
+    assert z[3] == pytest.approx((10 - 2) / np.sqrt(2 / 3))
+    # i=4: window [2,3,10], mean 5, std = sqrt(((3)^2+(2)^2+(5)^2)/3)
+    assert z[4] == pytest.approx((4 - 5) / np.sqrt(38 / 3))
+    # i=5: window [3,10,4], mean 17/3
+    m = 17 / 3
+    sd = np.sqrt(((3 - m) ** 2 + (10 - m) ** 2 + (4 - m) ** 2) / 3)
+    assert z[5] == pytest.approx((2 - m) / sd)

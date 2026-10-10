@@ -66,3 +66,10 @@ def test_deterministic_ties():
     labels = [lab("b", 1, 0, 100), lab("a", 1, 0, 100)]
     ms = match_detections([det("x", 1, 0, 100)], labels, C)
     assert ms[0].label_id == "a"
+
+
+def test_none_star_detection_vs_labels():
+    d = det("x", None, 0, 100)
+    assert match_detections([d], [lab("o", 1, 0, 100)], C)[0].label_id is None
+    wide = lab("w", None, 0, 100, kind="cloud")
+    assert match_detections([d], [wide], C)[0].label_id == "w"

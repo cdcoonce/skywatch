@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from skywatch.scoring.match import Match
-from skywatch.types import Detection, TruthLabel
+from skywatch.types import ORIGIN_OF_KIND, Detection, TruthLabel
 
 UNKNOWN = "unknown"
 ALL = "all"
@@ -36,18 +36,33 @@ def _row(detector: str, kind: str, tp: int, fp: int, fn: int) -> KindScore:
     return KindScore(detector, kind, tp, fp, fn, p, r, _div(2 * p * r, p + r))
 
 
-def _detectors(matches: Sequence[Match], detections: Sequence[Detection]) -> list[str]:
-    return sorted({m.detector for m in matches} | {d.detector for d in detections})
+def _detectors(
+    matches: Sequence[Match],
+    detections: Sequence[Detection],
+    detectors: Sequence[str] | None = None,
+) -> list[str]:
+    found = {m.detector for m in matches} | {d.detector for d in detections}
+    return sorted(found | set(detectors or ()))
 
 
 def score(
     matches: Sequence[Match],
     detections: Sequence[Detection],
     truth: Sequence[TruthLabel],
+    detectors: Sequence[str] | None = None,
+    kinds: Sequence[str] | None = None,
 ) -> list[KindScore]:
+    """Per-detector, per-kind rows, ordered by detector, then kind, with "all" last.
+
+    `detectors` lists detectors that must get rows even with zero detections (all
+    truth counts as FN); None derives them from matches/detections. `kinds` fixes
+    the kind rows; None uses every kind in ORIGIN_OF_KIND (plus "unknown" and any
+    other kind actually seen) so the table is stable across runs.
+    """
     guess_of = {(d.detector, d.det_id): d.kind_guess or UNKNOWN for d in detections}
     rows: list[KindScore] = []
-    for detector in _detectors(matches, detections):
+    all_kinds = set(ORIGIN_OF_KIND if kinds is None else kinds)
+    for detector in _detectors(matches, detections, detectors):
         mine = [m for m in matches if m.detector == detector]
         matched = {m.label_id for m in mine if m.label_id is not None}
         tp: Counter[str] = Counter()
@@ -58,11 +73,10 @@ def score(
         for m in mine:
             if m.label_id is None:
                 fp[guess_of.get((detector, m.det_id), UNKNOWN)] += 1
-        kinds = set(tp) | set(fn) | set(fp)
-        for kind in sorted(kinds):
+        for kind in sorted(all_kinds | set(tp) | set(fn) | set(fp)):
             rows.append(_row(detector, kind, tp[kind], fp[kind], fn[kind]))
         rows.append(_row(detector, ALL, sum(tp.values()), sum(fp.values()), sum(fn.values())))
-    rows.sort(key=lambda r: (r.detector, r.kind))
+    rows.sort(key=lambda r: (r.detector, r.kind == ALL, r.kind))
     return rows
 
 
@@ -70,11 +84,12 @@ def confusion(
     matches: Sequence[Match],
     detections: Sequence[Detection],
     truth: Sequence[TruthLabel],
+    detectors: Sequence[str] | None = None,
 ) -> dict[tuple[str, str, str], int]:
     kind_of = {t.label_id: t.kind for t in truth}
     guess_of = {(d.detector, d.det_id): d.kind_guess or UNKNOWN for d in detections}
     out: Counter[tuple[str, str, str]] = Counter()
-    for detector in _detectors(matches, detections):
+    for detector in _detectors(matches, detections, detectors):
         matched: set[str] = set()
         for m in matches:
             if m.detector != detector or m.label_id is None:

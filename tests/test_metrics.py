@@ -2,7 +2,7 @@ import pytest
 
 from skywatch.scoring.match import Match
 from skywatch.scoring.metrics import confusion, format_scoreboard, score
-from skywatch.types import Detection, TruthLabel
+from skywatch.types import ORIGIN_OF_KIND, Detection, TruthLabel
 
 T = lambda lid, kind, origin: TruthLabel(lid, kind, origin, 1, 0, 100)
 truth = [
@@ -30,8 +30,12 @@ def by_kind(scores):
 
 def test_score_rows():
     scores = score(matches, dets, truth)
-    assert [s.kind for s in scores] == sorted(s.kind for s in scores)
+    # ordered by detector, then kind alphabetically, with "all" last
+    kinds = [s.kind for s in scores]
+    assert kinds == [*sorted(set(ORIGIN_OF_KIND) | {"unknown"}), "all"]
     k = by_kind(scores)
+    absent = next(x for x in ORIGIN_OF_KIND if x not in {"transit", "cosmic_ray", "flare"})
+    assert (k[absent].tp, k[absent].fp, k[absent].fn) == (0, 0, 0)
     assert (k["transit"].tp, k["transit"].fn, k["transit"].fp) == (1, 1, 0)
     assert k["transit"].precision == 0.0 or k["transit"].fp == 0
     assert k["transit"].recall == 0.5 and k["transit"].precision == 1.0
@@ -68,3 +72,26 @@ def test_scoreboard():
     assert "detector" in lines[0] and "F1" in lines[0]
     row = next(ln for ln in lines if ln.split()[:2] == ["d", "transit"])
     assert row.split() == ["d", "transit", "1", "0", "1", "1.000", "0.500", "0.667"]
+
+
+def test_silent_detector_gets_fn_rows():
+    rows = score([], [], truth, detectors=["quiet"])
+    k = by_kind(rows)
+    assert {s.detector for s in rows} == {"quiet"}
+    assert (k["transit"].tp, k["transit"].fp, k["transit"].fn) == (0, 0, 2)
+    assert (k["cosmic_ray"].tp, k["cosmic_ray"].fp, k["cosmic_ray"].fn) == (0, 0, 1)
+    assert (k["all"].tp, k["all"].fp, k["all"].fn) == (0, 0, 3)
+    c = confusion([], [], truth, detectors=["quiet"])
+    assert c == {("quiet", "transit", "missed"): 2, ("quiet", "cosmic_ray", "missed"): 1}
+
+
+def test_no_detectors_arg_keeps_derived_behaviour():
+    assert score([], [], truth) == []
+    assert confusion([], [], truth) == {}
+
+
+def test_kinds_arg_restricts_rows():
+    rows = score(matches, dets, truth, kinds=["transit"])
+    assert {s.kind for s in rows} == {"transit", "cosmic_ray", "flare", "unknown", "all"}
+    rows = score([], [], truth, detectors=["q"], kinds=["transit"])
+    assert [s.kind for s in rows] == ["cosmic_ray", "transit", "all"]

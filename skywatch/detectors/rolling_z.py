@@ -11,8 +11,34 @@ from skywatch.detectors import register
 from skywatch.types import Detection, LightCurve
 
 
+def rolling_z_scores(flux: np.ndarray, flux_err: np.ndarray, window: int) -> np.ndarray:
+    """Signed z-score of each sample against the trailing `window` samples.
+
+    The window for sample i is flux[i - window : i]; it excludes sample i. The std is
+    floored at the sample's flux_err. Curves with n <= window produce all zeros, and
+    the first `window` samples are always 0 (never flagged). A NaN anywhere in a
+    window (or the sample itself) gives z = 0, so that sample is unflaggable.
+    """
+    flux = np.asarray(flux, dtype=float)
+    n = len(flux)
+    z = np.zeros(n)
+    w = window
+    if n <= w:
+        return z
+    # windows[i] = flux[i : i + w]; the window for sample i + w excludes it
+    windows = sliding_window_view(flux, w)[: n - w]
+    mean = windows.mean(axis=1)
+    std = np.maximum(windows.std(axis=1), np.asarray(flux_err, dtype=float)[w:])
+    with np.errstate(divide="ignore", invalid="ignore"):
+        zz = (flux[w:] - mean) / std
+    z[w:] = np.where(std > 0, zz, 0.0)
+    return z
+
+
 @register
 class RollingZDetector:
+    """Flags runs where |z| >= z_threshold (see `rolling_z_scores` for edge cases)."""
+
     name = "rolling_z"
 
     def __init__(self, window: int = 30, z_threshold: float = 4.0, min_run: int = 1) -> None:
@@ -21,20 +47,7 @@ class RollingZDetector:
         self.min_run = min_run
 
     def _z(self, curve: LightCurve) -> np.ndarray:
-        n = len(curve)
-        z = np.zeros(n)
-        w = self.window
-        if n <= w:
-            return z
-        flux = np.asarray(curve.flux, dtype=float)
-        # windows[i] = flux[i : i + w]; the window for sample i + w excludes it
-        windows = sliding_window_view(flux, w)[: n - w]
-        mean = windows.mean(axis=1)
-        std = np.maximum(windows.std(axis=1), np.asarray(curve.flux_err, dtype=float)[w:])
-        with np.errstate(divide="ignore", invalid="ignore"):
-            zz = (flux[w:] - mean) / std
-        z[w:] = np.where(std > 0, zz, 0.0)
-        return z
+        return rolling_z_scores(curve.flux, curve.flux_err, self.window)
 
     def detect(self, curves: Mapping[int, LightCurve], cadence_s: int) -> list[Detection]:
         out: list[Detection] = []
