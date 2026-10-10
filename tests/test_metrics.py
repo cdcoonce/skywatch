@@ -222,3 +222,28 @@ def test_scoreboard_prints_the_unobservable_count():
     assert flare[head.index("unobs")] == "2" and flare[head.index("fn")] == "1"
     allrow = next(ln.split() for ln in lines if ln.split()[:2] == ["q", "all"])
     assert allrow[head.index("unobs")] == "2"
+
+
+def test_every_detector_reports_the_same_unobservable_count():
+    # The unobservable tally is per detector: a counter shared across detectors would
+    # double it for every detector after the first.
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0), _fp("c1", "cosmic_ray", 1)]
+    rows = score([], [], tr, detectors=["a", "b", "c"])
+    assert {r.detector for r in rows} == {"a", "b", "c"}
+    for r in rows:
+        if r.kind == "flare":
+            assert r.unobservable == 1, (r.detector, r.kind)
+        if r.kind == "all":
+            assert r.unobservable == 1, (r.detector, r.kind)
+        if r.kind == "cosmic_ray":
+            assert r.unobservable == 0, (r.detector, r.kind)
+
+
+def test_explicit_kinds_still_show_the_unobservable_count_of_an_omitted_kind():
+    # `kinds=` only fixes the baseline rows; a kind that actually appears in truth (here
+    # only as an unobservable label, so no tp/fp/fn mentions it) still gets its row.
+    tr = [_fp("f1", "flare", 0), _fp("t1", "transit", 5)]
+    rows = by_kind(score([], [], tr, detectors=["q"], kinds=["transit"]))
+    assert set(rows) == {"transit", "flare", "all"}
+    assert (rows["flare"].unobservable, rows["flare"].fn) == (1, 0)
+    assert rows["all"].unobservable == 1

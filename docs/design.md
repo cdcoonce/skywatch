@@ -151,7 +151,9 @@ Rules:
   dropout at a coarse cadence, a span clipped to a sliver) and no detector could ever see
   it. The label is still written, because truth records what was placed; the scorer
   excludes it. A later injector can still hide samples this one changed (a dropout over a
-  cosmic ray); that is not counted.
+  cosmic ray); that is not counted. The same holds for hot pixels: `hot_pixel` overwrites flux and runs
+  before `dropout`, so a cosmic ray, flare or transit sample under a hot pixel keeps its footprint
+  count while its signal is erased; that label is then an unavoidable miss.
 - Each injector receives its own `rng` spawned from the survey seed, keyed by
   `(night_index, kind)`, so adding or removing one kind does not perturb another.
 - The survey applies noise after all injectors: `flux_obs = flux * (1 + N(0, noise_floor)) + N(0, sqrt(flux))`

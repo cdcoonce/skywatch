@@ -230,3 +230,56 @@ def test_field_wide_footprint_is_a_count_of_grid_columns(kind):
     (lab,) = inj.inject(sc, _Scripted([18000.0, 1800.0, 0.2]))
     assert lab.params[KEY] == int(np.count_nonzero((sc.flux != flux0).any(axis=0)))
     assert lab.params[KEY] > 0
+
+
+# --- dropout and drift against an independent recount ------------------------------
+
+
+def _recount_columns(flux0, mask0, sc):
+    """Grid columns where any star was observed before and changed (flux or mask)."""
+    changed = ((sc.flux != flux0) | (mask0 & ~sc.mask)) & mask0
+    return int(np.count_nonzero(changed.any(axis=0)))
+
+
+@pytest.mark.parametrize("scope_draw", [0.0, 0.9], ids=["field", "star"])
+def test_dropout_footprint_is_an_independent_recount_of_masked_samples(scope_draw):
+    sc = _scene([_star(0), _star(1)], n=60, cadence=60)  # samples every 60 s
+    sc.mask[1, 12:14] = False  # already missing for star 1: must not be counted for it
+    mask0 = sc.mask.copy()
+    # [600, 1500) covers samples 10..24 (15 columns)
+    (lab,) = DropoutInjector().inject(sc, _Scripted([scope_draw, 600.0, 900.0]))
+    newly = mask0 & ~sc.mask
+    if lab.params["scope"] == "field":
+        # star 0 loses all 15 samples, star 1 loses 13: columns where anything was lost
+        expected = int(np.count_nonzero(newly.any(axis=0)))
+        assert expected == 15
+    else:
+        expected = int(np.count_nonzero(newly[0]))  # _Scripted.integers picks row 0
+        assert expected == 15
+    assert lab.params[KEY] == expected
+
+
+def test_dropout_footprint_counts_only_newly_masked_samples():
+    sc = _scene([_star(0)], n=60, cadence=60)
+    sc.mask[0, 12:14] = False
+    mask0 = sc.mask.copy()
+    (lab,) = DropoutInjector().inject(sc, _Scripted([0.9, 600.0, 900.0]))
+    assert lab.params[KEY] == int(np.count_nonzero(mask0 & ~sc.mask)) == 13
+
+
+def test_drift_footprint_is_an_independent_recount_of_changed_columns():
+    sc = _scene(_pair())
+    flux0, mask0 = sc.flux.copy(), sc.mask.copy()
+    (lab,) = TrackingDriftInjector().inject(sc, _Scripted([3600.0, 1800.0, 0.2]))
+    # recount from scratch: every sample whose flux is no longer its starting value
+    expected = sum(1 for j in range(N) if (sc.flux[:, j] != flux0[:, j]).any())
+    assert expected == _recount_columns(flux0, mask0, sc) == N - 3600 // CAD - 1
+    assert lab.params[KEY] == expected
+
+
+def test_drift_footprint_ignores_samples_masked_before_it():
+    sc = _scene(_pair())
+    sc.mask[:, 100:110] = False
+    flux0, mask0 = sc.flux.copy(), sc.mask.copy()
+    (lab,) = TrackingDriftInjector().inject(sc, _Scripted([3600.0, 1800.0, 0.2]))
+    assert lab.params[KEY] == _recount_columns(flux0, mask0, sc) == N - 3600 // CAD - 1 - 10
