@@ -370,3 +370,48 @@ def test_iou_threshold_is_exactly_point_three():
     assert (just_under.grade, just_under.iou) == ("touched", 0.299)
     assert (exactly.grade, exactly.iou) == ("bounded", 0.3)
     assert just_over.grade == "bounded"
+
+
+# --- zero-footprint labels: no detector could see them -------------------------------
+
+
+def unseen(lid, star, a, b, kind="flare"):
+    return TruthLabel(lid, kind, ORIGIN_OF_KIND[kind], star, a, b, {"footprint_samples": 0})
+
+
+def seen(lid, star, a, b, kind="flare", n=3):
+    return TruthLabel(lid, kind, ORIGIN_OF_KIND[kind], star, a, b, {"footprint_samples": n})
+
+
+def test_zero_footprint_label_is_never_matched():
+    (m,) = match_detections([det("x", 1, 0, 600)], [unseen("u", 1, 0, 600)], C)
+    assert m.label_id is None and m.grade is None  # as if the label were absent: a false alarm
+
+
+def test_detection_over_zero_footprint_label_equals_label_absent():
+    dets = [det("x", 1, 0, 600), det("y", 2, 100, 160)]
+    labels = [unseen("u", 1, 0, 600), seen("s", 2, 100, 160, kind="cosmic_ray", n=1)]
+    assert match_detections(dets, labels, C) == match_detections(dets, labels[1:], C)
+
+
+def test_zero_footprint_label_does_not_steal_a_detection_from_a_real_one():
+    labels = [unseen("u", 1, 0, 600), seen("s", 1, 0, 400)]
+    (m,) = match_detections([det("x", 1, 0, 600)], labels, C)
+    assert m.label_id == "s"
+
+
+def test_one_sample_label_is_still_matched():
+    (m,) = match_detections([det("x", 1, 0, 60)], [seen("s", 1, 0, 60, "cosmic_ray", n=1)], C)
+    assert m.label_id == "s" and m.grade == "bounded"
+
+
+def test_edge_tolerance_does_not_reach_a_zero_footprint_label():
+    (m,) = match_detections([det("x", 1, 600, 660)], [unseen("u", 1, 0, 600)], C)
+    assert m.label_id is None
+    (m,) = match_detections([det("x", 1, 600, 660)], [seen("s", 1, 0, 600)], C)
+    assert m.label_id == "s"
+
+
+def test_labels_without_the_key_still_match():
+    (m,) = match_detections([det("x", 1, 0, 600)], [lab("old", 1, 0, 600, "flare")], C)
+    assert m.label_id == "old"

@@ -134,9 +134,14 @@ def match_detections(
     unclaimed, else "corroborating": it is evidence of an event this detector already
     counted, not a false alarm. 0 disables the pass and reproduces the overlap-only
     matcher exactly.
+
+    Labels with ``footprint_samples == 0`` (events that changed no sample) are dropped
+    before matching: they are never matched, claim nothing, and a detection over one is
+    handled exactly as if the label were absent, so it can still be a false positive.
     """
     if edge_tolerance_cadences < 0:
         raise ValueError("edge_tolerance_cadences must be >= 0")
+    truth = [t for t in truth if t.observable]
     by_detector: dict[str, list[Detection]] = defaultdict(list)
     for d in detections:
         by_detector[d.detector].append(d)

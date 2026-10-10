@@ -117,6 +117,7 @@ _SCORES = pa.schema(
         ("tp_touched", pa.int64()),
         ("corroborating", pa.int64()),
         ("bounded_rate", pa.float64()),
+        ("unobservable", pa.int64()),
     ]
 )
 _CONFUSION = pa.schema(
@@ -350,7 +351,9 @@ def write_scores(
 
 def read_scores(run_dir: Path) -> list[KindScore]:
     d = _read(Path(run_dir) / "scores.parquet")
-    return [KindScore(**{k: d[k][i] for k in _SCORES.names}) for i in range(len(d["detector"]))]
+    n = len(d["detector"])
+    d.setdefault("unobservable", [0] * n)  # scores written before the column existed
+    return [KindScore(**{k: d[k][i] for k in _SCORES.names}) for i in range(n)]
 
 
 def read_confusion(run_dir: Path) -> dict[tuple[str, str, str], int]:

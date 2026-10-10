@@ -128,3 +128,69 @@ def test_score_before_detect_names_the_step(fresh_run):
     with pytest.raises(FileNotFoundError, match="skywatch detect"):
         run.score_run(fresh_run)
     assert main(["score", "--run", str(fresh_run)]) == 2
+
+
+# --- zero-footprint labels end to end ------------------------------------------------
+
+
+def _rewrite_truth(run_dir, edit):
+    """Apply ``edit(params: dict) -> dict`` to every label's params in truth.parquet."""
+    import json
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    tbl = pq.read_table(run_dir / "truth.parquet")
+    params = [json.dumps(edit(json.loads(p)), sort_keys=True) for p in tbl["params"].to_pylist()]
+    idx = tbl.schema.get_field_index("params")
+    pq.write_table(
+        tbl.set_column(idx, "params", pa.array(params, pa.string())), run_dir / "truth.parquet"
+    )
+
+
+def test_simulated_truth_carries_a_footprint(fresh_run):
+    truth = store.read_truth(fresh_run)
+    assert truth and all(isinstance(t.params["footprint_samples"], int) for t in truth)
+
+
+def test_report_shows_unobservable_labels_and_keeps_them_out_of_fn(fresh_run, registry_guard):
+    register(_make_fake("fake_empty"))
+    run.detect_run(fresh_run, "fake_empty")
+    truth = store.read_truth(fresh_run)
+    target = next(t for t in truth if t.kind == "cosmic_ray")
+    _rewrite_truth(
+        fresh_run,
+        lambda p: {**p, "footprint_samples": 0} if p == target.params else p,
+    )
+    n_zero = sum(1 for t in store.read_truth(fresh_run) if t.params["footprint_samples"] == 0)
+    assert n_zero >= 1
+    rows = {s.kind: s for s in run.score_run(fresh_run) if s.detector == "fake_empty"}
+    assert rows["all"].unobservable == n_zero
+    assert rows["all"].fn == len(truth) - n_zero
+    text = run.report_run(fresh_run)
+    head = text.splitlines()[0].split()
+    row = next(ln.split() for ln in text.splitlines() if ln.split()[:2] == ["fake_empty", "all"])
+    assert row[head.index("unobs")] == str(n_zero)
+    assert "unobservable" in text  # the legend says what the column means
+
+
+def test_old_run_without_footprints_scores_as_before_with_one_warning(
+    fresh_run, registry_guard, capsys
+):
+    register(_make_fake("fake_empty"))
+    run.detect_run(fresh_run, "fake_empty")
+    n = len(store.read_truth(fresh_run))
+    _rewrite_truth(fresh_run, lambda p: {k: v for k, v in p.items() if k != "footprint_samples"})
+    capsys.readouterr()
+    rows = {s.kind: s for s in run.score_run(fresh_run) if s.detector == "fake_empty"}
+    assert (rows["all"].fn, rows["all"].unobservable) == (n, 0)
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "footprint_samples" in err and str(n) in err
+
+
+def test_run_with_footprints_scores_without_a_warning(fresh_run, registry_guard, capsys):
+    register(_make_fake("fake_empty"))
+    run.detect_run(fresh_run, "fake_empty")
+    capsys.readouterr()
+    run.score_run(fresh_run)
+    assert capsys.readouterr().err == ""

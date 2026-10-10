@@ -79,7 +79,7 @@ def test_detections_round_trip(tmp_path, result):
 
 def test_scores_round_trip(tmp_path, result):
     run = store.write_run(tmp_path, result)
-    scores = [KindScore("a", "flare", 3, 2, 3, 0.6, 0.5, 0.55, 2, 1, 4, 2 / 3)]
+    scores = [KindScore("a", "flare", 3, 2, 3, 0.6, 0.5, 0.55, 2, 1, 4, 2 / 3, 5)]
     matches = [
         Match("a", "a-0", None, 0.0),
         Match("a", "a-1", "l", 0.5, "bounded"),
@@ -153,3 +153,33 @@ def test_params_numpy_round_trip(tmp_path, result):
     assert type(back.params["a"]) is float
     assert type(back.params["b"]) is int
     assert type(back.params["d"]) is bool
+
+
+def test_scores_written_before_the_unobservable_column_still_read(tmp_path, result):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    run = store.write_run(tmp_path, result)
+    old = [n for n in store._SCORES.names if n != "unobservable"]
+    pq.write_table(
+        pa.table(
+            {
+                "detector": ["a"],
+                "kind": ["flare"],
+                "tp": [3],
+                "fp": [2],
+                "fn": [3],
+                "precision": [0.6],
+                "recall": [0.5],
+                "f1": [0.55],
+                "tp_bounded": [2],
+                "tp_touched": [1],
+                "corroborating": [4],
+                "bounded_rate": [2 / 3],
+            },
+            schema=pa.schema([store._SCORES.field(n) for n in old]),
+        ),
+        run / "scores.parquet",
+    )
+    (row,) = store.read_scores(run)
+    assert (row.fn, row.unobservable) == (3, 0)
