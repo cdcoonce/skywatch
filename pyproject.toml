@@ -28,6 +28,7 @@ build-backend = "hatchling.build"
 packages = ["skywatch"]
 
 [tool.ruff]
+extend-exclude = ["docs"]
 line-length = 100
 target-version = "py312"
 
