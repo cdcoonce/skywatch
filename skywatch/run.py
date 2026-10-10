@@ -39,6 +39,8 @@ def detect_run(run_dir: Path, detector_name: str, **kwargs: Any) -> int:
 
 
 def score_run(run_dir: Path) -> list[KindScore]:
+    if not (Path(run_dir) / "detections").is_dir():
+        raise FileNotFoundError(f"no detections in {run_dir}; run `skywatch detect` first")
     truth = store.read_truth(run_dir)
     detections = store.read_detections(run_dir)
     cadence_s = store.read_manifest(run_dir)["config"]["cadence_s"]
@@ -51,6 +53,8 @@ def score_run(run_dir: Path) -> list[KindScore]:
 
 
 def report_run(run_dir: Path) -> str:
+    if not (Path(run_dir) / "scores.parquet").exists():
+        raise FileNotFoundError(f"no scores in {run_dir}; run `skywatch score` first")
     board = format_scoreboard(store.read_scores(run_dir))
     conf = store.read_confusion(run_dir)
     lines = ["confusion (detector, truth_kind, detected_as, count)"]

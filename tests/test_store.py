@@ -89,3 +89,55 @@ def test_scores_round_trip(tmp_path, result):
     assert store.read_scores(run) == scores
     assert (run / "confusion.parquet").exists()
     assert (run / "matches.parquet").exists()
+
+
+def test_read_curves_sorts_interleaved_rows(tmp_path, result):
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    run = store.write_run(tmp_path, result)
+    rows = [  # (star, t, flux), two stars interleaved, t shuffled
+        (1, 300, 13.0),
+        (2, 100, 21.0),
+        (1, 100, 11.0),
+        (2, 300, 23.0),
+        (1, 200, 12.0),
+        (2, 200, 22.0),
+    ]
+    tbl = pa.table(
+        {
+            "star_id": pa.array([r[0] for r in rows], pa.int64()),
+            "t": pa.array([r[1] for r in rows], pa.int64()),
+            "flux": pa.array([r[2] for r in rows], pa.float64()),
+            "flux_err": pa.array([0.1] * 6, pa.float64()),
+            "quality": pa.array([0] * 6, pa.uint8()),
+        }
+    )
+    pq.write_table(tbl, run / "observations.parquet")
+    curves = store.read_curves(run)
+    np.testing.assert_array_equal(curves[1].t, [100, 200, 300])
+    np.testing.assert_array_equal(curves[1].flux, [11.0, 12.0, 13.0])
+    np.testing.assert_array_equal(curves[2].t, [100, 200, 300])
+    np.testing.assert_array_equal(curves[2].flux, [21.0, 22.0, 23.0])
+
+
+def test_params_numpy_round_trip(tmp_path, result):
+    from skywatch.types import TruthLabel
+
+    label = TruthLabel(
+        "l0",
+        "flare",
+        "science",
+        1,
+        0,
+        10,
+        {"a": np.float64(1.5), "b": np.int64(3), "c": np.array([1.0, 2.0]), "d": np.bool_(True)},
+    )
+    from dataclasses import replace
+
+    run = store.write_run(tmp_path, replace(result, truth=[label]))
+    (back,) = store.read_truth(run)
+    assert back.params == {"a": 1.5, "b": 3, "c": [1.0, 2.0], "d": True}
+    assert type(back.params["a"]) is float
+    assert type(back.params["b"]) is int
+    assert type(back.params["d"]) is bool
