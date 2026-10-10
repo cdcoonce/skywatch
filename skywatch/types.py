@@ -76,6 +76,19 @@ class TruthLabel:
                 f"kind {self.kind!r} has origin {ORIGIN_OF_KIND[self.kind]!r}, not {self.origin!r}"
             )
 
+    @property
+    def has_footprint(self) -> bool:
+        """True if the label records ``params["footprint_samples"]`` (runs since #5)."""
+        return self.params.get("footprint_samples") is not None
+
+    @property
+    def observable(self) -> bool:
+        """False only when the event changed zero samples, so no detector could see it.
+
+        A label with no ``footprint_samples`` (an older run) is treated as observable.
+        """
+        return self.params.get("footprint_samples") != 0
+
 
 @dataclass(frozen=True)
 class Detection:

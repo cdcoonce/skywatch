@@ -28,6 +28,8 @@ class KindScore:
     tp_touched: int = 0
     corroborating: int = 0
     bounded_rate: float = 0.0
+    unobservable: int = 0
+    """Labels whose event changed zero samples: excluded from fn and from recall."""
 
 
 def _div(a: float, b: float) -> float:
@@ -35,7 +37,14 @@ def _div(a: float, b: float) -> float:
 
 
 def _row(
-    detector: str, kind: str, tp_bounded: int, tp_touched: int, corr: int, fp: int, fn: int
+    detector: str,
+    kind: str,
+    tp_bounded: int,
+    tp_touched: int,
+    corr: int,
+    fp: int,
+    fn: int,
+    unobservable: int = 0,
 ) -> KindScore:
     tp = tp_bounded + tp_touched
     p = _div(tp, tp + fp)
@@ -53,6 +62,7 @@ def _row(
         tp_touched,
         corr,
         _div(tp_bounded, tp),
+        unobservable,
     )
 
 
@@ -78,6 +88,9 @@ def score(
     truth counts as FN); None derives them from matches/detections. `kinds` fixes
     the kind rows; None uses every kind in ORIGIN_OF_KIND (plus "unknown" and any
     other kind actually seen) so the table is stable across runs.
+
+    A label with ``footprint_samples == 0`` is counted only in ``unobservable``: it is not
+    a TP, an FN, or part of recall's denominator, whatever the matches say.
     """
     guess_of = {(d.detector, d.det_id): d.kind_guess or UNKNOWN for d in detections}
     rows: list[KindScore] = []
@@ -90,8 +103,12 @@ def score(
         fn: Counter[str] = Counter()
         fp: Counter[str] = Counter()
         corr: Counter[str] = Counter()
+        unobs: Counter[str] = Counter()
         kind_of = {t.label_id: t.kind for t in truth}
         for t in truth:
+            if not t.observable:
+                unobs[t.kind] += 1
+                continue
             g = grade_of.get(t.label_id)
             if g == "bounded":
                 tpb[t.kind] += 1
@@ -104,9 +121,20 @@ def score(
                 fp[guess_of.get((detector, m.det_id), UNKNOWN)] += 1
             elif m.grade == "corroborating" and m.label_id in kind_of:
                 corr[kind_of[m.label_id]] += 1
-        seen = all_kinds | set(tpb) | set(tpt) | set(fn) | set(fp) | set(corr)
+        seen = all_kinds | set(tpb) | set(tpt) | set(fn) | set(fp) | set(corr) | set(unobs)
         for kind in sorted(seen):
-            rows.append(_row(detector, kind, tpb[kind], tpt[kind], corr[kind], fp[kind], fn[kind]))
+            rows.append(
+                _row(
+                    detector,
+                    kind,
+                    tpb[kind],
+                    tpt[kind],
+                    corr[kind],
+                    fp[kind],
+                    fn[kind],
+                    unobs[kind],
+                )
+            )
         rows.append(
             _row(
                 detector,
@@ -116,6 +144,7 @@ def score(
                 sum(corr.values()),
                 sum(fp.values()),
                 sum(fn.values()),
+                sum(unobs.values()),
             )
         )
     rows.sort(key=lambda r: (r.detector, r.kind == ALL, r.kind))
@@ -128,6 +157,7 @@ def confusion(
     truth: Sequence[TruthLabel],
     detectors: Sequence[str] | None = None,
 ) -> dict[tuple[str, str, str], int]:
+    truth = [t for t in truth if t.observable]  # an unobservable label is not "missed"
     kind_of = {t.label_id: t.kind for t in truth}
     guess_of = {(d.detector, d.det_id): d.kind_guess or UNKNOWN for d in detections}
     out: Counter[tuple[str, str, str]] = Counter()
@@ -145,7 +175,20 @@ def confusion(
 
 
 def format_scoreboard(scores: Sequence[KindScore]) -> str:
-    header = ("detector", "kind", "tpB", "tpT", "corr", "fp", "fn", "P", "R", "F1", "bounded")
+    header = (
+        "detector",
+        "kind",
+        "tpB",
+        "tpT",
+        "corr",
+        "fp",
+        "fn",
+        "unobs",
+        "P",
+        "R",
+        "F1",
+        "bounded",
+    )
     body = [
         (
             s.detector,
@@ -155,6 +198,7 @@ def format_scoreboard(scores: Sequence[KindScore]) -> str:
             str(s.corroborating),
             str(s.fp),
             str(s.fn),
+            str(s.unobservable),
             f"{s.precision:.3f}",
             f"{s.recall:.3f}",
             f"{s.f1:.3f}",

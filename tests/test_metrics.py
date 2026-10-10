@@ -77,6 +77,7 @@ def test_scoreboard():
         "corr",
         "fp",
         "fn",
+        "unobs",
         "P",
         "R",
         "F1",
@@ -91,6 +92,7 @@ def test_scoreboard():
         "0",
         "0",
         "1",
+        "0",
         "1.000",
         "0.500",
         "0.667",
@@ -165,3 +167,83 @@ def test_three_stars_one_field_wide_label():
     c = by_kind(score(ms, ds, [wide]))["cloud"]
     assert (c.tp_touched, c.corroborating, c.fp, c.fn) == (1, 2, 0, 0)
     assert by_kind(score(ms, ds, [wide]))["all"].fp == 0
+
+
+# --- unobservable (zero-footprint) labels -------------------------------------------
+
+
+def _fp(lid, kind, n, star=1):
+    return TruthLabel(lid, kind, ORIGIN_OF_KIND[kind], star, 0, 100, {"footprint_samples": n})
+
+
+def test_zero_footprint_label_is_not_a_false_negative():
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0), _fp("c1", "cosmic_ray", 1)]
+    rows = by_kind(score([], [], tr, detectors=["q"]))
+    assert (rows["flare"].fn, rows["flare"].unobservable) == (1, 1)
+    assert rows["flare"].recall == 0.0
+    assert (rows["cosmic_ray"].fn, rows["cosmic_ray"].unobservable) == (1, 0)  # one sample counts
+    assert (rows["all"].fn, rows["all"].unobservable) == (2, 1)
+    assert rows["transit"].unobservable == 0
+
+
+def test_zero_footprint_label_leaves_the_recall_denominator():
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0)]
+    ds = [Detection("d", "x", 1, 0, 100, 1.0, "flare")]
+    ms = [Match("d", "x", "f1", 1.0, "bounded")]
+    f = by_kind(score(ms, ds, tr))["flare"]
+    assert (f.tp, f.fn, f.unobservable) == (1, 0, 1)
+    assert f.recall == 1.0  # 1 of the 1 label that could be seen, not 1 of 2
+
+
+def test_unobservable_labels_stay_out_of_every_other_count():
+    tr = [_fp("f1", "flare", 0)]
+    ds = [Detection("d", "x", 1, 0, 100, 1.0, "flare")]
+    ms = [Match("d", "x", None, 0.0)]  # the matcher left it unmatched: a false alarm
+    f = by_kind(score(ms, ds, tr))["flare"]
+    assert (f.tp, f.fp, f.fn, f.unobservable) == (0, 1, 0, 1)
+
+
+def test_confusion_has_no_missed_row_for_an_unobservable_label():
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0)]
+    assert confusion([], [], tr, detectors=["q"]) == {("q", "flare", "missed"): 1}
+
+
+def test_old_style_labels_without_the_key_count_as_fn_as_before():
+    tr = [TruthLabel("o", "flare", "science", 1, 0, 100)]
+    f = by_kind(score([], [], tr, detectors=["q"]))["flare"]
+    assert (f.fn, f.unobservable) == (1, 0)
+
+
+def test_scoreboard_prints_the_unobservable_count():
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0), _fp("f3", "flare", 0)]
+    lines = format_scoreboard(score([], [], tr, detectors=["q"])).splitlines()
+    head = lines[0].split()
+    flare = next(ln.split() for ln in lines if ln.split()[:2] == ["q", "flare"])
+    assert flare[head.index("unobs")] == "2" and flare[head.index("fn")] == "1"
+    allrow = next(ln.split() for ln in lines if ln.split()[:2] == ["q", "all"])
+    assert allrow[head.index("unobs")] == "2"
+
+
+def test_every_detector_reports_the_same_unobservable_count():
+    # The unobservable tally is per detector: a counter shared across detectors would
+    # double it for every detector after the first.
+    tr = [_fp("f1", "flare", 5), _fp("f2", "flare", 0), _fp("c1", "cosmic_ray", 1)]
+    rows = score([], [], tr, detectors=["a", "b", "c"])
+    assert {r.detector for r in rows} == {"a", "b", "c"}
+    for r in rows:
+        if r.kind == "flare":
+            assert r.unobservable == 1, (r.detector, r.kind)
+        if r.kind == "all":
+            assert r.unobservable == 1, (r.detector, r.kind)
+        if r.kind == "cosmic_ray":
+            assert r.unobservable == 0, (r.detector, r.kind)
+
+
+def test_explicit_kinds_still_show_the_unobservable_count_of_an_omitted_kind():
+    # `kinds=` only fixes the baseline rows; a kind that actually appears in truth (here
+    # only as an unobservable label, so no tp/fp/fn mentions it) still gets its row.
+    tr = [_fp("f1", "flare", 0), _fp("t1", "transit", 5)]
+    rows = by_kind(score([], [], tr, detectors=["q"], kinds=["transit"]))
+    assert set(rows) == {"transit", "flare", "all"}
+    assert (rows["flare"].unobservable, rows["flare"].fn) == (1, 0)
+    assert rows["all"].unobservable == 1

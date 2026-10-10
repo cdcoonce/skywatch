@@ -16,6 +16,7 @@ from __future__ import annotations
 import numpy as np
 
 from skywatch.types import TruthLabel
+from skywatch.world.footprint import KEY, touched
 
 
 def _night_bounds(scene) -> tuple[int, int]:
@@ -34,7 +35,14 @@ def _uniform_time(scene, rng: np.random.Generator) -> int:
 
 
 def _label(
-    scene, kind: str, star_id: int | None, k: int, t_start: int, t_end: int, params: dict
+    scene,
+    kind: str,
+    star_id: int | None,
+    k: int,
+    t_start: int,
+    t_end: int,
+    params: dict,
+    footprint: int,
 ) -> TruthLabel:
     sid = "field" if star_id is None else star_id
     return TruthLabel(
@@ -44,7 +52,7 @@ def _label(
         star_id=star_id,
         t_start=t_start,
         t_end=t_end,
-        params=params,
+        params={**params, KEY: footprint},
     )
 
 
@@ -67,7 +75,8 @@ class CosmicRayInjector:
             for k in range(int(rng.poisson(self.rate))):
                 j = int(rng.integers(n_t))
                 amp = float(np.exp(rng.uniform(np.log(0.2), np.log(5.0))))
-                scene.flux[row, j] += amp * scene.flux[row, j]
+                with touched(scene, row) as fp:
+                    scene.flux[row, j] += amp * scene.flux[row, j]
                 t0 = int(scene.t[j])
                 labels.append(
                     _label(
@@ -78,6 +87,7 @@ class CosmicRayInjector:
                         t0,
                         t0 + scene.cadence_s,
                         {"amplitude": amp},
+                        fp.samples,
                     )
                 )
         return labels
@@ -104,11 +114,12 @@ class CloudInjector:
             s, e, clipped = _clip(scene, t_mid - dur // 2, t_mid - dur // 2 + dur)
             sel = (scene.t >= s) & (scene.t < e)
             w = 0.5 * (1 + np.cos(np.pi * (scene.t[sel] - t_mid) / (dur / 2)))
-            scene.flux[:, sel] *= 1 - depth * w
+            with touched(scene) as fp:
+                scene.flux[:, sel] *= 1 - depth * w
             params = {"depth": depth, "duration_s": dur, "t_mid": t_mid}
             if clipped:
                 params["clipped"] = True
-            labels.append(_label(scene, self.kind, None, k, s, e, params))
+            labels.append(_label(scene, self.kind, None, k, s, e, params, fp.samples))
         return labels
 
 
@@ -136,11 +147,12 @@ class TrackingDriftInjector:
             ramp = (scene.t >= s) & (scene.t < e)
             factor[ramp] = 1 + slope * (scene.t[ramp] - t_start) / dur
             factor[scene.t >= t_start + dur] = 1 + slope
-            scene.flux *= factor
+            with touched(scene) as fp:
+                scene.flux *= factor
             params = {"slope": slope, "duration_s": dur}
             if clipped:
                 params["clipped"] = True
-            labels.append(_label(scene, self.kind, None, k, s, e, params))
+            labels.append(_label(scene, self.kind, None, k, s, e, params, fp.samples))
         return labels
 
 
@@ -163,11 +175,12 @@ class HotPixelInjector:
                 dur = round(rng.uniform(300, 3600))
                 value = float(star.flux0 * rng.uniform(1.5, 4.0))
                 s, e, clipped = _clip(scene, t_start, t_start + dur)
-                scene.flux[row, (scene.t >= s) & (scene.t < e)] = value
+                with touched(scene, row) as fp:
+                    scene.flux[row, (scene.t >= s) & (scene.t < e)] = value
                 params = {"value": value, "duration_s": dur}
                 if clipped:
                     params["clipped"] = True
-                labels.append(_label(scene, self.kind, star.star_id, k, s, e, params))
+                labels.append(_label(scene, self.kind, star.star_id, k, s, e, params, fp.samples))
         return labels
 
 
@@ -196,14 +209,15 @@ class DropoutInjector:
             s, e, clipped = _clip(scene, t_start, t_start + dur)
             sel = (scene.t >= s) & (scene.t < e)
             sid = None if row is None else scene.stars[row].star_id
-            if row is None:
-                scene.mask[:, sel] = False
-            else:
-                scene.mask[row, sel] = False
+            with touched(scene, row) as fp:
+                if row is None:
+                    scene.mask[:, sel] = False
+                else:
+                    scene.mask[row, sel] = False
             params: dict = {"duration_s": dur, "scope": "field" if field_wide else "star"}
             if clipped:
                 params["clipped"] = True
             k = counters.get(sid, 0)
             counters[sid] = k + 1
-            labels.append(_label(scene, self.kind, sid, k, s, e, params))
+            labels.append(_label(scene, self.kind, sid, k, s, e, params, fp.samples))
         return labels

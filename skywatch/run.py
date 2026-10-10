@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,13 @@ def score_run(run_dir: Path) -> list[KindScore]:
     if not (Path(run_dir) / "detections").is_dir():
         raise FileNotFoundError(f"no detections in {run_dir}; run `skywatch detect` first")
     truth = store.read_truth(run_dir)
+    n_old = sum(1 for t in truth if not t.has_footprint)
+    if n_old:
+        print(
+            f"skywatch: warning: {n_old} of {len(truth)} truth labels have no footprint_samples "
+            "(simulated before #5); scoring them as observable",
+            file=sys.stderr,
+        )
     detections = store.read_detections(run_dir)
     cadence_s = store.read_manifest(run_dir)["config"]["cadence_s"]
     names = store.detector_names(run_dir)
@@ -59,4 +67,8 @@ def report_run(run_dir: Path) -> str:
     conf = store.read_confusion(run_dir)
     lines = ["confusion (detector, truth_kind, detected_as, count)"]
     lines += [f"{d}  {t}  {a}  {n}" for (d, t, a), n in sorted(conf.items())]
-    return board + "\n\n" + "\n".join(lines)
+    note = (
+        "unobs = unobservable labels (the event changed zero samples, so no detector could see "
+        "it); excluded from fn and recall, never matched."
+    )
+    return board + "\n" + note + "\n\n" + "\n".join(lines)

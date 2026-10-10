@@ -8,6 +8,7 @@ from collections.abc import Sequence
 import numpy as np
 
 from skywatch.types import Planet, TruthLabel
+from skywatch.world.footprint import touched, with_footprint
 from skywatch.world.scene import Scene
 
 _FLARE_AMP_RANGE = (0.01, 0.5)
@@ -96,8 +97,9 @@ class TransitInjector:
                 profile = np.clip(
                     np.minimum((scene.t - start) / ramp, (end - scene.t) / ramp), 0.0, 1.0
                 )
-                scene.flux[row] *= 1.0 - planet.depth * profile
-                labels.append(label)
+                with touched(scene, row) as fp:
+                    scene.flux[row] *= 1.0 - planet.depth * profile
+                labels.append(with_footprint(label, fp.samples))
         return labels
 
 
@@ -132,8 +134,9 @@ class EclipseInjector:
                         continue
                     k += 1
                     profile = np.clip(1.0 - np.abs(scene.t - t_mid) / half, 0.0, 1.0)
-                    scene.flux[row] *= 1.0 - depth * profile
-                    labels.append(label)
+                    with touched(scene, row) as fp:
+                        scene.flux[row] *= 1.0 - depth * profile
+                    labels.append(with_footprint(label, fp.samples))
         return labels
 
 
@@ -148,9 +151,10 @@ class PulsationInjector:
                 continue
             p = star.params
             phase = p.get("phase", 0.0)
-            scene.flux[row] *= 1.0 + p["amplitude"] * np.sin(
-                2.0 * np.pi * scene.t / p["period_s"] + phase
-            )
+            with touched(scene, row) as fp:
+                scene.flux[row] *= 1.0 + p["amplitude"] * np.sin(
+                    2.0 * np.pi * scene.t / p["period_s"] + phase
+                )
             labels.append(
                 TruthLabel(
                     label_id=f"{self.kind}-n{scene.night_index}-s{star.star_id}-0",
@@ -159,7 +163,11 @@ class PulsationInjector:
                     star_id=star.star_id,
                     t_start=ns,
                     t_end=ne,
-                    params={"period_s": p["period_s"], "amplitude": p["amplitude"]},
+                    params={
+                        "period_s": p["period_s"],
+                        "amplitude": p["amplitude"],
+                        "footprint_samples": fp.samples,
+                    },
                 )
             )
         return labels
@@ -198,6 +206,7 @@ class FlareInjector:
                 k += 1
                 after = scene.t >= t_peak
                 dt = scene.t[after] - t_peak
-                scene.flux[row, after] *= 1.0 + amp * np.exp(-dt / decay)
-                labels.append(label)
+                with touched(scene, row) as fp:
+                    scene.flux[row, after] *= 1.0 + amp * np.exp(-dt / decay)
+                labels.append(with_footprint(label, fp.samples))
         return labels
