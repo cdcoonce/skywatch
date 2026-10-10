@@ -11,17 +11,22 @@ Algorithm (per night; nights are split where the union time grid has a gap large
    no star was observed, so it is a field-wide dropout spanning
    ``[t_prev + cadence_s, t_next)``; score = gap length in cadences. A dropout of one
    star leaves the union grid intact and is not this detector's job.
-2. Common mode: each star is divided by a centered running median of its own flux
-   (``baseline_window`` samples, shrinking at the edges); the per-time median across
+2. Common mode: each star is divided by a centered running median of its own flux,
+   computed per night (``baseline_window`` samples, shrinking at the night edges; the
+   window never crosses a night gap); the per-time median across
    stars is the common mode ``c(t)`` (NaN where fewer than ``min_stars`` contribute),
-   smoothed with a NaN-aware centered moving average of ``smooth`` samples. Samples
+   smoothed with a NaN-aware centered moving average of ``smooth`` samples (so
+   ``min_run=2`` is effectively inert at ``smooth=3``: any single-sample excursion
+   that clears the threshold smears over three samples; ``min_run`` only binds when
+   ``smooth=1``). Samples
    with ``|c - 1| >= threshold`` are merged into runs of at least ``min_run`` grid
    samples; span ``[t_first, t_last + cadence_s)``, score = max ``|c - 1| / threshold``.
 
 Limitations, stated honestly:
 
 * The running-median baseline is centered, so it partially absorbs a slow field-wide
-  event. A cloud of an hour or more is attenuated in a 2 h window, and a held drift is
+  event. Long shallow clouds (3600 s at depth 0.05) are detected over roughly half
+  their span. A cloud of an hour or more is attenuated in a 2 h window, and a held drift is
   absorbed progressively: the longer the departure persists, the more the baseline
   follows it, and near the end of a night the shrunken window can absorb it entirely.
 * ``kind_guess`` is a heuristic on the shape of the run. A negative-dominated run that
@@ -95,14 +100,24 @@ class FieldCommonModeDetector:
         self.night_gap_cadences = night_gap_cadences
         self.min_stars = min_stars
 
-    def _common_mode(self, curves: Mapping[int, LightCurve], grid: np.ndarray) -> np.ndarray:
+    def _baseline(self, t: np.ndarray, flux: np.ndarray, cadence_s: int) -> np.ndarray:
+        """Running median computed per night, so a window never spans a night gap."""
+        breaks = np.flatnonzero(np.diff(t) > self.night_gap_cadences * cadence_s) + 1
+        base = np.empty(len(flux))
+        for lo, hi in itertools.pairwise(np.concatenate(([0], breaks, [len(flux)]))):
+            base[lo:hi] = _running_median(flux[lo:hi], self.baseline_window)
+        return base
+
+    def _common_mode(
+        self, curves: Mapping[int, LightCurve], grid: np.ndarray, cadence_s: int
+    ) -> np.ndarray:
         mat = np.full((len(curves), len(grid)), np.nan)
         for row, star_id in enumerate(sorted(curves)):
             c = curves[star_id]
             if len(c) == 0:
                 continue
             flux = np.asarray(c.flux, dtype=float)
-            base = _running_median(flux, self.baseline_window)
+            base = self._baseline(np.asarray(c.t), flux, cadence_s)
             with np.errstate(invalid="ignore", divide="ignore"):
                 norm = np.where(base != 0, flux / base, np.nan)
             mat[row, np.searchsorted(grid, c.t)] = norm
@@ -118,7 +133,7 @@ class FieldCommonModeDetector:
         if not nonempty:
             return []
         grid = np.unique(np.concatenate(nonempty))
-        cm = self._common_mode(curves, grid)
+        cm = self._common_mode(curves, grid, cadence_s)
 
         breaks = np.flatnonzero(np.diff(grid) > self.night_gap_cadences * cadence_s) + 1
         bounds = np.concatenate(([0], breaks, [len(grid)]))

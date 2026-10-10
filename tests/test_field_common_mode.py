@@ -160,3 +160,42 @@ def test_performance_guard():
     t0 = time.perf_counter()
     FieldCommonModeDetector().detect(curves, C)
     assert time.perf_counter() - t0 < 3.0
+
+
+def test_baseline_does_not_cross_night_gap():
+    n = 240
+    t1, f1 = make_field(n=n, seed=1, noise=0.02)
+    t2, f2 = make_field(n=n, seed=2, noise=0.02, t0=int(t1[-1]) + C + 16 * 3600)
+    hold = np.ones(n)
+    hold[-60:] = 0.95  # drift hold at the end of night 1
+    t = np.concatenate([t1, t2])
+    flux = np.concatenate([f1 * hold, f2], axis=1)
+    out = FieldCommonModeDetector().detect(to_curves(t, flux), C)
+    assert [d for d in out if d.t_start >= t2[0]] == []
+
+
+def test_single_star_outlier_does_not_move_common_mode():
+    t, flux = make_field()
+    dip = flux.copy()
+    dip[0] = dip[0] * cosine_dip(240, 100, 130, 0.40)
+    assert FieldCommonModeDetector().detect(to_curves(t, dip), C) == []
+    hot = flux.copy()
+    hot[0, 100:130] *= 3.0  # +200% hot pixel
+    assert FieldCommonModeDetector().detect(to_curves(t, hot), C) == []
+
+
+def test_min_run_binds_when_unsmoothed():
+    t, flux = make_field(noise=0.0)
+    flux[:, 120] *= 0.95  # single-sample field-wide dip
+    curves = to_curves(t, flux)
+    assert FieldCommonModeDetector(smooth=1).detect(curves, C) == []
+    assert len(FieldCommonModeDetector(smooth=1, min_run=1).detect(curves, C)) == 1
+
+
+def test_smoothing_is_centered():
+    t, flux = make_field(noise=0.0)
+    flux = flux * cosine_dip(240, 100, 140, 0.06)
+    out = FieldCommonModeDetector().detect(to_curves(t, flux), C)
+    assert len(out) == 1
+    t_mid = (t[100] + t[140]) / 2
+    assert abs((out[0].t_start + out[0].t_end) / 2 - t_mid) <= C
