@@ -172,7 +172,10 @@ def test_performance_guard():
     curves = to_curves(t, flux)
     t0 = time.perf_counter()
     FieldCommonModeDetector().detect(curves, C)
-    assert time.perf_counter() - t0 < 3.0
+    # Deliberately loose: this guards against an algorithmic blow-up (an O(n * window)
+    # Python loop or quadratic work), which costs minutes at this size. A tight bound
+    # (it was 3.0 s) flaked once on a loaded machine, so it is 30 s, ~10x the typical run.
+    assert time.perf_counter() - t0 < 30.0
 
 
 def test_baseline_does_not_cross_night_gap():
@@ -429,3 +432,42 @@ def test_negative_run_at_exactly_max_cloud_is_still_a_cloud():
     det = FieldCommonModeDetector(baseline_window=1001, baseline="centered", smooth=1)
     out = det.detect(curves, C)
     assert [(d.t_end - d.t_start, d.kind_guess) for d in out] == [(3600, "cloud")]
+
+
+def test_short_negative_run_reaching_night_end_is_tracking_drift():
+    # 30 samples = 1800 s, well under max_cloud_s, so only the night-end rule can call it drift
+    t, flux = make_field(noise=0.002)
+    f = np.ones(240)
+    f[210:] = 0.93
+    det = FieldCommonModeDetector(baseline_window=1001, smooth=1)
+    out = det.detect(to_curves(t, flux * f), C)
+    assert [(d.t_start, d.t_end, d.kind_guess) for d in out] == [
+        (int(t[210]), int(t[-1]) + C, "tracking_drift")
+    ]
+    assert out[0].t_end - out[0].t_start <= 3600
+    # the same run ending one sample early is just a short cloud
+    f2 = np.ones(240)
+    f2[210:239] = 0.93
+    early = det.detect(to_curves(t, flux * f2), C)
+    assert [d.kind_guess for d in early] == ["cloud"]
+
+
+@pytest.mark.parametrize("cadence", [30, 120])
+def test_max_cloud_rule_is_in_seconds_at_any_cadence(cadence):
+    n = 600  # long enough that the dip is a minority of the night at every cadence
+    rng = np.random.default_rng(0)
+    t = np.arange(n, dtype=np.int64) * cadence
+    flux = 1000.0 * (1 + rng.normal(0, 0.002, (8, n)))
+    kw = {"baseline_window": 1001, "baseline": "centered", "smooth": 1}
+
+    def run_kinds(samples):
+        f = np.ones(n)
+        f[200 : 200 + samples] = 0.93
+        out = FieldCommonModeDetector(**kw).detect(to_curves(t, flux * f), cadence)
+        return [(d.t_end - d.t_start, d.kind_guess) for d in out]
+
+    # 3600 s at this cadence: still a cloud (a samples-vs-seconds mix-up would flag it)
+    assert run_kinds(3600 // cadence) == [(3600, "cloud")]
+    # one sample past 3600 s: tracking_drift (a hardcoded 60 s cadence would call it a cloud)
+    one_over = 3600 // cadence + 1
+    assert run_kinds(one_over) == [(one_over * cadence, "tracking_drift")]

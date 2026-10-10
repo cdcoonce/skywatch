@@ -42,7 +42,9 @@ Limitations, stated honestly:
   long; any other negative-dominated run is a "cloud"; a positive excursion that ends
   earlier is "tracking_drift" (upward drift); anything else gets None. A cloud that
   straddles the night end will therefore be guessed as drift, and a long real step and a
-  long drift cannot be told apart without a prior on step length.
+  long drift cannot be told apart without a prior on step length. Two clouds that merge
+  into one run longer than ``max_cloud_s`` are likewise guessed ``tracking_drift``; this is
+  a known limit of a duration-only rule.
 """
 
 from __future__ import annotations
