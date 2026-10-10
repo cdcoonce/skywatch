@@ -6,6 +6,7 @@ import pytest
 from skywatch.detectors import REGISTRY, Detector, load_all
 from skywatch.detectors.field_common_mode import FieldCommonModeDetector
 from skywatch.types import LightCurve
+from skywatch.world.glitches import CLOUD_DURATION_S
 
 C = 60
 
@@ -105,6 +106,30 @@ def test_dropout_all_stars():
     assert d.kind_guess == "dropout" and d.star_id is None
     assert (d.t_start, d.t_end) == (int(t[60]), int(t[70]))
     assert d.score == 11  # gap from t59 to t70 is 11 cadences
+
+
+def test_default_max_cloud_is_the_longest_cloud_the_world_injects():
+    # Disclosed prior: the detector reads the world's cloud law, so the two cannot drift.
+    assert FieldCommonModeDetector().max_cloud_s == CLOUD_DURATION_S[1]
+
+
+def test_one_sample_field_dropout_is_detected_with_exact_bounds():
+    t, flux = make_field()
+    keep = np.ones(flux.shape, bool)
+    keep[:, 100] = False  # grid gap of exactly two cadences: t99 -> t101
+    out = FieldCommonModeDetector().detect(to_curves(t, flux, keep), C)
+    assert len(out) == 1
+    d = out[0]
+    assert d.kind_guess == "dropout" and d.star_id is None
+    assert (d.t_start, d.t_end) == (int(t[99]) + C, int(t[101]))
+    # score is the grid gap in cadences (see test_dropout_all_stars: 10 dropped -> 11)
+    assert d.score == 2.0
+
+
+def test_gap_of_exactly_one_cadence_is_not_a_dropout():
+    t, flux = make_field()
+    assert np.all(np.diff(t) == C)  # every union-grid gap is exactly one cadence
+    assert FieldCommonModeDetector().detect(to_curves(t, flux), C) == []
 
 
 def test_dropout_one_star_only():

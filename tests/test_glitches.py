@@ -3,6 +3,8 @@ import pytest
 
 from skywatch.types import Star, TruthLabel
 from skywatch.world.glitches import (
+    CLOUD_DURATION_S,
+    HOT_PIXEL_DURATION_S,
     CloudInjector,
     CosmicRayInjector,
     DropoutInjector,
@@ -154,6 +156,30 @@ def test_cloud_dims_all_rows_min_at_tmid():
         w = 0.5 * (1 + np.cos(np.pi * (sc.t[k] - tm) / (dur / 2)))
         assert ratio[0, k] == pytest.approx(1 - d * w)
         assert ratio[0].min() >= 1 - d - 1e-12
+
+
+def _durations(inj, n_scenes=100):
+    out = []
+    for seed in range(n_scenes):
+        out += [lab.params["duration_s"] for lab in inj.inject(_scene(), _rng(seed))]
+    return out
+
+
+def test_cloud_durations_stay_inside_the_exported_law():
+    lo, hi = CLOUD_DURATION_S
+    durs = _durations(CloudInjector(20.0))
+    assert len(durs) >= 2000
+    assert lo <= min(durs) and max(durs) <= hi
+    # the draws actually span the law: a narrowed literal would also be a drift
+    assert min(durs) < lo + 100 and max(durs) > hi - 100
+
+
+def test_hot_pixel_durations_stay_inside_their_own_law():
+    lo, hi = HOT_PIXEL_DURATION_S
+    durs = _durations(HotPixelInjector(6.0), n_scenes=100)
+    assert len(durs) >= 2000
+    assert lo <= min(durs) and max(durs) <= hi
+    assert min(durs) < lo + 100 and max(durs) > hi - 100
 
 
 def test_cloud_single_exact():
