@@ -24,16 +24,36 @@ class KindScore:
     precision: float
     recall: float
     f1: float
+    tp_bounded: int = 0
+    tp_touched: int = 0
+    corroborating: int = 0
+    bounded_rate: float = 0.0
 
 
 def _div(a: float, b: float) -> float:
     return a / b if b else 0.0
 
 
-def _row(detector: str, kind: str, tp: int, fp: int, fn: int) -> KindScore:
+def _row(
+    detector: str, kind: str, tp_bounded: int, tp_touched: int, corr: int, fp: int, fn: int
+) -> KindScore:
+    tp = tp_bounded + tp_touched
     p = _div(tp, tp + fp)
     r = _div(tp, tp + fn)
-    return KindScore(detector, kind, tp, fp, fn, p, r, _div(2 * p * r, p + r))
+    return KindScore(
+        detector,
+        kind,
+        tp,
+        fp,
+        fn,
+        p,
+        r,
+        _div(2 * p * r, p + r),
+        tp_bounded,
+        tp_touched,
+        corr,
+        _div(tp_bounded, tp),
+    )
 
 
 def _detectors(
@@ -64,18 +84,40 @@ def score(
     all_kinds = set(ORIGIN_OF_KIND if kinds is None else kinds)
     for detector in _detectors(matches, detections, detectors):
         mine = [m for m in matches if m.detector == detector]
-        matched = {m.label_id for m in mine if m.label_id is not None}
-        tp: Counter[str] = Counter()
+        grade_of = {m.label_id: m.grade for m in mine if m.grade in ("bounded", "touched")}
+        tpb: Counter[str] = Counter()
+        tpt: Counter[str] = Counter()
         fn: Counter[str] = Counter()
         fp: Counter[str] = Counter()
+        corr: Counter[str] = Counter()
+        kind_of = {t.label_id: t.kind for t in truth}
         for t in truth:
-            (tp if t.label_id in matched else fn)[t.kind] += 1
+            g = grade_of.get(t.label_id)
+            if g == "bounded":
+                tpb[t.kind] += 1
+            elif g == "touched":
+                tpt[t.kind] += 1
+            else:
+                fn[t.kind] += 1
         for m in mine:
             if m.label_id is None:
                 fp[guess_of.get((detector, m.det_id), UNKNOWN)] += 1
-        for kind in sorted(all_kinds | set(tp) | set(fn) | set(fp)):
-            rows.append(_row(detector, kind, tp[kind], fp[kind], fn[kind]))
-        rows.append(_row(detector, ALL, sum(tp.values()), sum(fp.values()), sum(fn.values())))
+            elif m.grade == "corroborating" and m.label_id in kind_of:
+                corr[kind_of[m.label_id]] += 1
+        seen = all_kinds | set(tpb) | set(tpt) | set(fn) | set(fp) | set(corr)
+        for kind in sorted(seen):
+            rows.append(_row(detector, kind, tpb[kind], tpt[kind], corr[kind], fp[kind], fn[kind]))
+        rows.append(
+            _row(
+                detector,
+                ALL,
+                sum(tpb.values()),
+                sum(tpt.values()),
+                sum(corr.values()),
+                sum(fp.values()),
+                sum(fn.values()),
+            )
+        )
     rows.sort(key=lambda r: (r.detector, r.kind == ALL, r.kind))
     return rows
 
@@ -92,7 +134,7 @@ def confusion(
     for detector in _detectors(matches, detections, detectors):
         matched: set[str] = set()
         for m in matches:
-            if m.detector != detector or m.label_id is None:
+            if m.detector != detector or m.label_id is None or m.grade == "corroborating":
                 continue
             matched.add(m.label_id)
             out[(detector, kind_of[m.label_id], guess_of.get((detector, m.det_id), UNKNOWN))] += 1
@@ -103,17 +145,20 @@ def confusion(
 
 
 def format_scoreboard(scores: Sequence[KindScore]) -> str:
-    header = ("detector", "kind", "tp", "fp", "fn", "P", "R", "F1")
+    header = ("detector", "kind", "tpB", "tpT", "corr", "fp", "fn", "P", "R", "F1", "bounded")
     body = [
         (
             s.detector,
             s.kind,
-            str(s.tp),
+            str(s.tp_bounded),
+            str(s.tp_touched),
+            str(s.corroborating),
             str(s.fp),
             str(s.fn),
             f"{s.precision:.3f}",
             f"{s.recall:.3f}",
             f"{s.f1:.3f}",
+            f"{s.bounded_rate:.3f}",
         )
         for s in scores
     ]

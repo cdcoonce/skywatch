@@ -195,17 +195,34 @@ Planned detectors, in order:
 
 ## Scoring
 
-- A detection and a truth label **match** when they are on the same star (or
-  the label is field-wide) and their time spans overlap with IoU >= 0.3, or the
-  detection is within one cadence of a single-sample label.
-- Matching is greedy by descending detection score; one label matches at most
-  one detection, one detection at most one label.
-- Per detector and per `kind`: TP, FP, FN, precision, recall, F1. FP is counted
-  against the kind the detector guessed if it guessed, else against `unknown`.
-- A **confusion** table (truth kind by detected-as) is reported alongside, so
-  that "flagged a cloud as a transit" is visible, not folded into FP.
+- A detection is **eligible** for a truth label when they are on the same star (or
+  the label is field-wide) and their time spans overlap at all, or the detection
+  is within one cadence of a single-sample label.
+- An eligible pair is graded **bounded** when span IoU >= 0.3 (or the single-cadence
+  tolerance holds) and **touched** when the spans overlap but IoU < 0.3.
+- Matching is greedy by descending detection score (ties by `det_id`). A detection
+  takes the unclaimed label with a bounded grade (highest IoU), else the unclaimed
+  label with a touched grade (highest IoU). Star-level labels match at most one
+  detection.
+- A **field-wide** label (`star_id` None) accepts many detections from one detector:
+  the first is its TP; each later eligible detection is **corroborating** and
+  counts as neither TP nor FP. Only detections eligible for nothing are FP.
+- Per detector and per `kind`: `tp_bounded`, `tp_touched`, `corroborating`, `fp`,
+  `fn`. `tp = tp_bounded + tp_touched`; precision = tp / (tp + fp); recall =
+  tp / (tp + fn); F1 from those; `bounded_rate = tp_bounded / tp` (how well the
+  detector spans what it finds). FP is counted against the kind the detector
+  guessed if it guessed, else against `unknown`.
+- A **confusion** table (truth kind by detected-as) is reported alongside, with
+  bounded and touched matches and `missed` rows, so that "flagged a cloud as a
+  transit" is visible, not folded into FP. Corroborating detections are omitted.
 - Pulsations are continuous and are scored only on a "did you notice this star
   varies" basis in v0 (one label per star per night).
+
+Why: on the first run, 281 of 312 "false positives" overlapped a real injected
+event, because IoU >= 0.3 made an onset hit on a 47-minute flare both an FN and an
+FP, and one-label-one-detection booked 216 of 217 stars that flagged the same cloud
+as false alarms. The scoreboard must separate "did not see it" from "saw it but
+spanned it wrong" and "everyone saw it", so the scorer changed, not the detector.
 
 ## Interfaces that exist from day one
 
