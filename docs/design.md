@@ -204,9 +204,22 @@ Planned detectors, in order:
   takes the unclaimed label with a bounded grade (highest IoU), else the unclaimed
   label with a touched grade (highest IoU). Star-level labels match at most one
   detection.
+- **Edge tolerance** (`edge_tolerance_cadences`, default 1; 0 turns it off). After the
+  pass above, a detection still unmatched that overlaps no label but lies within that
+  many cadences of one's edge on the same star (or a field-wide label) is matched to it
+  by a second pass over the leftovers, so overlap always beats edge. The distance is
+  between the half-open spans: `det.t_start - label.t_end` after a label,
+  `label.t_start - det.t_end` before it, and the detection is eligible when
+  `0 <= distance < k * cadence_s` (0 = abutting, the first sample after or last sample
+  before the label). Nearest edge wins, then the lowest `label_id`. The grade is
+  **touched** if the label is still unclaimed, and **corroborating** if this detector
+  already claimed it: the end of a hot-pixel plateau or the decay of a flare crossing the
+  threshold is evidence of an event the detector already counted, not a false alarm.
+  Bounded stays IoU-based and is never affected.
 - A **field-wide** label (`star_id` None) accepts many detections from one detector:
   the first is its TP; each later eligible detection is **corroborating** and
-  counts as neither TP nor FP. Only detections eligible for nothing are FP.
+  counts as neither TP nor FP. Only detections eligible for nothing (overlap, single-cadence
+  tolerance or edge tolerance) are FP.
 - Per detector and per `kind`: `tp_bounded`, `tp_touched`, `corroborating`, `fp`,
   `fn`. `tp = tp_bounded + tp_touched`; precision = tp / (tp + fp); recall =
   tp / (tp + fn); F1 from those; `bounded_rate = tp_bounded / tp` (how well the
