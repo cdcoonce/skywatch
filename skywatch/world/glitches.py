@@ -18,6 +18,13 @@ import numpy as np
 from skywatch.types import TruthLabel
 from skywatch.world.footprint import KEY, touched
 
+# Duration laws, ``round(uniform(lo, hi))`` seconds. The rounded draw reaches ``hi``
+# inclusively. The cloud law is exported because FieldCommonModeDetector reads its upper
+# end as an explicit, disclosed prior (the longest cloud the world can make). The hot
+# pixel happens to share the numbers today but is its own law, so it has its own constant.
+CLOUD_DURATION_S: tuple[int, int] = (300, 3600)
+HOT_PIXEL_DURATION_S: tuple[int, int] = (300, 3600)
+
 
 def _night_bounds(scene) -> tuple[int, int]:
     return int(scene.t[0]), int(scene.t[-1]) + scene.cadence_s
@@ -109,7 +116,7 @@ class CloudInjector:
         labels: list[TruthLabel] = []
         for k in range(int(rng.poisson(self.rate))):
             t_mid = _uniform_time(scene, rng)
-            dur = round(rng.uniform(300, 3600))
+            dur = round(rng.uniform(*CLOUD_DURATION_S))
             depth = float(rng.uniform(0.05, 0.6))
             s, e, clipped = _clip(scene, t_mid - dur // 2, t_mid - dur // 2 + dur)
             sel = (scene.t >= s) & (scene.t < e)
@@ -172,7 +179,7 @@ class HotPixelInjector:
         for row, star in enumerate(scene.stars):
             for k in range(int(rng.poisson(self.rate))):
                 t_start = _uniform_time(scene, rng)
-                dur = round(rng.uniform(300, 3600))
+                dur = round(rng.uniform(*HOT_PIXEL_DURATION_S))
                 value = float(star.flux0 * rng.uniform(1.5, 4.0))
                 s, e, clipped = _clip(scene, t_start, t_start + dur)
                 with touched(scene, row) as fp:

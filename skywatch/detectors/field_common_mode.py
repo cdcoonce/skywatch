@@ -37,8 +37,9 @@ Limitations, stated honestly:
   under either baseline.
 * ``kind_guess`` is a heuristic on the shape of the run. A run that reaches the night's
   last grid sample (the departure persists to the end, as a held drift does) is
-  "tracking_drift"; a negative-dominated run longer than ``max_cloud_s`` (default 3600 s,
-  the longest cloud the world injects) is also "tracking_drift", since no cloud lasts that
+  "tracking_drift"; a negative-dominated run longer than ``max_cloud_s`` (defaults to
+  ``CLOUD_DURATION_S[1]`` from the world module, the upper end of the world's cloud
+  duration law: the longest cloud the world injects, an explicit and disclosed prior) is also "tracking_drift", since no cloud lasts that
   long; any other negative-dominated run is a "cloud"; a positive excursion that ends
   earlier is "tracking_drift" (upward drift); anything else gets None. A cloud that
   straddles the night end will therefore be guessed as drift, and a long real step and a
@@ -58,13 +59,9 @@ from numpy.lib.stride_tricks import sliding_window_view
 from skywatch.detectors import register
 from skywatch.detectors.nights import split_nights
 from skywatch.types import Detection, LightCurve
+from skywatch.world.glitches import CLOUD_DURATION_S
 
 BASELINES = ("centered", "causal")
-
-# The longest cloud the world injects: ``CloudInjector`` draws duration_s from
-# uniform(300, 3600), but skywatch/world/glitches.py keeps that bound as an inline
-# literal, not a constant to import, so it is repeated here. Keep the two in step.
-MAX_CLOUD_S = 3600
 
 
 def _running_median(flux: np.ndarray, window: int) -> np.ndarray:
@@ -127,7 +124,7 @@ class FieldCommonModeDetector:
         night_gap_cadences: int = 100,
         min_stars: int = 5,
         baseline: str = "causal",
-        max_cloud_s: int = MAX_CLOUD_S,
+        max_cloud_s: int = CLOUD_DURATION_S[1],
     ) -> None:
         if baseline not in BASELINES:
             raise ValueError(f"baseline must be one of {BASELINES}, got {baseline!r}")
