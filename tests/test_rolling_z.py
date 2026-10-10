@@ -154,7 +154,10 @@ def test_first_window_of_each_night_is_unflaggable():
     assert [d for d in out if d.t_start >= 86400] == []
 
 
-def test_run_does_not_merge_across_nights():
+def test_det_ids_continue_across_nights():
+    # No-merge is true by construction for rolling_z: the first sample of every night has
+    # z = 0 (warm-up is at least one sample), so a run cannot span a night boundary. This
+    # pins only that det_ids keep counting across nights.
     t = two_night_t()
     f = 100 + np.random.default_rng(3).normal(0, 1, 2 * NIGHT)
     f[NIGHT - 1] += 30

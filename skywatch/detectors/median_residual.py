@@ -64,7 +64,8 @@ def median_residual_scores(flux: np.ndarray, flux_err: np.ndarray, window: int) 
 class MedianResidualDetector:
     """Flags runs where |z| >= threshold (see `median_residual_scores`).
 
-    A NaN sample blinds every window touching it (z = 0 within half a window).
+    A NaN sample blinds every window touching it (z = 0 within half a window). The
+    per-night median shrinks at night ends, so an event there is partly absorbed.
     """
 
     name = "median_residual"

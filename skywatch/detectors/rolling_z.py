@@ -38,7 +38,11 @@ def rolling_z_scores(flux: np.ndarray, flux_err: np.ndarray, window: int) -> np.
 
 @register
 class RollingZDetector:
-    """Flags runs where |z| >= z_threshold (see `rolling_z_scores` for edge cases)."""
+    """Flags runs where |z| >= z_threshold (see `rolling_z_scores` for edge cases).
+
+    The window is per night, so the first `window` samples of every night are blind, and
+    a night shorter than the window is entirely unflaggable.
+    """
 
     name = "rolling_z"
 
@@ -53,9 +57,6 @@ class RollingZDetector:
         self.z_threshold = z_threshold
         self.min_run = min_run
         self.night_gap_cadences = night_gap_cadences
-
-    def _z(self, curve: LightCurve) -> np.ndarray:
-        return rolling_z_scores(curve.flux, curve.flux_err, self.window)
 
     def detect(self, curves: Mapping[int, LightCurve], cadence_s: int) -> list[Detection]:
         """Windows and runs never cross a night gap; each night warms up on its own."""
