@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from collections.abc import Mapping
 from typing import Protocol
 
@@ -21,3 +23,10 @@ def register(cls: type) -> type:
     """Class decorator: add a detector class to REGISTRY under its `name`."""
     REGISTRY[cls.name] = cls
     return cls
+
+
+def load_all() -> dict[str, type]:
+    """Import every module in this package so each @register runs; return REGISTRY."""
+    for mod in pkgutil.iter_modules(__path__):
+        importlib.import_module(f"{__name__}.{mod.name}")
+    return REGISTRY

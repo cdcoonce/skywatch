@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import skywatch.detectors.rolling_z  # noqa: F401  (registers the detector)
-from skywatch.detectors import REGISTRY
+from skywatch.detectors import REGISTRY, load_all
 from skywatch.io import store
 from skywatch.scoring.match import match_detections
 from skywatch.scoring.metrics import KindScore, confusion, format_scoreboard, score
@@ -24,6 +23,7 @@ def simulate_run(
 
 
 def detect_run(run_dir: Path, detector_name: str, **kwargs: Any) -> int:
+    load_all()
     if detector_name not in REGISTRY:
         raise ValueError(
             f"unknown detector {detector_name!r}; available: {', '.join(sorted(REGISTRY))}"

@@ -59,3 +59,10 @@ def test_overwrite_refused_returns_2(tmp_path):
         )
         == 2
     )
+
+
+def test_load_all_registers_every_detector_module():
+    from skywatch.detectors import REGISTRY, load_all
+
+    load_all()
+    assert "rolling_z" in REGISTRY
