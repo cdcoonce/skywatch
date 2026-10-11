@@ -1,4 +1,4 @@
-"""Command-line interface: simulate, detect, score, report."""
+"""Command-line interface: simulate, detect, score, planets, report, view, site."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from skywatch import __version__, run, view
+from skywatch import __version__, planets, run, site, view
 from skywatch.scoring.metrics import format_scoreboard
 from skywatch.world.field import FieldConfig
 from skywatch.world.survey import SurveyConfig
@@ -36,6 +36,11 @@ def build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("score", help="score detections against truth")
     sc.add_argument("--run", required=True)
 
+    pl = sub.add_parser("planets", help="per-planet events and stacked S/N from a stored run")
+    pl.add_argument("--run", required=True)
+    pl.add_argument("--min-events", type=int, default=1, help="hide planets with fewer events")
+    pl.add_argument("--min-snr", type=float, default=0.0, help="hide planets below this snr_stack")
+
     rep = sub.add_parser("report", help="print the scoreboard")
     rep.add_argument("--run", required=True)
 
@@ -46,6 +51,10 @@ def build_parser() -> argparse.ArgumentParser:
     vw.add_argument("--pick", action="store_true", help="choose the busiest star-night")
     vw.add_argument("--out", default=None, help=".png or .svg (default runs/<id>/views/...)")
     vw.add_argument("--detectors", default=None, help="comma-separated, default every detector")
+
+    st = sub.add_parser("site", help="write the static page: the views beside the scoreboard")
+    st.add_argument("--spec", required=True, help="site spec JSON (runs, views, captions)")
+    st.add_argument("--out", default=None, help="page path (default: index.html beside the spec)")
     return p
 
 
@@ -92,10 +101,15 @@ def _dispatch(args: argparse.Namespace) -> None:
         print(f"{n} detections")
     elif args.command == "score":
         print(format_scoreboard(run.score_run(Path(args.run))))
+    elif args.command == "planets":
+        rows = planets.planet_rows(Path(args.run))
+        print(planets.format_planets(rows, args.min_events, args.min_snr))
     elif args.command == "report":
         print(run.report_run(Path(args.run)))
     elif args.command == "view":
         _view(args)
+    elif args.command == "site":
+        print(site.generate(Path(args.spec), Path(args.out) if args.out else None))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -109,7 +123,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         _dispatch(args)
-    except (ValueError, TypeError, FileNotFoundError, FileExistsError) as e:
+    except (ValueError, TypeError, OSError) as e:
         print(f"skywatch: error: {e}", file=sys.stderr)
         return 2
     return 0

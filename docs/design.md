@@ -301,7 +301,21 @@ skywatch simulate --seed 42 --stars 200 --nights 3 --out runs/
 skywatch detect   --run runs/<id> --detector rolling_z
 skywatch score    --run runs/<id>
 skywatch report   --run runs/<id>          # text table now, site later
+skywatch planets  --run runs/<id> [--min-events N] [--min-snr X]
 ```
+
+`planets` is the truth-side yield tool, like `score` and `report`; detectors never import
+it. It prints one row per injected planet from the stored tables: the number of in-night
+`transit` labels (`events`, clipped labels included) and the stacked matched-filter S/N a
+periodic search could reach. Per event, S/N = `depth * sqrt(sum(profile(t_i)^2)) /
+sigma_tot`, summed over the star's observed samples inside the label's span, where
+`profile` is the injector's box with linear ramps (`ramp = 0.1 * duration_s`) and
+`sigma_tot = sqrt(noise_floor^2 + 1/flux0)` is the per-sample relative noise. A label with
+`footprint_samples == 0` is an event with S/N 0. `snr_stack` is the quadrature sum over a
+planet's events, `snr_max` the largest one. Instrument-flagged samples (`quality` bit 0)
+count like any other, so the S/N reads as an upper bound for a detector that drops them. The filters hide rows only; the summary line
+always counts the whole run. It is how a periodic detector's acceptance targets are named
+from the run itself rather than estimated.
 
 ## Non-goals for v0
 
