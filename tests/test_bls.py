@@ -537,7 +537,7 @@ def test_default_parameters():
     assert d.guard_fap == 1e-3 and d.guard_ratio == 1.0
     assert (d.guard_f_min_per_d, d.guard_f_max_per_d) == (1.0, 30.0)
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
-    assert d.second_pass is True
+    assert d.second_pass is False  # opt-in: held-out seeds gain false positives, no transits
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -819,7 +819,7 @@ def test_a_box_that_leaves_nothing_outside_it_is_refused_by_the_guard():
     # residual test then has nothing to measure (an empty mean) and must not wave it through
     t = night_times(3)
     cv = curve(0, t, np.ones(len(t)), 0.005, np.random.default_rng(0))
-    det = BlsDetector()
+    det = BlsDetector(second_pass=False)  # a first-pass fix: it holds whatever the flag says
     c = det._clean(cv, C)
     box = Box(float(DAY), 4 * 3600.0, 2 * 24 * 3600.0, 0.01, len(t), len(t), 1.0)
     with warnings.catch_warnings():
@@ -834,7 +834,7 @@ def test_an_undefined_local_snr_does_not_pass_the_gate(monkeypatch):
     _, _, cv = planted()
     with warnings.catch_warnings():
         warnings.simplefilter("error")  # and says so without a numpy warning
-        cand = BlsDetector().search(cv, C)
+        cand = BlsDetector(second_pass=False).search(cv, C)
     assert cand.rejected == "local snr" and math.isnan(cand.snr_local)
 
 
@@ -1035,8 +1035,8 @@ def test_without_the_secondary_rule_a_weak_secondary_hides_the_planet(monkeypatc
     assert detect({0: cv}, second_pass=True) == []
 
 
-def test_the_second_pass_is_on_by_default():
-    assert BlsDetector().second_pass is True
+def test_the_second_pass_is_off_by_default():
+    assert BlsDetector().second_pass is False
     _, cv = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
-    assert len(detect({0: cv})) == 3
-    assert detect({0: cv}, second_pass=False) == []
+    assert detect({0: cv}) == []  # the first pass leaves the planet behind the binary
+    assert len(detect({0: cv}, second_pass=True)) == 3
