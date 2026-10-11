@@ -870,7 +870,7 @@ class BlsDetector:
             if not self.second_pass or not cand.mask:
                 return []
             cand = self._re_search(star_id, c, common_mode, cadence_s, cand)
-            if cand is None or cand.rejected is not None:
+            if cand is None:
                 return []
         return [
             Detection(
@@ -895,7 +895,8 @@ class BlsDetector:
     ) -> Candidate | None:
         """The one re-search of a star whose best box was rejected (``first.mask`` is set).
 
-        The record is searched again without the windows of ``first.mask``. The result is
+        The record is searched again without the windows of ``first.mask``; the result is the
+        second candidate, or None when the search found nothing or it is rejected. It is
         a candidate in its own right: every gate applies. When the first box was rejected by
         the pulsation guard its period belongs to a periodic signal (a binary, a pulsator),
         and the candidate is also refused as an ``"alias"`` if its period is that period or
@@ -922,7 +923,7 @@ class BlsDetector:
             second.snr_local,
             second.rejected or "accepted",
         )
-        return second
+        return second if second.rejected is None else None
 
     @staticmethod
     def _events(

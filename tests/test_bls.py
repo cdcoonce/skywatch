@@ -806,6 +806,99 @@ def test_an_equally_long_dip_at_half_phase_is_masked_as_the_secondary():
     assert covered[second].all()
 
 
+def _clean_mask(prof, t, period_d, epoch_d, sigma, dur_h=3.0, **kw):
+    """Samples covered by the mask of a noise-free profile whose box is at the given phase."""
+    box = Box(period_d * DAY, epoch_d * DAY, dur_h * 3600.0, 0.2, 500, len(t), 1.0)
+    det = BlsDetector(second_pass=True, **kw)
+    return _covered(t, det._dip_mask(t, prof, box, sigma))
+
+
+def test_a_dip_grows_through_wings_below_the_seed_level():
+    # a 3 h core at 20 percent with 1.3 per mille wings out to 6 h either side: with sigma 0.01 a
+    # 15-minute bin of the fold sees the wings at 1.6 standard errors, under support_snr (2) and
+    # over tail_sigma (1). The margin alone (3 h) stops short of the night's last half hour
+    t = night_times(20).astype(float)
+    core = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2)
+    wings = box_profile(t, 2.0 * DAY, 0.1 * DAY, 12 * 3600.0, 0.0013)
+    prof = core * wings
+    far = (wings < 1.0) & (core == 1.0) & (np.mod(t, DAY) > 7.3 * 3600.0)
+    assert far.sum() > 100
+    assert _clean_mask(prof, t, 2.0, 0.1, 0.01)[far].all()
+    # without the growth (tail_sigma at the seed level) the wings are left behind
+    assert not _clean_mask(prof, t, 2.0, 0.1, 0.01, tail_sigma=2.0)[far].any()
+
+
+def test_the_mask_is_the_dip_plus_one_box_duration_each_side():
+    # a 1 h dip at 1.9-2.9 h into every other night: the window is the dip (to the 15 min bin)
+    # and one more hour each side, so 0.9-3.9 h, and nothing beyond 15 min of that
+    t = night_times(20).astype(float)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3600.0, 0.2)
+    covered = _clean_mask(prof, t, 2.0, 0.1, 0.003, dur_h=1.0)
+    hour = np.mod(t, DAY) / 3600.0
+    on_night = np.isin(np.floor(t / DAY) % 2, [0])
+    assert covered[on_night & (hour >= 1.0) & (hour <= 3.8)].all()
+    assert not covered[on_night & ((hour < 0.6) | (hour > 4.2))].any()
+    assert not covered[~on_night].any()
+
+
+def test_a_box_wider_than_its_dip_is_masked_whole():
+    # the dip is 1 h but the box is 3 h: the window is the box plus a box duration each side
+    t = night_times(20).astype(float)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3600.0, 0.2)
+    covered = _clean_mask(prof, t, 2.0, 0.1, 0.003, dur_h=3.0)
+    hour = np.mod(t, DAY) / 3600.0
+    on_night = np.floor(t / DAY) % 2 == 0
+    centre = 0.1 * 24.0
+    assert covered[on_night & (np.abs(hour - centre) <= 4.3)].all()
+    assert not covered[on_night & (np.abs(hour - centre) >= 4.9)].any()
+
+
+def test_the_masked_nights_are_divided_by_the_median_of_what_is_left(monkeypatch):
+    calls = []
+    real = bls._renormalise_nights
+
+    def spy(flux, night, *a, **k):
+        calls.append(len(flux))
+        return real(flux, night, *a, **k)
+
+    monkeypatch.setattr(bls, "_renormalise_nights", spy)
+    _, _, cv = planted()
+    det = BlsDetector()
+    c = det._clean(cv, C)
+    det._search(c, None, C)
+    assert calls == []
+    window = Box(2.0 * DAY, 0.1 * DAY, 4 * 3600.0, 0.0, 0, 0, 0.0)
+    det._search(c, None, C, masked=[window])
+    assert len(calls) == 1 and calls[0] < len(cv.t)
+
+
+def test_a_dip_that_is_not_half_a_period_from_the_primary_is_not_a_secondary():
+    # P = 3 d: nights fall on phases 0, 1 and 2 d; the primary is at 0.1 d, half a period is 1.6 d
+    # (no data) and an equally deep, equally long dip at 2.1 d is simply another signal
+    t = night_times(30).astype(float)
+    prof = box_profile(t, 3.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2) * box_profile(
+        t, 3.0 * DAY, 2.1 * DAY, 3 * 3600.0, 0.2
+    )
+    covered = _clean_mask(prof, t, 3.0, 0.1, 0.003)
+    primary = box_profile(t, 3.0 * DAY, 0.1 * DAY, 3 * 3600.0, 1.0) < 1.0
+    other = box_profile(t, 3.0 * DAY, 2.1 * DAY, 3 * 3600.0, 1.0) < 1.0
+    assert primary.sum() > 500 and other.sum() > 500
+    assert covered[primary].all() and not covered[other].any()
+
+
+@pytest.mark.parametrize("depth,masked", [(0.0013, False), (0.0020, True)])
+def test_a_secondary_must_reach_the_detection_threshold_on_its_own(depth, masked):
+    # sigma 0.01 and 150 samples a bin: 0.0013 is 1.6 standard errors a bin (S/N 5.5 over the
+    # 3 h run), 0.0020 is 2.4 (S/N 8.4); one bin of the first holds a seed above support_snr
+    t = night_times(20).astype(float)
+    second = box_profile(t, 2.0 * DAY, 1.1 * DAY, 3 * 3600.0, depth)
+    seed = box_profile(t, 2.0 * DAY, 1.1 * DAY, 900.0, 0.0008)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2) * second * seed
+    covered = _clean_mask(prof, t, 2.0, 0.1, 0.01)
+    flat = box_profile(t, 2.0 * DAY, 1.1 * DAY, 3 * 3600.0, 1.0) < 1.0
+    assert flat.sum() > 500 and covered[flat].all() == masked and covered[flat].any() == masked
+
+
 def test_a_rejection_on_snr_or_without_plan_mask_carries_no_mask():
     det = BlsDetector(second_pass=True)
     rng = np.random.default_rng(5)
@@ -879,7 +972,7 @@ def test_a_rejection_on_snr_is_not_searched_again():
 
 def test_nothing_is_searched_again_when_the_pass_is_off_or_the_first_box_stands():
     det, out = _run_stub(_cand(2.0, "pulsation guard", MASK), _cand(5.3, None), second_pass=False)
-    assert len(det.calls) == 1 and out == []
+    assert det.calls == [((), False)] and out == []  # and no mask was planned
     det, out = _run_stub(_cand(2.0, None), _cand(5.3, None), second_pass=True)
     assert len(det.calls) == 1 and len(out) == 2 and out[0].score == 12.0
 
