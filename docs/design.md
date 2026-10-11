@@ -230,8 +230,8 @@ Planned detectors, in order:
   `label.t_start - det.t_end` before it, and the detection is eligible when
   `0 <= distance < k * cadence_s` (0 = abutting, the first sample after or last sample
   before the label). A detection that overlaps any label on its star (claimed or not)
-  is not edge-eligible and stays unmatched, as before. Among eligible labels any
-  still-unclaimed one is preferred over an already-claimed one, even a nearer claimed
+  is not edge-eligible; the overlap pass has already settled it (see fragments below).
+  Among eligible labels any still-unclaimed one is preferred over an already-claimed one, even a nearer claimed
   one; within the chosen group the nearest edge wins, then the lowest `label_id`. The
   grade is **touched** if the label is still unclaimed, and **corroborating** if this
   detector already claimed it: the end of a hot-pixel plateau or the decay of a flare crossing the
@@ -241,6 +241,20 @@ Planned detectors, in order:
   the first is its TP; each later eligible detection is **corroborating** and
   counts as neither TP nor FP. Only detections eligible for nothing (overlap, single-cadence
   tolerance or edge tolerance) are FP.
+- **Fragments.** A detection that overlaps an already-claimed star-level label, and so
+  loses the one-to-one race for it, is **corroborating** for that label, graded the
+  same as an overlapping duplicate on a field-wide label and as an edge detection on a
+  claimed label. Which single detection earns the tp is unchanged (greedy by score, then
+  the best label by IoU), so `tp_bounded`, `tp_touched` and recall do not move. A
+  fragment that overlaps several claimed labels corroborates the one with the highest
+  IoU (ties by `label_id`); a claimed field-wide label it is eligible for takes
+  precedence, as before. Why: precision measures whether a detection points at something
+  real, and the flare's decay re-crossing the threshold after the onset was found points
+  at the flare; booking it a false alarm made a detector that merges fragments look more
+  precise than one that reports them, regardless of whether either sees the event. It is
+  not extra credit either: a fragment is neither tp nor fp, adds nothing to recall, and
+  is omitted from the confusion table. `false_alarm` keeps meaning "no truth here": only
+  a detection that matches, corroborates or abuts nothing is FP.
 - **Unobservable labels.** A label with `footprint_samples == 0` is dropped before
   matching: it is never matched, never an FN, and not in recall's denominator. A detection
   over one is treated as if the label were absent, so it is matched to something else if
