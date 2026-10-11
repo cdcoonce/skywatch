@@ -187,6 +187,10 @@ _MAD_SCALE = 1.4826
 _GUARD_CORE_WIDTH = 0.8  # the pulsation guard subtracts the box over 0.8 x its duration
 _GUARD_MASK_WIDTH = 1.5  # ... and leaves out the rest of the 1.5 x window
 _SECONDARY_WIDTH = 0.7  # a secondary dip must last this share of the primary's length
+_ALIAS_TOLERANCE = 0.02  # a re-search period within this fraction of P, P/2 or 2P is an alias
+_DIP_MIN_BINS = 8  # the dip fold has at least this many phase bins, whatever the period
+_DIP_CORE_MIN_BINS = 0.5  # half-width floor (in bins) of the box core in the dip fold
+_RENORMALISE_MIN_SAMPLES = 5  # a night of fewer samples is not divided by its median again
 _CHUNK_ELEMENTS = 1_000_000  # periods per chunk = this // n samples (keeps arrays cache-sized)
 
 
@@ -488,11 +492,13 @@ def _circular_runs(flag: np.ndarray) -> list[tuple[int, int]]:
 
 
 def _is_alias(period_s: float, first_s: float) -> bool:
-    """True when `period_s` is `first_s`, half of it or twice it (to 2 percent)."""
-    return any(abs(period_s / first_s * q - 1.0) < 0.02 for q in (1.0, 0.5, 2.0))
+    """True when `period_s` is `first_s`, half of it or twice it (to ``_ALIAS_TOLERANCE``)."""
+    return any(abs(period_s / first_s * q - 1.0) < _ALIAS_TOLERANCE for q in (1.0, 0.5, 2.0))
 
 
-def _renormalise_nights(flux: np.ndarray, night: np.ndarray, min_n: int = 5) -> np.ndarray:
+def _renormalise_nights(
+    flux: np.ndarray, night: np.ndarray, min_n: int = _RENORMALISE_MIN_SAMPLES
+) -> np.ndarray:
     """Divide each night by its own median again (nights of fewer than `min_n` are left)."""
     flux = flux.copy()
     for k in np.unique(night):
@@ -720,7 +726,7 @@ class BlsDetector:
         it). Each window is as wide as its dip plus one box duration each side.
         """
         period = box.period_s
-        nb = max(8, math.ceil(period / (self.durations_h[0] * HOUR_S / 2.0)))
+        nb = max(_DIP_MIN_BINS, math.ceil(period / (self.durations_h[0] * HOUR_S / 2.0)))
         width = period / nb
         # phase counted from the box centre, which then sits in the middle of the fold
         b = np.minimum((np.mod(t - box.epoch_s + period / 2.0, period) / width).astype(int), nb - 1)
@@ -732,7 +738,9 @@ class BlsDetector:
             idx = (start + np.arange(length)) % nb
             if (z[idx] >= self.support_snr).any():
                 runs.append((idx, length))
-        core = np.abs(np.arange(nb) + 0.5 - nb / 2.0) <= max(box.duration_s / width / 2.0, 0.5)
+        core = np.abs(np.arange(nb) + 0.5 - nb / 2.0) <= max(
+            box.duration_s / width / 2.0, _DIP_CORE_MIN_BINS
+        )
         primary = core.copy()
         primary_len = int(core.sum())
         for idx, length in runs:
