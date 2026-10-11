@@ -443,6 +443,7 @@ class BlsDetector:
         guard_f_max_per_d: float = 30.0,
         night_gap_cadences: int = 100,
         common_mode_min_stars: int = 10,
+        second_pass: bool = False,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -486,6 +487,7 @@ class BlsDetector:
         self.guard_f_max_per_d = guard_f_max_per_d
         self.night_gap_cadences = night_gap_cadences
         self.common_mode_min_stars = common_mode_min_stars
+        self.second_pass = second_pass
 
     # -- preprocessing -----------------------------------------------------------------
 

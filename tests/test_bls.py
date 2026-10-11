@@ -568,3 +568,116 @@ def test_a_planet_below_the_two_day_period_is_found_at_its_own_period():
     assert cand is not None and cand.rejected is None
     assert cand.box.period_s == pytest.approx(0.8 * DAY, rel=0.01)
     assert len(detect({0: cv})) == len(planted_windows(t, 0.8, 0.1, 1.5)) == 5
+
+
+# -- second pass (#32): one re-search after a rejected best box ------------------------------
+
+
+def eclipsing(t, period_d, epoch_d, dur_h, depth_primary, depth_secondary):
+    """V-shaped primary and secondary eclipses (half a period apart), as the world draws them."""
+    period, epoch, dur = period_d * DAY, epoch_d * DAY, dur_h * 3600.0
+    out = np.ones(len(t))
+    for offset, depth in ((0.0, depth_primary), (period / 2.0, depth_secondary)):
+        ph = np.mod(t - epoch - offset + period / 2.0, period) - period / 2.0
+        out *= 1.0 - depth * np.clip(1.0 - np.abs(ph) / (dur / 2.0), 0.0, 1.0)
+    return out
+
+
+# The box lands on half the binary's period (both eclipses fall in it), as on seed7 star 138.
+EB_HALF_PERIOD = (4.0, 1.4, 11.4, 0.28, 0.126)
+# A weak secondary: the box lands on the binary's own period and the secondary is left behind
+# (as on seed14-200s-20n star 70, in a stored run of another seed).
+EB_PRIMARY_ONLY = (4.34, 1.3, 5.4, 0.30, 0.07)
+# (binary, planet period d, planet epoch d): the planet's in-night events sit away from eclipses
+EB_WITH_PLANET = [(EB_HALF_PERIOD, 6.1, 0.14), (EB_PRIMARY_ONLY, 5.3, 0.14)]
+
+
+def eb_curve(eb, planet=None, n_nights=20, seed=0, depth=0.015, dur_h=3.0):
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = eclipsing(t, *eb)
+    if planet is not None:
+        prof = prof * box_profile(t, planet[0] * DAY, planet[1] * DAY, dur_h * 3600.0, depth)
+    return t, curve(0, t, prof, 0.005, rng)
+
+
+def dip_curve(dip_night, depth=0.0021, dip_depth=0.03, seed=0):
+    """A planet (P 2.3 d, S/N about 9 alone) and one deep 3 h dip on a single night."""
+    rng = np.random.default_rng(seed)
+    t = night_times(10)
+    prof = box_profile(t, 2.3 * DAY, 0.14 * DAY, 3 * 3600.0, depth)
+    dip = (t >= dip_night * DAY + 2 * 3600) & (t < dip_night * DAY + 5 * 3600)
+    return t, curve(0, t, prof * (1.0 - dip_depth * dip), 0.005, rng)
+
+
+def assert_planet_events(out, wins):
+    """Each planted window is bounded by exactly one detection and nothing else is reported."""
+    assert len(out) == len(wins)
+    assert {d.kind_guess for d in out} == {"transit"} and {d.star_id for d in out} == {0}
+    assert len({d.score for d in out}) == 1 and out[0].score >= 7.0
+    assert [d.det_id for d in out] == [f"bls-s0-{k}" for k in range(len(out))]
+    for lo, hi in wins:
+        assert sum(span_iou(d.t_start, d.t_end, lo, hi) >= 0.5 for d in out) == 1
+
+
+@pytest.mark.parametrize("eb,period_d,epoch_d", EB_WITH_PLANET)
+def test_second_pass_recovers_a_planet_behind_an_eclipsing_binary(eb, period_d, epoch_d):
+    t, cv = eb_curve(eb, (period_d, epoch_d))
+    wins = planted_windows(t, period_d, epoch_d, 3.0)
+    assert len(wins) >= 2
+    # the binary is the star's best box and the guard rejects it: the planet is never searched
+    first = BlsDetector().search(cv, C)
+    assert first.rejected == "pulsation guard" and first.snr > 100
+    assert detect({0: cv}) == []
+    assert detect({0: cv}, second_pass=False) == []
+    out = detect({0: cv}, second_pass=True)
+    assert_planet_events(out, wins)
+
+
+@pytest.mark.parametrize("eb", [EB_HALF_PERIOD, EB_PRIMARY_ONLY])
+def test_second_pass_reports_nothing_on_a_bare_eclipsing_binary(eb):
+    _, cv = eb_curve(eb)
+    assert BlsDetector().search(cv, C).rejected == "pulsation guard"
+    assert detect({0: cv}, second_pass=True) == []
+
+
+@pytest.mark.parametrize("dip_night", [3, 8])
+def test_second_pass_finds_the_planet_a_deep_one_off_dip_hid(dip_night):
+    t, cv = dip_curve(dip_night)
+    wins = planted_windows(t, 2.3, 0.14, 3.0)
+    first = BlsDetector().search(cv, C)
+    # the dip wins the search with S/N near 80 and is refused for lack of events
+    assert first.snr > 50 and first.rejected in ("min_events", "support", "local snr")
+    assert detect({0: cv}) == []
+    out = detect({0: cv}, second_pass=True)
+    assert_planet_events(out, wins)
+
+
+def test_second_pass_changes_nothing_for_a_star_that_already_has_a_candidate():
+    _, _, cv = planted()
+    assert detect({0: cv}, second_pass=True) == detect({0: cv}, second_pass=False)
+    assert len(detect({0: cv}, second_pass=True)) == 3
+
+
+def test_second_pass_changes_nothing_for_a_quiet_star_or_a_weak_best_box():
+    rng = np.random.default_rng(5)
+    t = night_times(10)
+    quiet = curve(0, t, np.ones(len(t)), 0.005, rng)
+    assert BlsDetector().search(quiet, C).rejected == "snr"
+    assert detect({0: quiet}, second_pass=True) == []
+
+
+def test_second_pass_is_deterministic():
+    _, cv = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
+    a = detect({0: cv}, second_pass=True)
+    assert a and a == detect({0: cv}, second_pass=True)
+
+
+def test_second_pass_finds_the_planet_in_a_field_with_common_mode_removal():
+    _, _, curves = make_field(n_stars=12, n_nights=20)
+    _, eb = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
+    curves[5] = LightCurve(5, eb.t, eb.flux, eb.flux_err, eb.quality)
+    out = detect(curves, second_pass=True)
+    assert {d.star_id for d in out} == {5}
+    assert len(out) == len(planted_windows(night_times(20), 6.1, 0.14, 3.0))
+    assert detect(curves, second_pass=False) == []
