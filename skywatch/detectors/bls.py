@@ -47,15 +47,15 @@ with relative step ``(min_duration / baseline) / oversample`` (``oversample = 3`
 relative step keeps the last event of a candidate within ``min_duration / oversample`` of
 where the grid period puts it, at every period; read literally as a step in 1/day the
 formula is not dimensionally consistent. Durations are ``(0.5, 1, 1.5, 2, 3, 4, 6)`` hours.
-For each trial period the samples are folded into phase bins no wider than half the
-shortest duration (``P / ceil(P / bin_s)``, ``bin_s = min_duration / 2``); samples are first
-merged into ``bin_s / 3`` time buckets (300 s: a 5x saving at 60 s cadence, at most a
-sixth of a phase bin of timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
+For each trial period the samples are folded into phase bins no wider than half the shortest
+duration (``P / ceil(P / bin_s)``, ``bin_s = min_duration / 2``); samples are first merged into
+``bin_s / 3`` time buckets (300 s: a 5x saving at 60 s cadence, at most a sixth of a phase bin
+of timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
 periods at once, and every duration is a box sum over consecutive bins (wrapping through the
-phase origin) read from a cumulative sum. A box is ``round(duration / bin_width)`` bins wide,
-so the evaluated width differs from the nominal duration by at most half a bin; the reported
-event windows use the evaluated width. The phase is stepped by one bin. The winning box is
-then re-measured on the samples themselves (:func:`refine`).
+phase origin) read from a cumulative sum. A box is ``round(duration / bin_width)`` bins wide, so
+the evaluated width differs from the nominal duration by at most half a bin; the reported event
+windows use the evaluated width. The phase is stepped by one bin. The winning box is then
+re-measured on the samples themselves (:func:`refine`).
 
 Statistic
 ---------
@@ -108,13 +108,22 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
 
 Second pass
 -----------
-``second_pass`` (on by default: measured on the four stored runs and four fresh 20-night seeds
-it added at most one false positive per run, mistook no eclipse or pulsator for a transit that
-the single pass did not, left the 3-night rows unchanged and took 1.1-1.3 times the single-pass
-time) searches a star once more when its best box is rejected by any gate except the S/N gate
-(local S/N, events, support, pulsation guard); a box too weak for the S/N gate means no other
-box on the star is strong either. Without it a star's strongest box decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
+``second_pass`` (**off by default**) searches a star once more when its best box is rejected by
+any gate except the S/N gate (local S/N, events, support, pulsation guard); a box too weak for
+the S/N gate means no other box on the star is strong either. Without it a star's strongest box
+decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
 (seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
+
+Measured, and why it is opt-in. On the stored 20-night runs the second pass recovers seed 7
+star 138 (a planet on an eclipsing binary, both transits bounded; the reported period is the
+sub-harmonic 1.145 d = 8.012/7 d, and the period never reaches a :class:`Detection`) and adds
+one false positive on seed 42 (star 94, a flare star); the 3-night rows are unchanged. On the
+held-out seeds 21-26 (200 stars, 20 nights) it added no true transit, 3 false positives and
+1 eclipse mistaken for a transit, at 1.22 times the single-pass time, so it is off. The first
+pass alone, on the same six seeds, scored 30 transit true positives, 6 false positives, 13
+eclipses reported as transits and no pulsator reported as a transit; 5 of the 14 strong
+planets there sit on pulsating hosts and are rejected by the pulsation guard, which the
+re-search does not recover (its mask has nothing to take out of a sinusoid).
 
 The re-search leaves out the *dip* around the rejected box, not only the box. A box is at most
 6 h wide and the eclipse of a binary can last 11 h; masking the box's windows and one duration
@@ -147,16 +156,19 @@ re-search at most: a rejected second candidate ends the star. The outcome is log
 
 Limits
 ------
-* Only the best box per star is reported, and with ``second_pass`` one more after a rejection;
-  a third signal on a star is out of scope. The strongest peak at a clearly different period
-  that is not a small-integer ratio of the best period is logged at INFO
-  (``skywatch.detectors.bls``) as an alternative. Without the second pass a star whose
-  strongest box is not a planet (an eclipsing binary, a pulsator) is rejected whole, so a
-  planet behind it is lost too; with it the planet is found unless its events sit inside the
-  masked dip, the binary's eclipses fill most of every night (the re-search then has no clean
-  night), or the re-search's best box is not the planet (a flare star's residue passes the
-  gates on seed42-200s-20n star 94). The period of a recovered box can be a sub-multiple of
-  the planet's (the other windows fall in the day gaps) while its events are the planet's.
+* Only the best box per star is reported, and with ``second_pass`` one more after a rejection; a
+  third signal on a star is out of scope. The strongest peak at a clearly different period that
+  is not a small-integer ratio of the best period is logged at INFO (``skywatch.detectors.bls``)
+  as an alternative. Without the second pass a star whose strongest box is not a planet (an
+  eclipsing binary, a pulsator) is rejected whole, so a planet behind it is lost too; with
+  ``second_pass=True`` the planet is found unless its events sit inside the masked dip, the
+  binary's eclipses fill most of every night (the re-search then has no clean night), or the
+  re-search's best box is not the planet (a flare star's residue passes the gates on
+  seed42-200s-20n star 94; on held-out seed 26 star 167 a binary's secondary eclipse, clipped by
+  the night edges, is narrower than 0.7 of the primary and its residue is accepted). Of the four
+  re-search acceptances over ten 20-night runs one was a planet. The period of a recovered box
+  can be a sub-multiple of the planet's (the other windows fall in the day gaps) while its
+  events are the planet's.
 * A transit longer than the 6 h grid maximum is fit by the closest box; a transit that
   covers more than half of a night makes that night's first-pass median the in-transit
   level (the out-of-box renormalisation repairs the depth, not the search).
