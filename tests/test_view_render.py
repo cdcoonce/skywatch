@@ -111,3 +111,16 @@ def test_bad_suffix_is_refused(scored, tmp_path):
 def test_night_two_truth_constants_are_in_range():
     # guard for the fixture shared with test_view: the night-1 labels sit after PERIOD
     assert all(t.t_start >= PERIOD for t in TRUTH if "-n1-" in t.label_id)
+
+
+def test_flux_ticks_are_short_and_consistent():
+    from skywatch.view import _flux_tick
+
+    assert [_flux_tick(v, 0) for v in (0, 500, 20000, 350000, 1e6, 1.2e6)] == [
+        "0",
+        "500",
+        "20k",
+        "350k",
+        "1.0M",
+        "1.2M",
+    ]

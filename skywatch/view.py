@@ -341,7 +341,7 @@ def _text_hours(text: str, fontsize: float, night_hours: float, axes_in: float) 
 
 def _flux_tick(value: float, _pos: int) -> str:
     if abs(value) >= 1e6:
-        return f"{value / 1e6:g}M"
+        return f"{value / 1e6:.1f}M"
     if abs(value) >= 1e3:
         return f"{value / 1e3:g}k"
     return f"{value:g}"
