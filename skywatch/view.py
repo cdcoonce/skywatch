@@ -20,6 +20,7 @@ from skywatch.types import Detection, TruthLabel
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
+    from matplotlib.figure import Figure
 
 GRADES = ("bounded", "touched", "corroborating", "false_alarm")
 """Grades of a scored detection. ``None`` (not in this tuple) means the run was not scored."""
@@ -39,13 +40,24 @@ KIND_COLORS: dict[str, str] = {
     "dropout": "#555555",
 }
 
+FALLBACK_KIND_COLOR = "#999999"
+"""Fill for a truth kind that is not in `KIND_COLORS` (a kind added after this palette)."""
+
+FLAG_COLOR = "#111111"
+"""Instrument-flagged samples: hollow rings in a colour no truth kind uses."""
+
 GRADE_LABELS: dict[str | None, str] = {
-    "bounded": "bounded (span matches truth)",
-    "touched": "touched (overlaps truth, loose span)",
+    "bounded": "bounded (IoU ≥ 0.3 with truth)",
+    "touched": "touched (overlaps truth, IoU < 0.3)",
     "corroborating": "corroborating (repeat of a counted event)",
-    "false_alarm": "false alarm (no truth here)",
-    None: "unscored (run not scored)",
+    "false_alarm": "false alarm (matched no truth label)",
+    None: "unscored (no match rows for this detector)",
 }
+
+FLUX_PERCENTILES = (0.5, 99.5)
+"""The flux axis spans these percentiles of the night's samples, plus `FLUX_MARGIN`."""
+FLUX_MARGIN = 0.15
+_CLIP_CLUSTER_H = 0.25  # hours; clipped samples closer than this share one annotation
 
 FIG_SIZE = (12.0, 8.0)
 DPI = 100
@@ -94,7 +106,9 @@ class Lane:
         return {g: sum(1 for d in self.detections if d.grade == g) for g in GRADES}
 
     def summary(self, scored: bool) -> str:
-        if not scored:
+        # a detector detected after scoring has no match rows: all its grades are None, and
+        # zero counts would read as "zero false alarms"
+        if not scored or (self.detections and all(d.grade is None for d in self.detections)):
             return f"unscored {len(self.detections)}"
         c = self.counts
         return (
@@ -261,7 +275,8 @@ def pick_view(run_dir: Path, detectors: Sequence[str] | None = None) -> Pick:
     """The (star, night) with the most distinct truth kinds; ties by detections, then ids.
 
     Kinds are those of the star's own labels plus the field-wide ones intersecting the
-    night, so a cloud counts for every star. Detections are counted across the chosen
+    night, so a cloud counts for every star. Unobservable labels (the event changed zero
+    samples) do not count: the picture should show events that are visible in the flux. Detections are counted across the chosen
     detectors the same way (own plus field-wide). Remaining ties go to the lowest star id,
     then the lowest night.
     """
@@ -269,7 +284,7 @@ def pick_view(run_dir: Path, detectors: Sequence[str] | None = None) -> Pick:
     manifest = store.read_manifest(run_dir)
     n_nights = manifest["config"]["n_nights"]
     names = _select_detectors(run_dir, detectors)
-    truth = store.read_truth(run_dir)
+    truth = [t for t in store.read_truth(run_dir) if t.observable]
     dets = [d for name in names for d in store.read_detections(run_dir, name)]
     stars = sorted(s.star_id for s in store.read_stars(run_dir))
     if not stars:
@@ -339,6 +354,54 @@ def _text_hours(text: str, fontsize: float, night_hours: float, axes_in: float) 
     return len(text) * fontsize * 0.62 / 72.0 * night_hours / axes_in + 0.06
 
 
+def _kind_color(kind: str) -> str:
+    return KIND_COLORS.get(kind, FALLBACK_KIND_COLOR)
+
+
+def _flux_limits(flux: np.ndarray) -> tuple[float, float]:
+    """Axis limits from robust percentiles of the night's flux, padded by `FLUX_MARGIN`.
+
+    A single cosmic ray at 20x the baseline would otherwise squash everything else into a
+    sliver; at most ``100 - FLUX_PERCENTILES[1]`` percent of the samples fall outside, and
+    a plateau of several percent of samples (a hot pixel) stays inside.
+    """
+    lo, hi = np.percentile(flux, FLUX_PERCENTILES)
+    span = hi - lo
+    if span <= 0:  # a constant night: any non-empty window will do
+        span = max(abs(float(hi)) * 0.02, 1.0)
+        lo, hi = lo - span / 2, hi + span / 2
+    return float(lo - FLUX_MARGIN * span), float(hi + FLUX_MARGIN * span)
+
+
+def _annotate_clipped(ax: Axes, t: np.ndarray, flux: np.ndarray, lo: float, hi: float, night_h):
+    """Mark samples beyond the limits: a triangle glyph and the true value, pinned to the edge."""
+    from matplotlib.transforms import blended_transform_factory
+
+    trans = blended_transform_factory(ax.transData, ax.transAxes)
+    for sign, glyph, ypos, va in ((1, "▲", 0.99, "top"), (-1, "▼", 0.01, "bottom")):
+        out = np.flatnonzero(flux > hi if sign > 0 else flux < lo)
+        if not len(out):
+            continue
+        clusters = np.split(out, np.flatnonzero(np.diff(t[out]) > _CLIP_CLUSTER_H) + 1)
+        for idx in clusters:
+            worst = idx[np.argmax(sign * flux[idx])]
+            x = float(t[worst])
+            ha = "left" if x < 0.4 else "right" if x > night_h - 0.4 else "center"
+            ax.text(
+                x,
+                ypos,
+                f"{glyph} {_flux_tick(float(flux[worst]), 0)}",
+                transform=trans,
+                ha=ha,
+                va=va,
+                fontsize=8,
+                fontweight="bold",
+                color=FLAG_COLOR,
+                zorder=4,
+                clip_on=False,
+            )
+
+
 def _flux_tick(value: float, _pos: int) -> str:
     if abs(value) >= 1e6:
         return f"{value / 1e6:.1f}M"
@@ -354,7 +417,7 @@ def _draw_flux(ax: Axes, data: ViewData) -> None:
     for tr in data.truth:
         x0, x1 = _display_span(data, tr.t_start, tr.t_end)
         long = (x1 - x0) > 0.6 * night_h
-        ax.axvspan(x0, x1, color=KIND_COLORS[tr.kind], alpha=0.07 if long else 0.2, lw=0, zorder=0)
+        ax.axvspan(x0, x1, color=_kind_color(tr.kind), alpha=0.07 if long else 0.2, lw=0, zorder=0)
     t = _hours(data, data.t)
     if len(t):
         gap = np.flatnonzero(np.diff(data.t) > 1.5 * data.cadence_s)
@@ -370,14 +433,16 @@ def _draw_flux(ax: Axes, data: ViewData) -> None:
                 alpha=0.6,
                 zorder=0.5,
             )
-        line_t, line_f = t.copy(), data.flux.astype(float).copy()
-        line_t = np.insert(line_t, gap + 1, np.nan)
-        line_f = np.insert(line_f, gap + 1, np.nan)
+        flux = data.flux.astype(float)
+        lo, hi = _flux_limits(flux)
+        shown = np.clip(flux, lo, hi)  # a spike is drawn to the edge and annotated instead
+        line_t, line_f = np.insert(t, gap + 1, np.nan), np.insert(shown, gap + 1, np.nan)
         ax.plot(line_t, line_f, color="#9aa5b1", lw=0.5, zorder=1)
+        inside = (flux >= lo) & (flux <= hi)
         ax.errorbar(
-            t,
-            data.flux,
-            yerr=data.flux_err,
+            t[inside],
+            flux[inside],
+            yerr=data.flux_err[inside],
             fmt="none",
             ecolor="#9aa5b1",
             elinewidth=0.5,
@@ -385,9 +450,20 @@ def _draw_flux(ax: Axes, data: ViewData) -> None:
             zorder=1.5,
         )
         flagged = data.quality != 0
-        ax.scatter(t[~flagged], data.flux[~flagged], s=5, color="#1f3b5c", zorder=2, lw=0)
-        if flagged.any():
-            ax.scatter(t[flagged], data.flux[flagged], s=9, color="#e8590c", zorder=3, lw=0)
+        ok = inside & ~flagged
+        ax.scatter(t[ok], flux[ok], s=5, color="#1f3b5c", zorder=2, lw=0)
+        if (inside & flagged).any():
+            ax.scatter(
+                t[inside & flagged],
+                flux[inside & flagged],
+                s=22,
+                facecolors="none",
+                edgecolors=FLAG_COLOR,
+                linewidths=0.9,
+                zorder=3,
+            )
+        ax.set_ylim(lo, hi)
+        _annotate_clipped(ax, t, flux, lo, hi, night_h)
     else:
         ax.text(
             0.5,
@@ -449,6 +525,19 @@ def _grade_style(grade: str | None) -> dict:
     }[grade]
 
 
+def _rc():
+    import matplotlib
+
+    return matplotlib.rc_context(
+        {
+            "font.family": "DejaVu Sans",
+            "hatch.linewidth": 0.8,
+            "svg.hashsalt": "skywatch",
+            "svg.fonttype": "path",
+        }
+    )
+
+
 def render_view(data: ViewData, out_path: Path) -> Path:
     """Draw `data` to `out_path` (PNG, or SVG when the name ends in ``.svg``).
 
@@ -459,10 +548,6 @@ def render_view(data: ViewData, out_path: Path) -> Path:
     import matplotlib
 
     matplotlib.use("Agg", force=True)
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-    from matplotlib.lines import Line2D
-    from matplotlib.patches import Patch
 
     out_path = Path(out_path)
     suffix = out_path.suffix.lower()
@@ -470,16 +555,23 @@ def render_view(data: ViewData, out_path: Path) -> Path:
         raise ValueError(f"--out must end in .png or .svg, got {out_path.name!r}")
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    with _rc():
+        fig = _build_figure(data)
+        meta = {"Software": None} if suffix == ".png" else {"Date": None}
+        fig.savefig(out_path, format=suffix[1:], dpi=DPI, metadata=meta)
+    return out_path
+
+
+def _build_figure(data: ViewData) -> Figure:
+    """The whole picture as a matplotlib Figure (tests read its text and limits)."""
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    from matplotlib.figure import Figure
+    from matplotlib.lines import Line2D
+    from matplotlib.patches import Patch
+
     n_lanes = len(data.lanes)
     night_h = data.night_length_s / 3600.0
-    with matplotlib.rc_context(
-        {
-            "font.family": "DejaVu Sans",
-            "hatch.linewidth": 0.8,
-            "svg.hashsalt": "skywatch",
-            "svg.fonttype": "path",
-        }
-    ):
+    with _rc():
         fig = Figure(figsize=FIG_SIZE, dpi=DPI)
         FigureCanvasAgg(fig)
         ratios = [5.0, 1.5, *([1.2] * n_lanes)]
@@ -502,8 +594,8 @@ def render_view(data: ViewData, out_path: Path) -> Path:
                 *_display_span(data, tr.t_start, tr.t_end),
                 f"{tr.kind} {tr.suffix}" + ("" if tr.observable else " (unobservable)"),
                 {
-                    "facecolor": KIND_COLORS[tr.kind],
-                    "edgecolor": KIND_COLORS[tr.kind],
+                    "facecolor": _kind_color(tr.kind),
+                    "edgecolor": _kind_color(tr.kind),
                     "alpha": 0.6,
                     "lw": 0.8,
                     "hatch": None if tr.observable else "xx",
@@ -585,12 +677,15 @@ def render_view(data: ViewData, out_path: Path) -> Path:
                 color="#333333",
             )
 
-        kinds = sorted({t.kind for t in data.truth}, key=list(KIND_COLORS).index)
+        kinds = sorted(
+            {t.kind for t in data.truth},
+            key=lambda k: (list(KIND_COLORS).index(k) if k in KIND_COLORS else len(KIND_COLORS), k),
+        )
         grade_keys = [*GRADES] if data.scored else [None]
         if data.scored and any(d.grade is None for ln in data.lanes for d in ln.detections):
             grade_keys.append(None)
         kind_handles = [
-            Patch(facecolor=KIND_COLORS[k], edgecolor=KIND_COLORS[k], alpha=0.6, label=k)
+            Patch(facecolor=_kind_color(k), edgecolor=_kind_color(k), alpha=0.6, label=k)
             for k in kinds
         ]
         kind_handles.append(
@@ -599,8 +694,9 @@ def render_view(data: ViewData, out_path: Path) -> Path:
                 [],
                 marker="o",
                 ls="",
-                color="#e8590c",
-                markersize=4,
+                markerfacecolor="none",
+                markeredgecolor=FLAG_COLOR,
+                markersize=5,
                 label="sample flagged by instrument",
             )
         )
@@ -640,10 +736,7 @@ def render_view(data: ViewData, out_path: Path) -> Path:
                 frameon=False,
                 alignment="left",
             )
-
-        meta = {"Software": None} if suffix == ".png" else {"Date": None}
-        fig.savefig(out_path, format=suffix[1:], dpi=DPI, metadata=meta)
-    return out_path
+    return fig
 
 
 __all__ = [

@@ -231,6 +231,31 @@ def test_detector_subset_and_unknown_detector(scored):
         view.assemble_view(scored, 1, 0, detectors=["nope"])
 
 
+def test_lane_without_match_rows_summarises_as_unscored(scored):
+    # beta's match rows are gone (it was detected after scoring): its lane is grey, and its
+    # title must not claim "fp 0"
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    path = scored / "matches.parquet"
+    table = pq.read_table(path)
+    pq.write_table(table.filter(pc.not_equal(table["detector"], "beta")), path)
+    d = view.assemble_view(scored, 1, 0)
+    lanes = {lane.detector: lane for lane in d.lanes}
+    assert d.scored
+    assert all(x.grade is None for x in lanes["beta"].detections)
+    assert lanes["beta"].summary(d.scored) == "unscored 2"
+    assert lanes["alpha"].summary(d.scored) == "bounded 1 · touched 1 · corr 0 · fp 1"
+    assert lanes["field"].summary(d.scored) == "bounded 1 · touched 0 · corr 0 · fp 0"
+
+
+def test_scored_lane_with_no_detections_keeps_zero_counts(scored):
+    store.write_empty_detections(scored, "quiet")
+    d = view.assemble_view(scored, 1, 0)
+    quiet = next(lane for lane in d.lanes if lane.detector == "quiet")
+    assert quiet.summary(d.scored) == "bounded 0 · touched 0 · corr 0 · fp 0"
+
+
 def test_run_without_detections_has_no_lanes(tmp_path, result):
     run = store.write_run(tmp_path, result, run_id="bare")
     d = view.assemble_view(run, 1, 0)
@@ -304,6 +329,29 @@ def test_pick_counts_field_wide_kinds_for_every_star(tmp_path, result):
     run = store.write_run(tmp_path, replace(result, truth=truth), run_id="t")
     p = view.pick_view(run)
     assert (p.star_id, p.night) == (3, 0) and p.kinds == ("cloud", "flare")
+
+
+def test_pick_ignores_unobservable_labels(tmp_path, result):
+    # star 2's third kind is unobservable (footprint 0): invisible in the flux, so it must
+    # not make star 2 the picture. Counted, star 2 would win with 3 kinds; ignored, stars 1
+    # and 2 tie on 2 kinds and the lowest id wins.
+    truth = [
+        _label("flare", 1, 100, 200),
+        _label("transit", 1, 300, 400, k=1),
+        _label("flare", 2, 100, 200),
+        _label("transit", 2, 300, 400, k=1),
+        _label("hot_pixel", 2, 500, 600, k=2, footprint=0),
+    ]
+    run = store.write_run(tmp_path, replace(result, truth=truth), run_id="t")
+    p = view.pick_view(run)
+    assert (p.star_id, p.night) == (1, 0)
+    assert p.kinds == ("flare", "transit")
+
+
+def test_pick_ignores_unobservable_field_wide_labels(tmp_path, result):
+    truth = [_label("flare", 3, 100, 200), _label("cloud", None, 100, 900, footprint=0)]
+    run = store.write_run(tmp_path, replace(result, truth=truth), run_id="t")
+    assert view.pick_view(run).kinds == ("flare",)
 
 
 def test_pick_respects_detector_subset(scored):
