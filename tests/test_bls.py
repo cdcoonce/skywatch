@@ -4,11 +4,16 @@ import time
 import numpy as np
 import pytest
 
-from skywatch.detectors import REGISTRY, Detector, load_all
+from skywatch.detectors import REGISTRY, Detector, bls, load_all
 from skywatch.detectors.bls import (
     BlsDetector,
     Box,
+    Candidate,
+    _circular_runs,
+    _is_alias,
+    _renormalise_nights,
     frequency_grid,
+    in_box,
     night_contrasts,
     positive_outliers,
     refine,
@@ -572,6 +577,8 @@ def test_a_planet_below_the_two_day_period_is_found_at_its_own_period():
 
 # -- second pass (#32): one re-search after a rejected best box ------------------------------
 
+DEFAULT_SECOND_PASS = False  # decided from the counterfactual table in the PR
+
 
 def eclipsing(t, period_d, epoch_d, dur_h, depth_primary, depth_secondary):
     """V-shaped primary and secondary eclipses (half a period apart), as the world draws them."""
@@ -610,12 +617,12 @@ def dip_curve(dip_night, depth=0.0021, dip_depth=0.03, seed=0):
     return t, curve(0, t, prof * (1.0 - dip_depth * dip), 0.005, rng)
 
 
-def assert_planet_events(out, wins):
+def assert_planet_events(out, wins, star=0):
     """Each planted window is bounded by exactly one detection and nothing else is reported."""
     assert len(out) == len(wins)
-    assert {d.kind_guess for d in out} == {"transit"} and {d.star_id for d in out} == {0}
+    assert {d.kind_guess for d in out} == {"transit"} and {d.star_id for d in out} == {star}
     assert len({d.score for d in out}) == 1 and out[0].score >= 7.0
-    assert [d.det_id for d in out] == [f"bls-s0-{k}" for k in range(len(out))]
+    assert [d.det_id for d in out] == [f"bls-s{star}-{k}" for k in range(len(out))]
     for lo, hi in wins:
         assert sum(span_iou(d.t_start, d.t_end, lo, hi) >= 0.5 for d in out) == 1
 
@@ -674,10 +681,243 @@ def test_second_pass_is_deterministic():
 
 
 def test_second_pass_finds_the_planet_in_a_field_with_common_mode_removal():
+    # a 12-star field of white noise over 20 nights is not quiet once the (noisy) common mode is
+    # divided out, so compare against the same field without the second pass
     _, _, curves = make_field(n_stars=12, n_nights=20)
     _, eb = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
     curves[5] = LightCurve(5, eb.t, eb.flux, eb.flux_err, eb.quality)
-    out = detect(curves, second_pass=True)
-    assert {d.star_id for d in out} == {5}
-    assert len(out) == len(planted_windows(night_times(20), 6.1, 0.14, 3.0))
-    assert detect(curves, second_pass=False) == []
+    off = detect(curves, second_pass=False)
+    on = detect(curves, second_pass=True)
+    assert not [d for d in off if d.star_id == 5]
+    assert [d for d in on if d.star_id != 5] == [d for d in off if d.star_id != 5]
+    wins = planted_windows(night_times(20), 6.1, 0.14, 3.0)
+    assert_planet_events([d for d in on if d.star_id == 5], wins, star=5)
+
+
+def test_second_pass_logs_the_re_search_outcome_at_info(caplog):
+    _, cv = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        detect({0: cv}, second_pass=True)
+    lines = [r.getMessage() for r in caplog.records if "re-search" in r.getMessage()]
+    assert len(lines) == 1
+    assert lines[0].startswith("bls star 0: re-search found P ") and lines[0].endswith("accepted")
+    caplog.clear()
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        detect({0: cv}, second_pass=False)
+    assert not [r for r in caplog.records if "re-search" in r.getMessage()]
+
+
+def test_second_pass_logs_when_the_re_search_is_rejected_too(caplog):
+    _, cv = eb_curve(EB_HALF_PERIOD)
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        assert detect({0: cv}, second_pass=True) == []
+    lines = [r.getMessage() for r in caplog.records if "re-search" in r.getMessage()]
+    assert len(lines) == 1 and "re-search" in lines[0] and not lines[0].endswith("accepted")
+
+
+# -- second pass: the pieces -----------------------------------------------------------------
+
+
+def test_circular_runs_wrap_around_the_end():
+    f = np.array([1, 1, 0, 0, 1, 0, 1, 1], dtype=bool)
+    assert sorted(_circular_runs(f)) == [(4, 1), (6, 4)]  # 6, 7, 0, 1 is one run
+    assert _circular_runs(np.ones(5, dtype=bool)) == [(0, 5)]
+    assert _circular_runs(np.zeros(5, dtype=bool)) == []
+    assert _circular_runs(np.array([0, 1, 1, 0], dtype=bool)) == [(1, 2)]
+
+
+@pytest.mark.parametrize("ratio", [1.0, 0.5, 2.0, 1.019, 0.981, 0.5 * 1.019, 2 * 0.981])
+def test_aliases_of_the_first_period_are_the_period_half_and_double(ratio):
+    assert _is_alias(ratio * 3.0 * DAY, 3.0 * DAY)
+
+
+@pytest.mark.parametrize("ratio", [1.03, 0.97, 0.33, 1.5, 3.0, 4.009, 0.25, 0.51 * 1.03])
+def test_other_periods_are_not_aliases(ratio):
+    # 4.009 is star 138: its planet (8.016 d) against the binary's half period (2.000 d)
+    assert not _is_alias(ratio * 3.0 * DAY, 3.0 * DAY)
+
+
+def test_renormalise_nights_divides_each_night_by_its_median():
+    flux = np.array([2.0, 2.0, 2.0, 2.0, 2.0, 4.0, 4.0, 4.0, 4.0, 4.0, 9.0, 9.0])
+    night = np.array([0] * 5 + [1] * 5 + [2] * 2)
+    out = _renormalise_nights(flux, night)
+    assert out[:10] == pytest.approx(1.0)
+    assert out[10:] == pytest.approx([9.0, 9.0])  # fewer than 5 samples: left alone
+    assert flux[0] == 2.0  # the input is not modified
+
+
+def _eb_mask(eb, planet=None, seed=0):
+    t, cv = eb_curve(eb, planet, seed=seed)
+    det = BlsDetector(second_pass=True)
+    cand = det._search(det._clean(cv, C), None, C, plan_mask=True)
+    return t, cand
+
+
+def _covered(t, mask):
+    ok = np.zeros(len(t), dtype=bool)
+    for m in mask:
+        ok |= in_box(t, m)
+    return ok
+
+
+@pytest.mark.parametrize("eb", [EB_HALF_PERIOD, EB_PRIMARY_ONLY])
+def test_the_mask_covers_every_eclipse_wing_and_leaves_the_planet(eb):
+    planet = (6.1, 0.14) if eb is EB_HALF_PERIOD else (5.3, 0.14)
+    t, cand = _eb_mask(eb, planet)
+    assert cand.rejected == "pulsation guard" and cand.mask
+    covered = _covered(t, cand.mask)
+    depth = 1.0 - eclipsing(t, *eb)
+    assert depth.max() > 0.2
+    assert covered[depth > 0.005].all()  # the wings, not just the 3 h box
+    assert covered.mean() < 0.5  # and not the whole record
+    planet_samples = box_profile(t, planet[0] * DAY, planet[1] * DAY, 3 * 3600.0, 1.0) < 1.0
+    assert planet_samples.sum() > 300 and not covered[planet_samples].any()
+    for m in cand.mask:
+        assert m.period_s == cand.box.period_s
+
+
+def test_the_mask_follows_the_eclipse_not_the_box_width():
+    _, cand = _eb_mask(EB_HALF_PERIOD)
+    widest = max(m.duration_s for m in cand.mask)
+    assert cand.box.duration_s <= 6 * 3600.0 < widest  # wider than any box the grid has
+
+
+def _two_dips(second_dur_h, second_depth):
+    """The mask for a 20 percent, 3 h dip every 2 d with a second dip half a period later."""
+    t = night_times(20).astype(float)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2) * box_profile(
+        t, 2.0 * DAY, 1.1 * DAY, second_dur_h * 3600.0, second_depth
+    )
+    flux = prof * (1.0 + np.random.default_rng(0).normal(0.0, 0.003, len(t)))
+    box = Box(2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2, 500, len(t), 1.0)
+    covered = _covered(t, BlsDetector(second_pass=True)._dip_mask(t, flux, box, 0.003))
+    deep = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 1.0) < 1.0
+    second = box_profile(t, 2.0 * DAY, 1.1 * DAY, second_dur_h * 3600.0, 1.0) < 1.0
+    assert deep.sum() > 500 and second.sum() > 200 and covered[deep].all()
+    return covered, second
+
+
+def test_a_short_dip_at_half_phase_is_not_taken_for_a_secondary_eclipse():
+    # shorter than 0.7 of the primary: a planet that happens to sit there, kept for the re-search
+    covered, second = _two_dips(1.2, 0.03)
+    assert not covered[second].any()
+
+
+def test_an_equally_long_dip_at_half_phase_is_masked_as_the_secondary():
+    covered, second = _two_dips(3.0, 0.05)
+    assert covered[second].all()
+
+
+def test_a_rejection_on_snr_or_without_plan_mask_carries_no_mask():
+    det = BlsDetector(second_pass=True)
+    rng = np.random.default_rng(5)
+    t = night_times(10)
+    quiet = curve(0, t, np.ones(len(t)), 0.005, rng)
+    cand = det._search(det._clean(quiet, C), None, C, plan_mask=True)
+    assert cand.rejected == "snr" and cand.mask == ()
+    _, eb = eb_curve(EB_HALF_PERIOD)
+    cand = det._search(det._clean(eb, C), None, C)
+    assert cand.rejected == "pulsation guard" and cand.mask == ()
+
+
+def test_masked_windows_are_not_observed_for_the_search_or_the_events():
+    _, _, cv = planted()
+    det = BlsDetector()
+    c = det._clean(cv, C)
+    full = det._search(c, None, C)
+    assert len(full.events) == 3
+    first = full.events[0]
+    # mask the first event (a window around its middle, as wide as the event)
+    mid = (first[0] + first[1]) / 2.0
+    window = Box(full.box.period_s * 7.0, mid, 4 * 3600.0, 0.0, 0, 0, 0.0)
+    out = det._search(c, None, C, masked=[window])
+    assert out is not None and out.rejected is None
+    assert [e[:2] for e in out.events] == [e[:2] for e in full.events[1:]]
+    # and no sample of the window took part: the box was fitted on the rest
+    assert out.box.n_total < full.box.n_total
+
+
+class _Stub(BlsDetector):
+    """A detector whose `_search` is scripted: first call, then the re-search."""
+
+    def __init__(self, first, second, **kw):
+        super().__init__(**kw)
+        self.script = [first, second]
+        self.calls = []
+
+    def _search(self, c, common_mode, cadence_s, masked=(), plan_mask=False):
+        self.calls.append((tuple(masked), plan_mask))
+        return self.script[len(self.calls) - 1] if len(self.calls) <= len(self.script) else None
+
+
+def _cand(period_d, rejected, mask=(), snr=12.0, epoch_d=0.14):
+    box = Box(period_d * DAY, epoch_d * DAY, 3 * 3600.0, 0.01, 100, 5000, 1.0)
+    events = [(0, 3600, 0), (DAY, DAY + 3600, 1)] if rejected is None else []
+    return Candidate(box, 0.005, snr, events, rejected, None, None, snr, 2, tuple(mask))
+
+
+def _run_stub(first, second, **kw):
+    _, _, cv = planted()
+    det = _Stub(first, second, **kw)
+    return det, det.detect({0: cv}, C)
+
+
+MASK = (Box(2.0 * DAY, 0.5 * DAY, 9 * 3600.0, 0.0, 0, 0, 0.0),)
+
+
+@pytest.mark.parametrize("why", ["local snr", "min_events", "support", "pulsation guard"])
+def test_a_rejection_other_than_snr_is_searched_again_once_with_the_mask(why):
+    first = _cand(2.0, why, MASK)
+    det, out = _run_stub(first, _cand(5.3, None), second_pass=True)
+    assert len(det.calls) == 2
+    assert det.calls[0] == ((), True) and det.calls[1] == (MASK, False)
+    assert [d.det_id for d in out] == ["bls-s0-0", "bls-s0-1"] and {d.score for d in out} == {12.0}
+
+
+def test_a_rejection_on_snr_is_not_searched_again():
+    det, out = _run_stub(_cand(2.0, "snr"), _cand(5.3, None), second_pass=True)
+    assert len(det.calls) == 1 and out == []
+
+
+def test_nothing_is_searched_again_when_the_pass_is_off_or_the_first_box_stands():
+    det, out = _run_stub(_cand(2.0, "pulsation guard", MASK), _cand(5.3, None), second_pass=False)
+    assert len(det.calls) == 1 and out == []
+    det, out = _run_stub(_cand(2.0, None), _cand(5.3, None), second_pass=True)
+    assert len(det.calls) == 1 and len(out) == 2 and out[0].score == 12.0
+
+
+@pytest.mark.parametrize("why", ["local snr", "min_events", "support", "snr", "pulsation guard"])
+def test_a_second_candidate_that_fails_any_gate_gives_nothing_and_is_not_followed_up(why):
+    det, out = _run_stub(_cand(2.0, "min_events", MASK), _cand(5.3, why), second_pass=True)
+    assert out == [] and len(det.calls) == 2
+    det, out = _run_stub(_cand(2.0, "min_events", MASK), None, second_pass=True)
+    assert out == [] and len(det.calls) == 2
+
+
+@pytest.mark.parametrize("ratio", [1.0, 0.5, 2.0])
+def test_after_a_pulsation_rejection_the_first_period_and_its_halves_are_refused(ratio):
+    first = _cand(2.0, "pulsation guard", MASK)
+    det, out = _run_stub(first, _cand(2.0 * ratio, None), second_pass=True)
+    assert out == [] and len(det.calls) == 2
+    det, out = _run_stub(first, _cand(2.0 * ratio * 1.1, None), second_pass=True)
+    assert len(out) == 2
+
+
+@pytest.mark.parametrize("why", ["local snr", "min_events", "support"])
+def test_the_period_of_a_box_refused_for_lack_of_events_means_nothing(why):
+    # a one-off dip fits many periods; a planet at half or twice the arbitrary one is no alias
+    _, out = _run_stub(_cand(4.52, why, MASK), _cand(4.52 / 2.0, None), second_pass=True)
+    assert len(out) == 2
+
+
+def test_without_the_secondary_rule_a_weak_secondary_hides_the_planet(monkeypatch):
+    # the box sits on the binary's own period; the secondary half a period away is left in the
+    # record unless it is masked too, and then the re-search finds only its residue
+    _, cv = eb_curve(EB_PRIMARY_ONLY, (5.3, 0.14))
+    assert len(detect({0: cv}, second_pass=True)) == 2
+    monkeypatch.setattr(bls, "_SECONDARY_WIDTH", 99.0)
+    assert detect({0: cv}, second_pass=True) == []
+
+
+def test_the_default_pass_matches_the_decision():
+    assert BlsDetector().second_pass is DEFAULT_SECOND_PASS
