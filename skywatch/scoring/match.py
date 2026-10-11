@@ -86,13 +86,17 @@ def _edge_pass(
 
     Runs only on detections the overlap pass left unmatched, so it can never change
     an overlap or single-cadence outcome or take a label an overlapping detection
-    wanted. A detection that overlaps any label (claimed or not) is skipped and stays
-    unmatched exactly as before. A detection that overlaps no label but lies within
-    `limit_s` seconds of one's edge takes the nearest unclaimed such label as "touched"
-    (ties by label_id), else is "corroborating" for the nearest already-claimed one, else
-    stays unmatched. Any unclaimed label is preferred over a nearer claimed one.
+    wanted. A detection that overlaps any label (claimed or not) is skipped: the overlap
+    pass has already matched it or, for a claimed label, made it corroborating. A
+    detection that overlaps no label but lies within `limit_s` seconds of one's edge
+    takes the nearest unclaimed such label as "touched" (ties by label_id), else is
+    "corroborating" for the nearest already-claimed one, else stays unmatched. Any
+    unclaimed label is preferred over a nearer claimed one.
     """
     for i, (det, res) in enumerate(zip(ordered, results, strict=True)):
+        # Defence in depth: the overlap pass now settles every overlapping detection, so
+        # this guard cannot change an outcome and no test can make it fire; it keeps the
+        # edge pass safe if a later change to the overlap pass lets an overlapper through.
         if res.label_id is not None or _overlaps_any(det, truth):
             continue
         free: tuple[int, str] | None = None
@@ -124,8 +128,10 @@ def match_detections(
     """Match each detector's detections to truth independently.
 
     Greedy by score desc. A detection takes the best unclaimed bounded label, else
-    the best unclaimed touched label, else corroborates a field-wide label this
-    detector already claimed, else is unmatched. Star-level labels are one-to-one.
+    the best unclaimed touched label, else corroborates a field-wide label this detector
+    already claimed, else corroborates the best-IoU already-claimed star-level label it
+    overlaps (a fragment of an event it already found), else is unmatched. Star-level
+    labels are one-to-one: only one detection earns the tp.
 
     Edge tolerance: a detection still unmatched after that, which overlaps nothing but
     lies within `edge_tolerance_cadences` cadences of a label's edge (its end or its
@@ -153,7 +159,8 @@ def match_detections(
         results: list[Match] = []
         for det in ordered:
             best: dict[str, tuple[float, str]] = {}
-            corr: tuple[float, str] | None = None
+            corr: tuple[float, str] | None = None  # claimed field-wide label
+            frag: tuple[float, str] | None = None  # claimed star-level label it overlaps
             for label in truth:
                 el = _eligible(det, label, cadence_s, iou_min)
                 if el is None:
@@ -161,10 +168,17 @@ def match_detections(
                 iou, grade = el
                 cand = (iou, label.label_id)
                 if label.label_id in taken:
-                    if label.star_id is None and (
-                        corr is None or iou > corr[0] or (iou == corr[0] and cand[1] < corr[1])
+                    # Already claimed: a field-wide label is corroborated by anything
+                    # eligible for it; a star-level one only by a detection that overlaps
+                    # it (iou > 0), a fragment of an event this detector already found.
+                    # Best IoU wins, ties by label_id.
+                    if label.star_id is None:
+                        if corr is None or iou > corr[0] or (iou == corr[0] and cand[1] < corr[1]):
+                            corr = cand
+                    elif iou > 0 and (
+                        frag is None or iou > frag[0] or (iou == frag[0] and cand[1] < frag[1])
                     ):
-                        corr = cand
+                        frag = cand
                     continue
                 cur = best.get(grade)
                 if cur is None or iou > cur[0] or (iou == cur[0] and cand[1] < cur[1]):
@@ -176,8 +190,13 @@ def match_detections(
                     results.append(Match(detector, det.det_id, lid, iou, grade))
                     break
             else:
-                if corr is not None:
-                    results.append(Match(detector, det.det_id, corr[1], corr[0], "corroborating"))
+                # A field-wide corroboration (scoring v1) keeps precedence over a star-level
+                # one, so detections that already corroborated a field-wide label keep it.
+                target = corr or frag
+                if target is not None:
+                    results.append(
+                        Match(detector, det.det_id, target[1], target[0], "corroborating")
+                    )
                 else:
                     results.append(Match(detector, det.det_id, None, 0.0))
         if edge_tolerance_cadences:

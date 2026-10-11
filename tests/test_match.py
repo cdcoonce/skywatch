@@ -25,10 +25,10 @@ def test_highest_iou_label_wins_and_one_to_one():
     ms = {m.det_id: m for m in match_detections(dets, labels, C)}
     assert ms["d1"].label_id == "b" and ms["d1"].iou == 0.8 and ms["d1"].grade == "bounded"
     assert ms["d2"].label_id == "a" and ms["d2"].iou == 0.5
-    # only one label: second detection unmatched
+    # only one label: the second detection is a fragment of the event d1 found
     ms = {m.det_id: m for m in match_detections(dets, [labels[0]], C)}
     assert ms["d1"].label_id == "a"
-    assert ms["d2"] == Match("d", "d2", None, 0.0)
+    assert ms["d2"] == Match("d", "d2", "a", 0.5, "corroborating")
 
 
 def test_star_mismatch_and_field_wide():
@@ -89,8 +89,8 @@ def test_bounded_vs_touched_grade():
     ms = match_detections([det("b", 1, 0, 400), det("t", 1, 900, 1000, score=0.5)], [label], C)
     got = {m.det_id: m for m in ms}
     assert got["b"].grade == "bounded" and got["b"].label_id == "o"
-    # label already taken by "b" and star-level: "t" is unmatched, not corroborating
-    assert got["t"] == Match("d", "t", None, 0.0, None)
+    # label already taken by "b" and star-level: "t" overlaps it, so it corroborates it
+    assert got["t"] == Match("d", "t", "o", 0.1, "corroborating")
     (m,) = match_detections([det("t", 1, 900, 1000)], [label], C)
     assert m.grade == "touched" and m.label_id == "o" and m.iou == 0.1
 
@@ -139,7 +139,8 @@ def test_star_level_labels_stay_one_to_one():
     dets = [det("d1", 1, 0, 500, score=2.0), det("d2", 1, 0, 600, score=1.0)]
     ms = {m.det_id: m for m in match_detections(dets, [label], C)}
     assert ms["d1"].grade == "bounded"
-    assert ms["d2"].label_id is None and ms["d2"].grade is None
+    # one tp only: the second detection overlaps the claimed label, so it corroborates
+    assert (ms["d2"].label_id, ms["d2"].grade) == ("o", "corroborating")
 
 
 def test_single_cadence_bounded_beats_higher_iou_touched():
@@ -242,12 +243,140 @@ def test_edge_detection_on_a_claimed_star_level_label_is_corroborating_not_fp():
     assert ms["exit"].iou == 0.0
 
 
-def test_overlapping_duplicate_on_claimed_star_level_label_is_still_unmatched():
-    # Unchanged: only non-overlapping edge detections are forgiven, not duplicates in-span.
+def test_overlapping_duplicate_on_claimed_star_level_label_is_corroborating():
+    # A fragment of an event the detector already found points at something real: it is
+    # evidence for the claimed label, not a false alarm, and not a second tp.
     label = lab("h", 1, 600, 1200, kind="hot_pixel")
     dets = [det("d1", 1, 600, 1200, score=2.0), det("d2", 1, 700, 800, score=1.0)]
     ms = {m.det_id: m for m in match_detections(dets, [label], C)}
+    assert (ms["d1"].label_id, ms["d1"].grade) == ("h", "bounded")
+    assert ms["d2"] == Match("d", "d2", "h", span_iou(700, 800, 600, 1200), "corroborating")
+    # also when the claim is only "touched", and when edge tolerance is off
+    dets = [det("d1", 1, 600, 660, score=2.0), det("d2", 1, 900, 960, score=1.0)]
+    for k in (0, 1):
+        ms = {m.det_id: m for m in match_detections(dets, [label], C, edge_tolerance_cadences=k)}
+        assert (ms["d1"].label_id, ms["d1"].grade) == ("h", "touched")
+        assert (ms["d2"].label_id, ms["d2"].grade) == ("h", "corroborating")
+
+
+def test_the_tp_goes_to_the_first_by_score_and_a_later_better_fit_is_the_fragment():
+    # The one-to-one rule is unchanged: greedy by score decides the tp. A later detection
+    # that fits better (higher IoU) is still only corroborating; it never steals the tp.
+    label = lab("h", 1, 600, 1200, kind="hot_pixel")
+    low_iou = det("hi_score", 1, 600, 700, score=2.0)
+    high_iou = det("lo_score", 1, 600, 1200, score=1.0)
+    ms = {m.det_id: m for m in match_detections([low_iou, high_iou], [label], C)}
+    assert (ms["hi_score"].label_id, ms["hi_score"].grade) == ("h", "touched")
+    assert (ms["lo_score"].label_id, ms["lo_score"].grade) == ("h", "corroborating")
+    tps = [m for m in ms.values() if m.grade in ("bounded", "touched")]
+    assert len(tps) == 1
+
+
+def test_duplicate_overlapping_two_claimed_labels_corroborates_the_higher_iou_one():
+    a = lab("a", 1, 0, 300, kind="flare")
+    b = lab("b", 1, 300, 400, kind="flare")
+    # claims: d1 takes a, d2 takes b
+    d1 = det("d1", 1, 0, 300, score=3.0)
+    d2 = det("d2", 1, 300, 400, score=2.0)
+    # dup overlaps a for 60 s of a 360 s union span, b for 100 s: b has the higher IoU
+    dup = det("dup", 1, 240, 400, score=1.0)
+    ms = {m.det_id: m for m in match_detections([d1, d2, dup], [a, b], C)}
+    assert ms["dup"].label_id == "b" and ms["dup"].grade == "corroborating"
+    assert ms["dup"].iou == span_iou(240, 400, 300, 400)
+    # truth order must not matter
+    ms = {m.det_id: m for m in match_detections([d1, d2, dup], [b, a], C)}
+    assert ms["dup"].label_id == "b"
+
+
+def test_equal_iou_duplicate_corroborates_the_lowest_label_id():
+    a = lab("a", 1, 0, 100, kind="flare")
+    b = lab("b", 1, 100, 200, kind="flare")
+    d1 = det("d1", 1, 0, 100, score=3.0)
+    d2 = det("d2", 1, 100, 200, score=2.0)
+    dup = det("dup", 1, 50, 150, score=1.0)  # 50 s into each: equal IoU
+    for truth in ([a, b], [b, a]):
+        ms = {m.det_id: m for m in match_detections([d1, d2, dup], truth, C)}
+        assert ms["dup"].label_id == "a" and ms["dup"].grade == "corroborating"
+
+
+def test_field_wide_corroboration_keeps_precedence_over_a_better_fitting_star_level_label():
+    # Pre-existing behaviour must not move: a detection that corroborated a claimed
+    # field-wide label keeps doing so even if it now also overlaps a claimed star-level
+    # label with a higher IoU.
+    cloud = lab("cloud", None, 0, 1000, kind="cloud")
+    flare = lab("flare", 1, 400, 500, kind="flare")
+    d1 = det("d1", 1, 0, 1000, score=3.0)  # claims the cloud
+    d2 = det("d2", 1, 400, 500, score=2.0)  # claims the flare
+    dup = det("dup", 1, 400, 500, score=1.0)  # IoU 1.0 with flare, 0.1 with cloud
+    ms = {m.det_id: m for m in match_detections([d1, d2, dup], [cloud, flare], C)}
+    assert (ms["d1"].label_id, ms["d2"].label_id) == ("cloud", "flare")
+    assert (ms["dup"].label_id, ms["dup"].grade) == ("cloud", "corroborating")
+
+
+def test_duplicate_overlapping_one_claimed_and_one_free_label_takes_the_free_one():
+    claimed = lab("claimed", 1, 0, 300, kind="flare")
+    free = lab("free", 1, 300, 600, kind="flare")
+    d1 = det("d1", 1, 0, 300, score=2.0)
+    dup = det("dup", 1, 200, 400, score=1.0)  # IoU 100/400 each way
+    ms = {m.det_id: m for m in match_detections([d1, dup], [claimed, free], C)}
+    assert (ms["dup"].label_id, ms["dup"].grade) == ("free", "touched")
+
+
+def test_detection_overlapping_no_label_is_still_unmatched():
+    label = lab("h", 1, 600, 1200, kind="hot_pixel")
+    far = det("far", 1, 3000, 3100)
+    ms = {m.det_id: m for m in match_detections([far], [label], C)}
+    assert ms["far"] == Match("d", "far", None, 0.0, None)
+
+
+def test_fragment_rule_does_not_reach_another_stars_claimed_label():
+    # The star-1 label is really claimed (by a star-1 detection) before the star-3
+    # detection that overlaps it in time is considered: it must still be a false alarm.
+    label = lab("h", 1, 600, 1200, kind="hot_pixel")
+    winner = det("winner", 1, 600, 1200, score=2.0)
+    other_star = det("other", 3, 700, 800, score=1.0)
+    for k in (0, 1):
+        ms = {
+            m.det_id: m
+            for m in match_detections([winner, other_star], [label], C, edge_tolerance_cadences=k)
+        }
+        assert (ms["winner"].label_id, ms["winner"].grade) == ("h", "bounded")
+        assert ms["other"] == Match("d", "other", None, 0.0, None)
+
+
+def test_abutting_detection_does_not_corroborate_a_claimed_one_cadence_label():
+    # `_eligible` gives an IoU of 0 to a detection inside the single-cadence tolerance,
+    # so the fragment rule must require iou > 0: a mere neighbour is not a fragment.
+    cr = lab("cr", 1, 600, 660, kind="hot_pixel")
+    claim = det("claim", 1, 600, 660, score=2.0)
+    d2 = det("d2", 1, 660, 720, score=1.0)  # abuts cr, overlaps nothing
+    ms = {m.det_id: m for m in match_detections([claim, d2], [cr], C, edge_tolerance_cadences=0)}
+    assert (ms["claim"].label_id, ms["claim"].grade) == ("cr", "bounded")
     assert ms["d2"] == Match("d", "d2", None, 0.0, None)
+    # with edge tolerance and a free abutting label B, d2 takes B rather than cr
+    b = lab("B", 1, 720, 840, kind="hot_pixel")
+    ms = {m.det_id: m for m in match_detections([claim, d2], [cr, b], C, edge_tolerance_cadences=1)}
+    assert (ms["d2"].label_id, ms["d2"].grade) == ("B", "touched")
+
+
+def test_duplicate_over_an_unobservable_label_is_still_unmatched():
+    # An unobservable label is treated as absent, so it is nothing to corroborate.
+    label = TruthLabel(
+        "u", "flare", ORIGIN_OF_KIND["flare"], 1, 600, 1200, params={"footprint_samples": 0}
+    )
+    ms = {m.det_id: m for m in match_detections([det("d1", 1, 600, 1200)], [label], C)}
+    assert ms["d1"] == Match("d", "d1", None, 0.0, None)
+
+
+def test_corroborating_duplicates_do_not_change_the_tp_set():
+    label = lab("h", 1, 600, 1200, kind="hot_pixel")
+    base = [det("d1", 1, 600, 1200, score=2.0)]
+    more = [*base, det("d2", 1, 700, 800, score=1.0), det("d3", 1, 900, 1000, score=0.5)]
+
+    def tp(ms):
+        return {(m.det_id, m.label_id, m.grade) for m in ms if m.grade in ("bounded", "touched")}
+
+    assert tp(match_detections(more, [label], C)) == tp(match_detections(base, [label], C))
 
 
 def test_edge_prefers_unclaimed_label_then_nearer_edge():
@@ -316,16 +445,16 @@ def test_edge_tolerance_zero_reproduces_the_pre_edge_matcher_exactly():
 
 
 def test_edge_pass_skips_a_detection_that_overlaps_a_claimed_label():
-    # d2 overlaps A (already claimed by d1) and abuts B. On main it was unmatched; the
-    # edge pass is for detections that overlap NO label, so it must stay unmatched.
+    # d2 overlaps A (already claimed by d1) and abuts B. The edge pass is for detections
+    # that overlap NO label, so it must not take B: d2 corroborates A (the overlap rule).
     a = lab("A", 1, 600, 1200, kind="hot_pixel")
     b = lab("B", 1, 1260, 1500, kind="hot_pixel")
     d1 = det("d1", 1, 600, 1200, score=2.0)
     d2 = det("d2", 1, 1100, 1260, score=1.0)
     ms = {m.det_id: m for m in match_detections([d1, d2], [a, b], C)}
     assert (ms["d1"].label_id, ms["d1"].grade) == ("A", "bounded")
-    assert ms["d2"] == Match("d", "d2", None, 0.0, None)
-    # and it agrees with the overlap-only matcher
+    assert (ms["d2"].label_id, ms["d2"].grade) == ("A", "corroborating")
+    # and it agrees with the overlap-only matcher (B stays unclaimed, d2 not edge-matched)
     off = {m.det_id: m for m in match_detections([d1, d2], [a, b], C, edge_tolerance_cadences=0)}
     assert ms == off
 
