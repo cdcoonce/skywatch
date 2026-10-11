@@ -231,8 +231,8 @@ Planned detectors, in order:
   `0 <= distance < k * cadence_s` (0 = abutting, the first sample after or last sample
   before the label). A detection that overlaps any label on its star (claimed or not)
   is not edge-eligible; the overlap pass has already settled it (see fragments below).
-  Among eligible labels any still-unclaimed one is preferred over an already-claimed one, even a nearer claimed
-  one; within the chosen group the nearest edge wins, then the lowest `label_id`. The
+  Among eligible labels any still-unclaimed one is preferred over an already-claimed
+  one, even a nearer claimed one; within the chosen group the nearest edge wins, then the lowest `label_id`. The
   grade is **touched** if the label is still unclaimed, and **corroborating** if this
   detector already claimed it: the end of a hot-pixel plateau or the decay of a flare crossing the
   threshold is evidence of an event the detector already counted, not a false alarm.
@@ -241,8 +241,9 @@ Planned detectors, in order:
   the first is its TP; each later eligible detection is **corroborating** and
   counts as neither TP nor FP. Only detections eligible for nothing (overlap, single-cadence
   tolerance or edge tolerance) are FP.
-- **Fragments.** A detection that overlaps an already-claimed star-level label, and so
-  loses the one-to-one race for it, is **corroborating** for that label, graded the
+- **Fragments.** A detection that overlaps an already-claimed star-level label, finds
+  no unclaimed label to take (the free label always wins), and so loses the one-to-one
+  race for the claimed one, is **corroborating** for that label, graded the
   same as an overlapping duplicate on a field-wide label and as an edge detection on a
   claimed label. Which single detection earns the tp is unchanged (greedy by score, then
   the best label by IoU), so `tp_bounded`, `tp_touched` and recall do not move. A

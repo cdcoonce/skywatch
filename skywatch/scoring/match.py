@@ -88,11 +88,15 @@ def _edge_pass(
     an overlap or single-cadence outcome or take a label an overlapping detection
     wanted. A detection that overlaps any label (claimed or not) is skipped: the overlap
     pass has already matched it or, for a claimed label, made it corroborating. A
-    detection that overlaps no label but lies within `limit_s` seconds of one's edge takes the nearest unclaimed such label as "touched"
-    (ties by label_id), else is "corroborating" for the nearest already-claimed one, else
-    stays unmatched. Any unclaimed label is preferred over a nearer claimed one.
+    detection that overlaps no label but lies within `limit_s` seconds of one's edge
+    takes the nearest unclaimed such label as "touched" (ties by label_id), else is
+    "corroborating" for the nearest already-claimed one, else stays unmatched. Any
+    unclaimed label is preferred over a nearer claimed one.
     """
     for i, (det, res) in enumerate(zip(ordered, results, strict=True)):
+        # Defence in depth: the overlap pass now settles every overlapping detection, so
+        # this guard cannot change an outcome and no test can make it fire; it keeps the
+        # edge pass safe if a later change to the overlap pass lets an overlapper through.
         if res.label_id is not None or _overlaps_any(det, truth):
             continue
         free: tuple[int, str] | None = None

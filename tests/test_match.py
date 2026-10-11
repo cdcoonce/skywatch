@@ -325,10 +325,38 @@ def test_duplicate_overlapping_one_claimed_and_one_free_label_takes_the_free_one
 def test_detection_overlapping_no_label_is_still_unmatched():
     label = lab("h", 1, 600, 1200, kind="hot_pixel")
     far = det("far", 1, 3000, 3100)
-    other_star = det("other", 2, 600, 1200)
-    ms = {m.det_id: m for m in match_detections([far, other_star], [label], C)}
+    ms = {m.det_id: m for m in match_detections([far], [label], C)}
     assert ms["far"] == Match("d", "far", None, 0.0, None)
-    assert ms["other"] == Match("d", "other", None, 0.0, None)
+
+
+def test_fragment_rule_does_not_reach_another_stars_claimed_label():
+    # The star-1 label is really claimed (by a star-1 detection) before the star-3
+    # detection that overlaps it in time is considered: it must still be a false alarm.
+    label = lab("h", 1, 600, 1200, kind="hot_pixel")
+    winner = det("winner", 1, 600, 1200, score=2.0)
+    other_star = det("other", 3, 700, 800, score=1.0)
+    for k in (0, 1):
+        ms = {
+            m.det_id: m
+            for m in match_detections([winner, other_star], [label], C, edge_tolerance_cadences=k)
+        }
+        assert (ms["winner"].label_id, ms["winner"].grade) == ("h", "bounded")
+        assert ms["other"] == Match("d", "other", None, 0.0, None)
+
+
+def test_abutting_detection_does_not_corroborate_a_claimed_one_cadence_label():
+    # `_eligible` gives an IoU of 0 to a detection inside the single-cadence tolerance,
+    # so the fragment rule must require iou > 0: a mere neighbour is not a fragment.
+    cr = lab("cr", 1, 600, 660, kind="hot_pixel")
+    claim = det("claim", 1, 600, 660, score=2.0)
+    d2 = det("d2", 1, 660, 720, score=1.0)  # abuts cr, overlaps nothing
+    ms = {m.det_id: m for m in match_detections([claim, d2], [cr], C, edge_tolerance_cadences=0)}
+    assert (ms["claim"].label_id, ms["claim"].grade) == ("cr", "bounded")
+    assert ms["d2"] == Match("d", "d2", None, 0.0, None)
+    # with edge tolerance and a free abutting label B, d2 takes B rather than cr
+    b = lab("B", 1, 720, 840, kind="hot_pixel")
+    ms = {m.det_id: m for m in match_detections([claim, d2], [cr, b], C, edge_tolerance_cadences=1)}
+    assert (ms["d2"].label_id, ms["d2"].grade) == ("B", "touched")
 
 
 def test_duplicate_over_an_unobservable_label_is_still_unmatched():
