@@ -185,11 +185,8 @@ def test_unknown_kind_falls_back_to_grey(scored, tmp_path):
     data = view.assemble_view(scored, 1, 0)
     odd = view.ViewTruth("nova-n0-s1-0", "nova", "science", 1, 1000, 2000, True)
     data = replace(data, truth=(*data.truth, odd))
-    out = view.render_view(data, tmp_path / "odd.png")
-    assert out.stat().st_size > 0
-    assert "nova" in _legend_texts(_figure(data)) + [
-        t.get_text() for t in _figure(data).axes[1].texts
-    ]
+    assert view.render_view(data, tmp_path / "odd.png").stat().st_size > 0
+    assert "nova" in _legend_texts(_figure(data))
     assert view._kind_color("nova") == view.FALLBACK_KIND_COLOR
 
 
@@ -268,3 +265,15 @@ def test_flagged_samples_are_drawn_with_the_flag_colour():
     from matplotlib.colors import to_rgba
 
     assert edges == [to_rgba(view.FLAG_COLOR)]
+
+
+def test_annotation_values_are_short():
+    assert [view._value_label(v) for v in (995327.4, 1.0e6, 1.6e6, 91752.5, -5000, 950, 12.34)] == [
+        "995k",
+        "1M",
+        "1.6M",
+        "91.8k",
+        "-5k",
+        "950",
+        "12.3",
+    ]

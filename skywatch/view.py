@@ -390,7 +390,7 @@ def _annotate_clipped(ax: Axes, t: np.ndarray, flux: np.ndarray, lo: float, hi: 
             ax.text(
                 x,
                 ypos,
-                f"{glyph} {_flux_tick(float(flux[worst]), 0)}",
+                f"{glyph} {_value_label(float(flux[worst]))}",
                 transform=trans,
                 ha=ha,
                 va=va,
@@ -400,6 +400,14 @@ def _annotate_clipped(ax: Axes, t: np.ndarray, flux: np.ndarray, lo: float, hi: 
                 zorder=4,
                 clip_on=False,
             )
+
+
+def _value_label(value: float) -> str:
+    """A true value for an annotation, three significant figures: 995327 -> 995k."""
+    for scale, unit in ((1e6, "M"), (1e3, "k")):
+        if abs(value) >= scale * 0.9995:
+            return f"{value / scale:.3g}{unit}"
+    return f"{value:.3g}"
 
 
 def _flux_tick(value: float, _pos: int) -> str:
