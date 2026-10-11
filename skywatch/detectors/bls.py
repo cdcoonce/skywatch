@@ -108,10 +108,12 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
 
 Second pass
 -----------
-``second_pass=True`` searches a star once more when its best box is rejected by any gate
-except the S/N gate (local S/N, events, support, pulsation guard); a box too weak for the S/N
-gate means no other box on the star is strong either. Without it a star's strongest box
-decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
+``second_pass`` (on by default: measured on the four stored runs and four fresh 20-night seeds
+it added at most one false positive per run, mistook no eclipse or pulsator for a transit that
+the single pass did not, left the 3-night rows unchanged and took 1.1-1.3 times the single-pass
+time) searches a star once more when its best box is rejected by any gate except the S/N gate
+(local S/N, events, support, pulsation guard); a box too weak for the S/N gate means no other
+box on the star is strong either. Without it a star's strongest box decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
 (seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
 
 The re-search leaves out the *dip* around the rejected box, not only the box. A box is at most
@@ -531,7 +533,7 @@ class BlsDetector:
         guard_f_max_per_d: float = 30.0,
         night_gap_cadences: int = 100,
         common_mode_min_stars: int = 10,
-        second_pass: bool = False,
+        second_pass: bool = True,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")

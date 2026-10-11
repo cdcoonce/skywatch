@@ -536,6 +536,7 @@ def test_default_parameters():
     assert d.guard_fap == 1e-3 and d.guard_ratio == 1.0
     assert (d.guard_f_min_per_d, d.guard_f_max_per_d) == (1.0, 30.0)
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
+    assert d.second_pass is True
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -576,8 +577,6 @@ def test_a_planet_below_the_two_day_period_is_found_at_its_own_period():
 
 
 # -- second pass (#32): one re-search after a rejected best box ------------------------------
-
-DEFAULT_SECOND_PASS = False  # decided from the counterfactual table in the PR
 
 
 def eclipsing(t, period_d, epoch_d, dur_h, depth_primary, depth_secondary):
@@ -635,7 +634,6 @@ def test_second_pass_recovers_a_planet_behind_an_eclipsing_binary(eb, period_d, 
     # the binary is the star's best box and the guard rejects it: the planet is never searched
     first = BlsDetector().search(cv, C)
     assert first.rejected == "pulsation guard" and first.snr > 100
-    assert detect({0: cv}) == []
     assert detect({0: cv}, second_pass=False) == []
     out = detect({0: cv}, second_pass=True)
     assert_planet_events(out, wins)
@@ -655,7 +653,7 @@ def test_second_pass_finds_the_planet_a_deep_one_off_dip_hid(dip_night):
     first = BlsDetector().search(cv, C)
     # the dip wins the search with S/N near 80 and is refused for lack of events
     assert first.snr > 50 and first.rejected in ("min_events", "support", "local snr")
-    assert detect({0: cv}) == []
+    assert detect({0: cv}, second_pass=False) == []
     out = detect({0: cv}, second_pass=True)
     assert_planet_events(out, wins)
 
@@ -919,5 +917,8 @@ def test_without_the_secondary_rule_a_weak_secondary_hides_the_planet(monkeypatc
     assert detect({0: cv}, second_pass=True) == []
 
 
-def test_the_default_pass_matches_the_decision():
-    assert BlsDetector().second_pass is DEFAULT_SECOND_PASS
+def test_the_second_pass_is_on_by_default():
+    assert BlsDetector().second_pass is True
+    _, cv = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
+    assert len(detect({0: cv})) == 3
+    assert detect({0: cv}, second_pass=False) == []
