@@ -115,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     try:
         _dispatch(args)
-    except (ValueError, TypeError, FileNotFoundError, FileExistsError) as e:
+    except (ValueError, TypeError, OSError) as e:
         print(f"skywatch: error: {e}", file=sys.stderr)
         return 2
     return 0

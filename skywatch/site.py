@@ -396,13 +396,26 @@ def render_html(data: SiteData, out_path: Path | None = None) -> str:
     )
 
 
+def _check_out(out_path: Path) -> None:
+    """The page path must be writable as a file: not a directory, no regular file above it."""
+    if out_path.is_dir():
+        raise ValueError(f"--out {out_path} is a directory; give the page's file path")
+    for parent in out_path.parents:
+        if parent.exists():
+            if not parent.is_dir():
+                raise ValueError(f"--out {out_path}: {parent} is a file, not a directory")
+            break
+
+
 def generate(spec_path: Path, out_path: Path | None = None) -> Path:
     """Draw every picture (overwriting its file) and write the page; returns the page path.
 
-    Everything is validated and assembled first, so a bad spec writes nothing.
+    Everything is validated and assembled first (the spec and the page path), so a bad spec or
+    a bad `--out` writes nothing.
     """
     data = assemble(spec_path)
     out_path = Path(out_path) if out_path else data.spec.path.parent / "index.html"
+    _check_out(out_path)
     html = render_html(data, out_path)
     for fig in data.figures:
         view.render_view(fig.data, _image_path(data, fig))

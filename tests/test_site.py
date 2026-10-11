@@ -269,11 +269,47 @@ def test_view_needs_pick_or_star_and_night(tmp_path, tiny, capsys, view_args):
 
 
 @pytest.mark.parametrize(
-    "file", ["../out.png", "/abs/out.png", "img/../../out.png", "http://x/a.png"]
+    ("file", "message"),
+    [
+        ("../out.png", "stay inside"),
+        ("/abs/out.png", "file"),
+        ("img/../../out.png", "stay inside"),
+        ("http://x/a.png", "file"),
+        ("a\\b.png", "plain relative path"),
+        ("C:x.png", "plain relative path"),
+        ("/abs.png", "plain relative path"),
+        ("a//b.png", "stay inside"),
+        ("./a.png", "stay inside"),
+        ("a/./b.png", "stay inside"),
+        ("x.txt", "must end in .png or .svg"),
+    ],
 )
-def test_file_outside_spec_dir_fails(tmp_path, tiny, capsys, file):
+def test_file_outside_spec_dir_fails(tmp_path, tiny, capsys, file, message):
     views = [{"run": str(tiny), "pick": True, "file": file, "caption": "x"}]
-    _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, views), capsys, "file")
+    _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, views), capsys, message)
+
+
+def _pngs(root: Path) -> list[Path]:
+    return sorted(root.rglob("*.png"))
+
+
+def test_out_that_is_a_directory_fails_before_drawing(tmp_path, tiny, capsys):
+    spec = _write_spec(tmp_path, tiny)
+    target = tmp_path / "adir"
+    target.mkdir()
+    assert main(["site", "--spec", str(spec), "--out", str(target)]) == 2
+    assert "adir" in capsys.readouterr().err
+    assert _pngs(tmp_path) == [] and not (spec.parent / "index.html").exists()
+
+
+def test_out_under_a_regular_file_fails_before_drawing(tmp_path, tiny, capsys):
+    spec = _write_spec(tmp_path, tiny)
+    blocker = tmp_path / "afile"
+    blocker.write_text("not a directory")
+    out = blocker / "sub" / "page.html"
+    assert main(["site", "--spec", str(spec), "--out", str(out)]) == 2
+    assert "afile" in capsys.readouterr().err
+    assert _pngs(tmp_path) == [] and blocker.read_text() == "not a directory"
 
 
 def test_unscored_run_and_bad_star_fail_before_writing(tmp_path, tiny, capsys):
