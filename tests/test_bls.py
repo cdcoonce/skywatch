@@ -469,3 +469,101 @@ def test_performance_20_stars_10_nights():
     elapsed = time.perf_counter() - t0
     assert {d.star_id for d in out} == {0, 5, 10, 15}
     assert elapsed < 30.0, f"20 stars x 10 nights took {elapsed:.1f} s"
+
+
+# -- review follow-up: pins for the defaults and the gates the first suite let through -----
+
+
+@pytest.mark.parametrize("period_d", [1.7 / 24, 0.05])
+def test_fast_sinusoids_are_rejected_by_the_pulsation_guard_itself(period_d):
+    # 14.1 and 20 cycles/day, inside the guard band (1-30 c/d) but outside 1-5: the
+    # guard names itself as the reason, so no other gate can stand in for it
+    rng = np.random.default_rng(3)
+    t = night_times(10)
+    prof = 1.0 + 0.0035 * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
+    cv = curve(0, t, prof, 0.005, rng)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.snr > 7.0 and cand.snr_local > 7.0
+    assert cand.rejected == "pulsation guard"
+    assert cand.excess is not None and cand.excess > 100.0
+    assert detect({0: cv}) == []
+    # it is the guard that holds it back: without the guard the sinusoid is a "transit"
+    assert BlsDetector(guard_fap=None).search(cv, C).rejected is None
+
+
+def test_sigma_is_the_mad_not_the_standard_deviation():
+    # 15 percent of the samples carry 8x the noise: the standard deviation of the
+    # out-of-box flux is about 2.5x the noise of the other 85 percent, the MAD barely moves
+    t, prof, _ = planted(depth=0.0035)
+    rng = np.random.default_rng(3)
+    wide = rng.random(len(t)) < 0.15
+    g = rng.normal(0.0, 1.0, len(t))
+    flux = 1000.0 * prof * (1.0 + g * np.where(wide, 0.005 * 8, 0.005))
+    cv = LightCurve(0, t, flux, np.full(len(t), 5.0), np.zeros(len(t), dtype=np.uint8))
+    # guard off: the heavy tails are not what is under test and would trip the residual test
+    cand = BlsDetector(guard_fap=None).search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert cand.box.period_s == pytest.approx(2.3 * DAY, rel=0.01)
+    assert 0.005 <= cand.sigma <= 0.0065  # the core noise, not the ~0.013 of the whole
+    assert cand.snr > 12.0
+    assert len(detect({0: cv}, guard_fap=None)) == 3
+
+
+def test_default_threshold_finds_a_marginal_planet_and_a_higher_one_loses_it():
+    _, _, cv = planted(depth=0.0021, seed=0)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert 8.0 < cand.snr < 11.0  # marginal: well under any round-number "strong" cut
+    assert cand.box.period_s == pytest.approx(2.3 * DAY, rel=0.01)
+    assert len(detect({0: cv})) == 3
+    assert BlsDetector(snr_threshold=20.0).search(cv, C).rejected == "snr"
+    assert detect({0: cv}, snr_threshold=20.0) == []
+
+
+def test_default_parameters():
+    d = BlsDetector()
+    assert d.min_period_d == 0.5 and d.max_period_d is None
+    assert d.durations_h == (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+    assert d.oversample == 3.0
+    assert d.snr_threshold == 7.0 and d.min_events == 2 and d.support_snr == 2.0
+    assert d.clip_sigma == 4.0 and d.tail_sigma == 1.0
+    assert d.guard_fap == 1e-3 and d.guard_ratio == 1.0
+    assert (d.guard_f_min_per_d, d.guard_f_max_per_d) == (1.0, 30.0)
+    assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
+
+
+def test_short_transit_at_a_long_period_keeps_every_event_placed():
+    # 0.5 h at 3 percent every 9.1 d over 20 nights: three in-night events, the last 18 d
+    # after the first, so the period grid must not smear it by more than the duration
+    rng = np.random.default_rng(0)
+    t = night_times(20)
+    prof = box_profile(t, 9.1 * DAY, 0.05 * DAY, 0.5 * 3600.0, 0.03)
+    cv = curve(0, t, prof, 0.005, rng)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert cand.box.duration_s == pytest.approx(0.5 * 3600.0, rel=0.1)
+    out = detect({0: cv})
+    wins = planted_windows(t, 9.1, 0.05, 0.5)
+    assert len(wins) == 3 and len(out) == len(wins)
+    for lo, hi in wins:
+        assert max(span_iou(d.t_start, d.t_end, lo, hi) for d in out) >= 0.5
+
+
+def test_durations_are_sorted_so_the_bin_comes_from_the_shortest():
+    _, _, cv = planted()
+    odd = BlsDetector(durations_h=(6.0, 0.5, 3.0))
+    assert odd.durations_h == (0.5, 3.0, 6.0)
+    assert odd.detect({0: cv}, C) == detect({0: cv}, durations_h=(0.5, 3.0, 6.0))
+    assert len(odd.detect({0: cv}, C)) == 3
+
+
+def test_a_planet_below_the_two_day_period_is_found_at_its_own_period():
+    # P = 0.8 d: five in-night events in 10 nights; periods under 1 d are in the grid
+    rng = np.random.default_rng(0)
+    t = night_times(10)
+    prof = box_profile(t, 0.8 * DAY, 0.1 * DAY, 1.5 * 3600.0, 0.01)
+    cv = curve(0, t, prof, 0.005, rng)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert cand.box.period_s == pytest.approx(0.8 * DAY, rel=0.01)
+    assert len(detect({0: cv})) == len(planted_windows(t, 0.8, 0.1, 1.5)) == 5
