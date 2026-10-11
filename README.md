@@ -42,10 +42,15 @@ blind spot), and
 growing window recovers the first-window events, and truth labels that touch
 no sample are excluded from the denominator and shown as `unobs`).
 
-Every issue filed from the first two days is closed. `skywatch view` now draws
-one star's night with the injected truth and every detector's spans on it; see
-[seed 7, star 33, night 1](docs/img/seed7-pick.png), where only the field
-detector names the tracking drift. Hosting is decided after that picture.
+`skywatch view` draws one star's night with the injected truth and every
+detector's spans on it; see [seed 7, star 33, night 1](docs/img/seed7-pick.png),
+where only the field detector names the tracking drift.
+[0006](docs/log/0006-the-first-picture-and-what-it-found.md) records the
+picture and the finding it produced: fragments of an event a detector had
+already found were being booked as false alarms, and now corroborate instead.
+
+Every issue filed so far is closed. Next: hosting, then `bls` across nights for
+the shallow transits every detector still misses.
 
 ## Develop
 
