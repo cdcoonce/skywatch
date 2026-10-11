@@ -1,4 +1,4 @@
-"""Command-line interface: simulate, detect, score, report."""
+"""Command-line interface: simulate, detect, score, planets, report, view."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from skywatch import __version__, run, view
+from skywatch import __version__, planets, run, view
 from skywatch.scoring.metrics import format_scoreboard
 from skywatch.world.field import FieldConfig
 from skywatch.world.survey import SurveyConfig
@@ -35,6 +35,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     sc = sub.add_parser("score", help="score detections against truth")
     sc.add_argument("--run", required=True)
+
+    pl = sub.add_parser("planets", help="per-planet events and stacked S/N from a stored run")
+    pl.add_argument("--run", required=True)
+    pl.add_argument("--min-events", type=int, default=1, help="hide planets with fewer events")
+    pl.add_argument("--min-snr", type=float, default=0.0, help="hide planets below this snr_stack")
 
     rep = sub.add_parser("report", help="print the scoreboard")
     rep.add_argument("--run", required=True)
@@ -92,6 +97,9 @@ def _dispatch(args: argparse.Namespace) -> None:
         print(f"{n} detections")
     elif args.command == "score":
         print(format_scoreboard(run.score_run(Path(args.run))))
+    elif args.command == "planets":
+        rows = planets.planet_rows(Path(args.run))
+        print(planets.format_planets(rows, args.min_events, args.min_snr))
     elif args.command == "report":
         print(run.report_run(Path(args.run)))
     elif args.command == "view":
