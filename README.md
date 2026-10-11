@@ -42,9 +42,10 @@ blind spot), and
 growing window recovers the first-window events, and truth labels that touch
 no sample are excluded from the denominator and shown as `unobs`).
 
-Every issue filed from the first two days is closed. Next: a way to look at one
-star's night with truth and every detector's spans drawn on it; hosting is
-decided after that exists.
+Every issue filed from the first two days is closed. `skywatch view` now draws
+one star's night with the injected truth and every detector's spans on it; see
+[seed 7, star 33, night 1](docs/img/seed7-pick.png), where only the field
+detector names the tracking drift. Hosting is decided after that picture.
 
 ## Develop
 

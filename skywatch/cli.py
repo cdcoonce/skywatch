@@ -7,7 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from skywatch import __version__, run
+from skywatch import __version__, run, view
 from skywatch.scoring.metrics import format_scoreboard
 from skywatch.world.field import FieldConfig
 from skywatch.world.survey import SurveyConfig
@@ -38,7 +38,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     rep = sub.add_parser("report", help="print the scoreboard")
     rep.add_argument("--run", required=True)
+
+    vw = sub.add_parser("view", help="draw one star's night with truth and detector spans")
+    vw.add_argument("--run", required=True)
+    vw.add_argument("--star", type=int, default=None)
+    vw.add_argument("--night", type=int, default=None, help="0-based night index")
+    vw.add_argument("--pick", action="store_true", help="choose the busiest star-night")
+    vw.add_argument("--out", default=None, help=".png or .svg (default runs/<id>/views/...)")
+    vw.add_argument("--detectors", default=None, help="comma-separated, default every detector")
     return p
+
+
+def _view(args: argparse.Namespace) -> None:
+    run_dir = Path(args.run)
+    if not (run_dir / "manifest.json").exists():
+        raise FileNotFoundError(f"no run at {run_dir} (manifest.json missing)")
+    names = None
+    if args.detectors is not None:
+        names = [n for n in args.detectors.split(",") if n]
+        if not names:
+            raise ValueError("--detectors is empty; omit it to draw every detector")
+    if args.pick:
+        if args.star is not None or args.night is not None:
+            raise ValueError("--pick chooses the star and night; drop --star and --night")
+        pick = view.pick_view(run_dir, names)
+        print(pick.describe())
+        star, night = pick.star_id, pick.night
+    else:
+        if args.star is None or args.night is None:
+            raise ValueError("give --star and --night, or --pick")
+        star, night = args.star, args.night
+    data = view.assemble_view(run_dir, star, night, names)
+    out = Path(args.out) if args.out else view.default_out_path(run_dir, star, night)
+    print(view.render_view(data, out))
 
 
 def _dispatch(args: argparse.Namespace) -> None:
@@ -62,6 +94,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         print(format_scoreboard(run.score_run(Path(args.run))))
     elif args.command == "report":
         print(run.report_run(Path(args.run)))
+    elif args.command == "view":
+        _view(args)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

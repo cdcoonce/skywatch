@@ -183,3 +183,13 @@ def test_scores_written_before_the_unobservable_column_still_read(tmp_path, resu
     )
     (row,) = store.read_scores(run)
     assert (row.fn, row.unobservable) == (3, 0)
+
+
+def test_matches_round_trip(tmp_path, result):
+    run = store.write_run(tmp_path, result)
+    ms = [
+        Match("a", "a-0", "flare-n0-s1-0", 0.5, "bounded"),
+        Match("a", "a-1", None, 0.0, None),
+    ]
+    store.write_scores(run, [], ms, {})
+    assert store.read_matches(run) == ms
