@@ -349,6 +349,12 @@ def write_scores(
     )
 
 
+def read_matches(run_dir: Path) -> list[Match]:
+    """Matches written by `score`; raises FileNotFoundError on a run that was never scored."""
+    d = _read(Path(run_dir) / "matches.parquet")
+    return [Match(**{k: d[k][i] for k in _MATCHES.names}) for i in range(len(d["det_id"]))]
+
+
 def read_scores(run_dir: Path) -> list[KindScore]:
     d = _read(Path(run_dir) / "scores.parquet")
     n = len(d["detector"])
