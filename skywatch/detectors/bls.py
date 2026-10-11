@@ -692,6 +692,8 @@ class BlsDetector:
         ring = in_box(t, replace(box, duration_s=_GUARD_MASK_WIDTH * box.duration_s)) & ~core
         keep = ~ring
         outside = keep & ~core
+        if not outside.any():  # nothing is left to hold the box against
+            return True, math.inf
         depth = float(flux[outside].mean() - flux[core].mean()) if core.any() else 0.0
         resid = flux - flux[outside].mean() + depth * core
         r_power, r_crit = self._peak_power(t[keep], resid[keep], sigma, cadence_s)
@@ -820,7 +822,7 @@ class BlsDetector:
 
         if snr < self.snr_threshold:
             return reject("snr")
-        if snr_local < self.snr_threshold:
+        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
             return reject("local snr")
         events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:

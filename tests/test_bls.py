@@ -1,5 +1,6 @@
 import math
 import time
+import warnings
 
 import numpy as np
 import pytest
@@ -811,6 +812,30 @@ def _clean_mask(prof, t, period_d, epoch_d, sigma, dur_h=3.0, **kw):
     box = Box(period_d * DAY, epoch_d * DAY, dur_h * 3600.0, 0.2, 500, len(t), 1.0)
     det = BlsDetector(second_pass=True, **kw)
     return _covered(t, det._dip_mask(t, prof, box, sigma))
+
+
+def test_a_box_that_leaves_nothing_outside_it_is_refused_by_the_guard():
+    # after a mask the record can be short enough for the box and its margin to fill it; the
+    # residual test then has nothing to measure (an empty mean) and must not wave it through
+    t = night_times(3)
+    cv = curve(0, t, np.ones(len(t)), 0.005, np.random.default_rng(0))
+    det = BlsDetector()
+    c = det._clean(cv, C)
+    box = Box(float(DAY), 4 * 3600.0, 2 * 24 * 3600.0, 0.01, len(t), len(t), 1.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        pulsating, power = det._pulsating(c.t.astype(float), c.flux, 0.005, C, box)
+    assert pulsating and power == math.inf
+
+
+def test_an_undefined_local_snr_does_not_pass_the_gate(monkeypatch):
+    # a record in which no night holds both box and out-of-box samples has no local contrast
+    monkeypatch.setattr(bls, "night_contrasts", lambda *a: (np.zeros(0), np.zeros(0)))
+    _, _, cv = planted()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        cand = BlsDetector().search(cv, C)
+    assert cand.rejected == "local snr" and math.isnan(cand.snr_local)
 
 
 def test_a_dip_grows_through_wings_below_the_seed_level():
