@@ -48,8 +48,8 @@ where the grid period puts it, at every period; read literally as a step in 1/da
 formula is not dimensionally consistent. Durations are ``(0.5, 1, 1.5, 2, 3, 4, 6)`` hours.
 For each trial period the samples are folded into phase bins no wider than half the
 shortest duration (``P / ceil(P / bin_s)``, ``bin_s = min_duration / 2``); samples are first
-merged into ``bin_s / 3`` time buckets (a 3x saving, at most a sixth of a phase bin of
-timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
+merged into ``bin_s / 3`` time buckets (300 s: a 5x saving at 60 s cadence, at most a
+sixth of a phase bin of timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
 periods at once, and every duration is a box sum over consecutive bins (wrapping through the
 phase origin) read from a cumulative sum. A box is ``round(duration / bin_width)`` bins wide,
 so the evaluated width differs from the nominal duration by at most half a bin; the reported
