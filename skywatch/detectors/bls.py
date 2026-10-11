@@ -47,15 +47,15 @@ with relative step ``(min_duration / baseline) / oversample`` (``oversample = 3`
 relative step keeps the last event of a candidate within ``min_duration / oversample`` of
 where the grid period puts it, at every period; read literally as a step in 1/day the
 formula is not dimensionally consistent. Durations are ``(0.5, 1, 1.5, 2, 3, 4, 6)`` hours.
-For each trial period the samples are folded into phase bins no wider than half the
-shortest duration (``P / ceil(P / bin_s)``, ``bin_s = min_duration / 2``); samples are first
-merged into ``bin_s / 3`` time buckets (300 s: a 5x saving at 60 s cadence, at most a
-sixth of a phase bin of timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
+For each trial period the samples are folded into phase bins no wider than half the shortest
+duration (``P / ceil(P / bin_s)``, ``bin_s = min_duration / 2``); samples are first merged into
+``bin_s / 3`` time buckets (300 s: a 5x saving at 60 s cadence, at most a sixth of a phase bin
+of timing error), binned sums and counts are accumulated with ``np.bincount`` for a chunk of
 periods at once, and every duration is a box sum over consecutive bins (wrapping through the
-phase origin) read from a cumulative sum. A box is ``round(duration / bin_width)`` bins wide,
-so the evaluated width differs from the nominal duration by at most half a bin; the reported
-event windows use the evaluated width. The phase is stepped by one bin. The winning box is
-then re-measured on the samples themselves (:func:`refine`).
+phase origin) read from a cumulative sum. A box is ``round(duration / bin_width)`` bins wide, so
+the evaluated width differs from the nominal duration by at most half a bin; the reported event
+windows use the evaluated width. The phase is stepped by one bin. The winning box is then
+re-measured on the samples themselves (:func:`refine`).
 
 Statistic
 ---------
@@ -106,13 +106,69 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
 
+Second pass
+-----------
+``second_pass`` (**off by default**) searches a star once more when its best box is rejected by
+any gate except the S/N gate (local S/N, events, support, pulsation guard); a box too weak for
+the S/N gate means no other box on the star is strong either. Without it a star's strongest box
+decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
+(seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
+
+Measured, and why it is opt-in. On the stored 20-night runs the second pass recovers seed 7
+star 138 (a planet on an eclipsing binary, both transits bounded; the reported period is the
+sub-harmonic 1.145 d = 8.012/7 d, and the period never reaches a :class:`Detection`) and adds
+one false positive on seed 42 (star 94, a flare star); the 3-night rows are unchanged. On the
+held-out seeds 21-26 (200 stars, 20 nights) it added no true transit, 3 false positives and
+1 eclipse mistaken for a transit, at 1.22 times the single-pass time, so it is off. The first
+pass alone, on the same six seeds, scored 30 transit true positives, 6 false positives, 13
+eclipses reported as transits and no pulsator reported as a transit; 5 of the 14 strong
+planets there sit on pulsating hosts and are rejected by the pulsation guard, which the
+re-search does not recover (its mask has nothing to take out of a sinusoid).
+
+The re-search leaves out the *dip* around the rejected box, not only the box. A box is at most
+6 h wide and the eclipse of a binary can last 11 h; masking the box's windows and one duration
+each side left the wings of every eclipse, and the re-search found them (star 138: period
+2.000 d, S/N 16, rejected by the guard again). So the record is folded on the box's period
+(:meth:`BlsDetector._dip_mask`) in phase bins of half the shortest duration, using flux in the
+star's own units (nights divided by the star's median night level rather than their own median,
+so an eclipse that fills most of a night keeps its depth). A bin is depressed when its mean is
+below 1 by ``support_snr`` standard errors, and a *dip* is a run of bins depressed by
+``tail_sigma`` standard errors containing such a bin (the flare-tail growth of step 3, run
+downwards in phase). The mask is:
+
+* the primary: the box's bins and every dip touching them;
+* the secondary: a dip centred half a period from the primary that reaches ``snr_threshold``
+  on its own and lasts at least 0.7 of the primary (a circular binary's two eclipses last
+  equally long). A shorter dip there is not masked: on star 138 the box sits on half the
+  binary's period, so half a period away is an arbitrary phase, and masking a planet's
+  transit there cost the recovery; with a weak secondary the box sits on the binary's own
+  period and, unmasked, the secondary's residue replaced the planet as the second candidate;
+* each run widened by one box duration on each side.
+
+The masked samples count as not observed: they leave the search, the statistics, the guard and
+the event list, and each night is divided by the median of what is left. The result is a
+candidate in its own right and must pass every gate; when the first box was rejected by the
+pulsation guard it is also refused (``rejected == "alias"``) if its period is the first
+period or half or twice it to 2 percent, where the residue of a binary or a pulsator repeats
+(the period of a box refused for lack of events is arbitrary and no alias is applied). One
+re-search at most: a rejected second candidate ends the star. The outcome is logged at INFO
+(``bls star 138: re-search found P 1.145 d, S/N 38.6 (local 29.3): accepted``).
+
 Limits
 ------
-* Only the best box per star is reported. The strongest peak at a clearly different period
-  that is not a small-integer ratio of the best period is logged at INFO
-  (``skywatch.detectors.bls``) as an alternative; a second planet is out of scope. A star
-  whose strongest box is not a planet (an eclipsing binary, a pulsator) is rejected whole,
-  so a planet behind it is lost too.
+* Only the best box per star is reported, and with ``second_pass`` one more after a rejection; a
+  third signal on a star is out of scope. The strongest peak at a clearly different period that
+  is not a small-integer ratio of the best period is logged at INFO (``skywatch.detectors.bls``)
+  as an alternative. Without the second pass a star whose strongest box is not a planet (an
+  eclipsing binary, a pulsator) is rejected whole, so a planet behind it is lost too; with
+  ``second_pass=True`` the planet is found unless its events sit inside the masked dip, the
+  binary's eclipses fill most of every night (the re-search then has no clean night), or the
+  re-search's best box is not the planet (a flare star's residue passes the gates on
+  seed42-200s-20n star 94; on held-out seed 26 star 167 a binary's secondary eclipse, clipped by
+  the night edges, is narrower than 0.7 of the primary and its residue is accepted). Of the four
+  re-search acceptances over ten 20-night runs one was a planet. The period of a recovered box
+  can be a sub-multiple of the planet's (the other windows fall in the day gaps) while its
+  events are the planet's.
 * A transit longer than the 6 h grid maximum is fit by the closest box; a transit that
   covers more than half of a night makes that night's first-pass median the in-transit
   level (the out-of-box renormalisation repairs the depth, not the search).
@@ -125,7 +181,7 @@ from __future__ import annotations
 import logging
 import math
 import warnings
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -142,6 +198,11 @@ DEFAULT_DURATIONS_H = (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
 _MAD_SCALE = 1.4826
 _GUARD_CORE_WIDTH = 0.8  # the pulsation guard subtracts the box over 0.8 x its duration
 _GUARD_MASK_WIDTH = 1.5  # ... and leaves out the rest of the 1.5 x window
+_SECONDARY_WIDTH = 0.7  # a secondary dip must last this share of the primary's length
+_ALIAS_TOLERANCE = 0.02  # a re-search period within this fraction of P, P/2 or 2P is an alias
+_DIP_MIN_BINS = 8  # the dip fold has at least this many phase bins, whatever the period
+_DIP_CORE_MIN_BINS = 0.5  # half-width floor (in bins) of the box core in the dip fold
+_RENORMALISE_MIN_SAMPLES = 5  # a night of fewer samples is not divided by its median again
 _CHUNK_ELEMENTS = 1_000_000  # periods per chunk = this // n samples (keeps arrays cache-sized)
 
 
@@ -152,6 +213,7 @@ class _Clean:
     t: np.ndarray
     flux: np.ndarray
     night_of: np.ndarray
+    level: np.ndarray  # the night median each sample's flux was divided by
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -177,6 +239,17 @@ def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np
     run = np.cumsum(np.diff(np.concatenate(([False], cand))) & cand)
     has_seed = np.bincount(run[cand], weights=seed[cand]) > 0
     return cand & has_seed[run]
+
+
+def _night_medians(flux: np.ndarray, night_of: np.ndarray) -> np.ndarray:
+    """Per-sample median of the sample's night (1.0 for a night whose median is not positive)."""
+    out = np.ones(len(flux))
+    for k in np.unique(night_of):
+        m = night_of == k
+        med = float(np.median(flux[m]))
+        if med > 0:
+            out[m] = med
+    return out
 
 
 def _divide_by_night_median(flux: np.ndarray, night_of: np.ndarray) -> np.ndarray:
@@ -210,11 +283,13 @@ class Candidate:
     """A star's best box and what became of it.
 
     `rejected` is None for a reportable candidate, else the first gate that failed:
-    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"`` or ``"pulsation guard"``.
+    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"`` or ``"pulsation guard"``
+    (``"alias"`` for a re-search that found the first box's period again).
     `events` are the predicted in-night windows ``(t_start, t_end, night)`` (empty once
     rejected); `excess` is the guard's strongest residual-sinusoid power (None if not
     computed); `alternative` is ``(period_s, power / best power)`` of the strongest
-    unrelated peak.
+    unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
+    only for a rejection other than ``"snr"``).
     """
 
     box: Box
@@ -226,6 +301,7 @@ class Candidate:
     alternative: tuple[float, float] | None
     snr_local: float = 0.0
     supported_nights: int = 0
+    mask: tuple[Box, ...] = ()
 
 
 def frequency_grid(
@@ -414,6 +490,38 @@ def _renormalise_out_of_box(
     return flux
 
 
+def _circular_runs(flag: np.ndarray) -> list[tuple[int, int]]:
+    """``(start, length)`` of each run of True in `flag`, which wraps around its end."""
+    n = len(flag)
+    if flag.all():
+        return [(0, n)]
+    if not flag.any():
+        return []
+    first = int(np.flatnonzero(~flag)[0])
+    rolled = np.roll(flag, -first)
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], rolled.astype(np.int8), [0]))))
+    return [((a + first) % n, int(e - a)) for a, e in zip(edges[::2], edges[1::2], strict=True)]
+
+
+def _is_alias(period_s: float, first_s: float) -> bool:
+    """True when `period_s` is `first_s`, half of it or twice it (to ``_ALIAS_TOLERANCE``)."""
+    return any(abs(period_s / first_s * q - 1.0) < _ALIAS_TOLERANCE for q in (1.0, 0.5, 2.0))
+
+
+def _renormalise_nights(
+    flux: np.ndarray, night: np.ndarray, min_n: int = _RENORMALISE_MIN_SAMPLES
+) -> np.ndarray:
+    """Divide each night by its own median again (nights of fewer than `min_n` are left)."""
+    flux = flux.copy()
+    for k in np.unique(night):
+        m = night == k
+        if m.sum() >= min_n:
+            med = float(np.median(flux[m]))
+            if med > 0:
+                flux[m] /= med
+    return flux
+
+
 def in_box(t: np.ndarray, box: Box) -> np.ndarray:
     """Boolean mask of samples of `t` inside the box's predicted windows."""
     ph = np.mod(np.asarray(t, dtype=np.float64) - box.epoch_s + box.period_s / 2.0, box.period_s)
@@ -443,6 +551,7 @@ class BlsDetector:
         guard_f_max_per_d: float = 30.0,
         night_gap_cadences: int = 100,
         common_mode_min_stars: int = 10,
+        second_pass: bool = False,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -486,6 +595,7 @@ class BlsDetector:
         self.guard_f_max_per_d = guard_f_max_per_d
         self.night_gap_cadences = night_gap_cadences
         self.common_mode_min_stars = common_mode_min_stars
+        self.second_pass = second_pass
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -500,7 +610,9 @@ class BlsDetector:
         night_of = np.empty(len(t), dtype=np.int64)
         for k, sl in enumerate(split_nights(t, cadence_s, self.night_gap_cadences)):
             night_of[sl] = k
-        return _Clean(t, _divide_by_night_median(flux, night_of), night_of)
+        return _Clean(
+            t, _divide_by_night_median(flux, night_of), night_of, _night_medians(flux, night_of)
+        )
 
     def _common_mode(self, cleaned: Mapping[int, _Clean]) -> tuple[np.ndarray, np.ndarray] | None:
         """(time grid, per-time median over stars of the night-normalised flux), or None.
@@ -525,17 +637,23 @@ class BlsDetector:
 
     def _prepare(
         self, c: _Clean, common_mode: tuple[np.ndarray, np.ndarray] | None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """(t, flux, night) used by the search: common mode removed, renormalised, clipped."""
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """(t, flux, night, level) used by the search: common mode removed, renormalised, clipped.
+
+        `level` is the factor that took each sample's flux from raw units to `flux`.
+        """
         flux = c.flux
+        level = c.level
         if common_mode is not None:
             grid, cm = common_mode
-            flux = _divide_by_night_median(flux / cm[np.searchsorted(grid, c.t)], c.night_of)
+            x = flux / cm[np.searchsorted(grid, c.t)]
+            flux = _divide_by_night_median(x, c.night_of)
+            level = level * _night_medians(x, c.night_of)
         ok = np.ones(len(flux), dtype=bool)
         for k in range(int(c.night_of[-1]) + 1):
             m = c.night_of == k
             ok[m] = ~positive_outliers(flux[m], self.clip_sigma, self.tail_sigma)
-        return c.t[ok], flux[ok], c.night_of[ok]
+        return c.t[ok], flux[ok], c.night_of[ok], level[ok]
 
     # -- guard ---------------------------------------------------------------------------
 
@@ -592,6 +710,8 @@ class BlsDetector:
         ring = in_box(t, replace(box, duration_s=_GUARD_MASK_WIDTH * box.duration_s)) & ~core
         keep = ~ring
         outside = keep & ~core
+        if not outside.any():  # nothing is left to hold the box against
+            return True, math.inf
         depth = float(flux[outside].mean() - flux[core].mean()) if core.any() else 0.0
         resid = flux - flux[outside].mean() + depth * core
         r_power, r_crit = self._peak_power(t[keep], resid[keep], sigma, cadence_s)
@@ -600,6 +720,61 @@ class BlsDetector:
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
         return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
 
+    def _dip_mask(self, t: np.ndarray, flux: np.ndarray, box: Box, sigma: float) -> tuple[Box, ...]:
+        """Windows (boxes at the best period) that cover the box's dip and its secondary.
+
+        A box is at most 6 h wide and an eclipse of a binary can last twice that, so the
+        windows of the box alone leave the wings of every eclipse in the record. `flux` is in
+        the star's own units (each night divided by the star's median night level, not by its
+        own median, so an eclipse that fills a night keeps its depth). It is folded on the
+        box's period in phase bins of half the shortest duration; a bin is *depressed* when
+        its mean is below 1 by ``support_snr`` standard errors, and a dip is a run of bins
+        depressed by ``tail_sigma`` standard errors that holds at least one such bin (the tail
+        growth of :func:`positive_outliers`, downwards, in phase). The primary is the box's
+        own bins and every dip that touches them. The secondary is a dip centred half a
+        period from the primary that reaches ``snr_threshold`` on its own and lasts at least
+        ``_SECONDARY_WIDTH`` of the primary (the two eclipses of a circular binary last
+        equally long; a planet that happens to sit there is short, and masking it would hide
+        it). Each window is as wide as its dip plus one box duration each side.
+        """
+        period = box.period_s
+        nb = max(_DIP_MIN_BINS, math.ceil(period / (self.durations_h[0] * HOUR_S / 2.0)))
+        width = period / nb
+        # phase counted from the box centre, which then sits in the middle of the fold
+        b = np.minimum((np.mod(t - box.epoch_s + period / 2.0, period) / width).astype(int), nb - 1)
+        n_b = np.bincount(b, minlength=nb).astype(np.float64)
+        deficit = np.bincount(b, weights=1.0 - flux, minlength=nb)
+        z = deficit / (sigma * np.sqrt(np.maximum(n_b, 1.0)))
+        runs = []
+        for start, length in _circular_runs(z >= self.tail_sigma):
+            idx = (start + np.arange(length)) % nb
+            if (z[idx] >= self.support_snr).any():
+                runs.append((idx, length))
+        core = np.abs(np.arange(nb) + 0.5 - nb / 2.0) <= max(
+            box.duration_s / width / 2.0, _DIP_CORE_MIN_BINS
+        )
+        primary = core.copy()
+        primary_len = int(core.sum())
+        for idx, length in runs:
+            if core[idx].any():
+                primary[idx] = True
+                primary_len = max(primary_len, length)
+        half = np.roll(primary, nb // 2)
+        keep = primary.copy()
+        for idx, length in runs:
+            if primary[idx].any() or not half[idx].any() or length < _SECONDARY_WIDTH * primary_len:
+                continue
+            if deficit[idx].sum() / (sigma * math.sqrt(n_b[idx].sum())) >= self.snr_threshold:
+                keep[idx] = True
+        return tuple(
+            replace(
+                box,
+                epoch_s=(box.epoch_s + (start + length / 2.0 - nb / 2.0) * width) % period,
+                duration_s=length * width + 2.0 * box.duration_s,
+            )
+            for start, length in _circular_runs(keep)
+        )
+
     # -- main --------------------------------------------------------------------------
 
     def _search(
@@ -607,9 +782,28 @@ class BlsDetector:
         c: _Clean,
         common_mode: tuple[np.ndarray, np.ndarray] | None,
         cadence_s: int,
+        masked: Sequence[Box] = (),
+        plan_mask: bool = False,
     ) -> Candidate | None:
-        """The star's best box with its S/N and, if it is not reportable, why not."""
-        t, flux, night = self._prepare(c, common_mode)
+        """The star's best box with its S/N and, if it is not reportable, why not.
+
+        Samples inside the predicted windows of any box in `masked` are left out of the
+        search, the statistics, the guard and the event list (they are treated as not
+        observed) and each night is divided by the median of what is left. With `plan_mask`
+        a rejected candidate carries the windows a re-search should leave out
+        (:meth:`_dip_mask`).
+        """
+        t, flux, night, level = self._prepare(c, common_mode)
+        t_obs, night_obs = c.t, c.night_of
+        if masked:
+            drop = np.zeros(len(t), dtype=bool)
+            drop_obs = np.zeros(len(t_obs), dtype=bool)
+            for m in masked:
+                drop |= in_box(t, m)
+                drop_obs |= in_box(t_obs, m)
+            t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
+            t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
+            flux = _renormalise_nights(flux, night)
         if len(t) < 4:
             return None
         baseline = float(c.t[-1] - c.t[0]) + cadence_s
@@ -624,6 +818,7 @@ class BlsDetector:
         box, power_by_period = search_box(tm, sm, cm, periods, durations, bin_s)
         if box is None:
             return None
+        star_flux = flux * level / float(np.median(level[np.unique(night, return_index=True)[1]]))
         flux = _renormalise_out_of_box(t, flux, night, box)
         box = refine(t, flux, box)
         resid = flux[~in_box(t, box)]
@@ -636,17 +831,23 @@ class BlsDetector:
         alt = self._alternative(box, power_by_period, periods)
         depth_k, weight_k = night_contrasts(t, flux, night, box)
         z_k = depth_k * np.sqrt(weight_k) / sigma
-        snr_local = float(depth_k @ weight_k / (sigma * math.sqrt(weight_k.sum())))
+        w_sum = float(weight_k.sum())
+        snr_local = (
+            float(depth_k @ weight_k / (sigma * math.sqrt(w_sum))) if w_sum > 0 else math.nan
+        )
         supported = int((z_k >= self.support_snr).sum())
 
         def reject(why: str, excess: float | None = None) -> Candidate:
-            return Candidate(box, sigma, snr, [], why, excess, alt, snr_local, supported)
+            mask = ()
+            if plan_mask and why != "snr":
+                mask = self._dip_mask(t, star_flux, box, sigma)
+            return Candidate(box, sigma, snr, [], why, excess, alt, snr_local, supported, mask)
 
         if snr < self.snr_threshold:
             return reject("snr")
-        if snr_local < self.snr_threshold:
+        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
             return reject("local snr")
-        events = self._events(c.t, c.night_of, box, cadence_s)
+        events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:
             return reject("min_events")
         if supported < self.min_events:
@@ -670,7 +871,7 @@ class BlsDetector:
         common_mode: tuple[np.ndarray, np.ndarray] | None,
         cadence_s: int,
     ) -> list[Detection]:
-        cand = self._search(c, common_mode, cadence_s)
+        cand = self._search(c, common_mode, cadence_s, plan_mask=self.second_pass)
         if cand is None:
             return []
         if cand.alternative is not None:
@@ -691,7 +892,11 @@ class BlsDetector:
                     cand.rejected,
                     cand.excess,
                 )
-            return []
+            if not self.second_pass or not cand.mask:
+                return []
+            cand = self._re_search(star_id, c, common_mode, cadence_s, cand)
+            if cand is None:
+                return []
         return [
             Detection(
                 detector=self.name,
@@ -704,6 +909,46 @@ class BlsDetector:
             )
             for k, (t0, t1, _) in enumerate(cand.events)
         ]
+
+    def _re_search(
+        self,
+        star_id: int,
+        c: _Clean,
+        common_mode: tuple[np.ndarray, np.ndarray] | None,
+        cadence_s: int,
+        first: Candidate,
+    ) -> Candidate | None:
+        """The one re-search of a star whose best box was rejected (``first.mask`` is set).
+
+        The record is searched again without the windows of ``first.mask``; the result is the
+        second candidate, or None when the search found nothing or it is rejected. It is
+        a candidate in its own right: every gate applies. When the first box was rejected by
+        the pulsation guard its period belongs to a periodic signal (a binary, a pulsator),
+        and the candidate is also refused as an ``"alias"`` if its period is that period or
+        half or twice it, where the residue of what was masked repeats; the period of a box
+        rejected for lack of events means nothing, so no alias is refused then. The outcome
+        is logged at INFO.
+        """
+        second = self._search(c, common_mode, cadence_s, masked=first.mask)
+        if second is None:
+            log.info("bls star %s: re-search found no box", star_id)
+            return None
+        periodic = first.rejected == "pulsation guard"
+        if (
+            periodic
+            and second.rejected is None
+            and _is_alias(second.box.period_s, first.box.period_s)
+        ):
+            second = replace(second, rejected="alias", events=[])
+        log.info(
+            "bls star %s: re-search found P %.3f d, S/N %.1f (local %.1f): %s",
+            star_id,
+            second.box.period_s / DAY_S,
+            second.snr,
+            second.snr_local,
+            second.rejected or "accepted",
+        )
+        return second if second.rejected is None else None
 
     @staticmethod
     def _events(

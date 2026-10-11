@@ -219,8 +219,20 @@ Planned detectors, in order:
    detection per predicted in-night event with the S/N as score. A pulsation guard
    rejects the star when a sinusoid fits the record at least as well as the box or
    still stands out after the box is subtracted (so eclipsing binaries are rejected
-   too). One candidate per star; the grid, statistic and guard are in the
-   `skywatch/detectors/bls.py` docstring.
+   too). One candidate per star, plus one re-search when the best box is rejected by
+   a gate other than S/N (`second_pass`, **off by default**): the dip around the
+   rejected box is masked, a binary's secondary included, and the star is searched
+   again, the result facing every gate on its own (this is how a planet on an
+   eclipsing binary is found). Measured: on the stored 20-night runs it recovers
+   seed 7 star 138, a planet on an eclipsing binary (reported at the sub-harmonic
+   period 1.145 d = 8.012/7 d; the period never reaches a `Detection`), and adds one
+   false positive on seed 42; on held-out seeds 21-26 it added no true transits,
+   3 false positives and 1 eclipse mistaken for a transit, which is why it is off.
+   The first pass alone scored 30 transit true positives, 6 false positives, 13
+   eclipses reported as transits and no pulsator reported as a transit on those
+   seeds, and 5 of the 14 strong planets there sit on pulsating hosts and are
+   rejected by the pulsation guard. The grid, statistic, guard and second pass are
+   in the `skywatch/detectors/bls.py` docstring.
 5. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring
