@@ -55,7 +55,9 @@ def _labels(run_dir):
     out = []
     for i in range(len(d["label_id"])):
         if d["kind"][i] == "transit":
-            out.append((d["star_id"][i], d["t_start"][i], d["t_end"][i], json.loads(d["params"][i])))
+            out.append(
+                (d["star_id"][i], d["t_start"][i], d["t_end"][i], json.loads(d["params"][i]))
+            )
     return out
 
 
@@ -121,9 +123,11 @@ def test_snr_matches_independent_recomputation(run_dir):
 
 
 def test_rows_sorted_by_snr_then_planet_id(run_dir):
-    rows, _ = _parse(planets.format_planets(planets.planet_rows(run_dir)))
-    key = [(-float(r["snr_stack"]), int(r["planet_id"])) for r in rows]
+    rows = planets.planet_rows(run_dir)
+    key = [(-r.snr_stack, r.planet_id) for r in rows]
     assert key == sorted(key)
+    shown, _ = _parse(planets.format_planets(rows, min_events=0))
+    assert [int(r["planet_id"]) for r in shown] == [r.planet_id for r in rows]
 
 
 def test_columns_are_period_depth_duration_in_display_units(run_dir):
@@ -151,7 +155,7 @@ def test_planet_with_no_in_night_event_prints_zero(run_dir, tmp_path):
         d["duration_s"].append(7200.0)
 
     _rewrite(clone / "planets.parquet", add)
-    rows, _ = _parse(planets.format_planets(planets.planet_rows(clone)))
+    rows, _ = _parse(planets.format_planets(planets.planet_rows(clone), min_events=0))
     row = next(r for r in rows if r["planet_id"] == "999")
     assert row["events"] == "0"
     assert row["snr_stack"] == "0.0" and row["snr_max"] == "0.0"
@@ -168,9 +172,9 @@ def test_unobservable_label_contributes_zero(run_dir, tmp_path):
         best = -1.0
         for i in range(len(d["label_id"])):
             prm = json.loads(d["params"][i])
-            if d["kind"][i] == "transit" and prm["planet_id"] == pid:
-                if prm["footprint_samples"] > 0 and prm["depth"] > best:
-                    best, victim["i"] = prm["depth"], i
+            ours = d["kind"][i] == "transit" and prm["planet_id"] == pid
+            if ours and prm["footprint_samples"] > 0 and prm["depth"] > best:
+                best, victim["i"] = prm["depth"], i
         prm = json.loads(d["params"][victim["i"]])
         prm["footprint_samples"] = 0
         d["params"][victim["i"]] = json.dumps(prm, sort_keys=True)
@@ -180,9 +184,7 @@ def test_unobservable_label_contributes_zero(run_dir, tmp_path):
     assert after[pid].events == before[pid].events  # still counted as an event
     assert after[pid].snr_stack < before[pid].snr_stack  # but it no longer adds signal
     # recompute independently without that label
-    assert after[pid].snr_stack == pytest.approx(
-        _expected(clone)[pid][1], rel=1e-9, abs=1e-12
-    )
+    assert after[pid].snr_stack == pytest.approx(_expected(clone)[pid][1], rel=1e-9, abs=1e-12)
 
 
 def test_a_label_of_zero_footprint_alone_gives_snr_zero(run_dir, tmp_path):
