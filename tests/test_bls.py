@@ -5,7 +5,14 @@ import numpy as np
 import pytest
 
 from skywatch.detectors import REGISTRY, Detector, load_all
-from skywatch.detectors.bls import BlsDetector, Box, frequency_grid, night_contrasts, refine
+from skywatch.detectors.bls import (
+    BlsDetector,
+    Box,
+    frequency_grid,
+    night_contrasts,
+    positive_outliers,
+    refine,
+)
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
 
@@ -279,13 +286,47 @@ def test_guard_is_what_rejects_the_sinusoid():
     assert len(detect({0: cv}, guard_fap=None)) > 0  # without the guard it is a "transit"
 
 
+@pytest.mark.parametrize("kw", [{"guard_ratio": 1e9}, {"guard_fap": 1e-300}])
+def test_either_half_of_the_guard_rejects_a_strong_sinusoid_alone(kw):
+    # kw switches one test off (impossible ratio / impossible false-alarm level)
+    rng = np.random.default_rng(2)
+    t = night_times(10)
+    prof = 1.0 + 0.02 * np.sin(2 * np.pi * t / (1.3 * DAY) + 0.7)
+    cand = BlsDetector(**kw).search(curve(0, t, prof, 0.005, rng), C)
+    assert cand.rejected == "pulsation guard"
+
+
 def test_planted_transit_passes_the_guard_with_white_residuals():
     _, _, cv = planted()
     cand = BlsDetector().search(cv, C)
     assert cand.excess is not None and cand.excess < 10.0  # false-alarm level is ~13
 
 
-# -- outliers and dropouts -------------------------------------------------------------
+# -- outliers ---------------------------------------------------------------------------
+
+
+def test_positive_outliers_follow_a_flare_into_its_tail_and_never_mask_dips():
+    rng = np.random.default_rng(0)
+    n, peak, tau = 480, 200, 10.0
+    x = 1.0 + rng.normal(0.0, 0.005, n)
+    k = np.arange(n) - peak
+    x += np.where(k >= 0, 0.2 * np.exp(-np.maximum(k, 0) / tau), 0.0)  # 40 sigma flare
+    x[300:360] -= 0.05  # a 10 sigma dip
+    mask = positive_outliers(x, clip_sigma=4.0, tail_sigma=1.0)
+    assert mask[peak : peak + 35].all()  # 0.2 * exp(-3.5) is still 1.2 sigma, below the seed cut
+    assert not mask[: peak - 3].any() and not mask[peak + 70 :].any()
+    assert not mask[300:360].any()
+    seeds_only = positive_outliers(x, clip_sigma=4.0, tail_sigma=1e9)
+    assert seeds_only.sum() < mask.sum() - 10
+
+
+def test_positive_outliers_of_pure_noise_are_few():
+    rng = np.random.default_rng(1)
+    x = 1.0 + rng.normal(0.0, 0.005, 480)
+    assert positive_outliers(x, 4.0, 1.0).sum() <= 3
+
+
+# -- dropouts and flags -----------------------------------------------------------------
 
 
 def test_positive_flare_on_the_transit_changes_nothing():
