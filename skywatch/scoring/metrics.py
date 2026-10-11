@@ -174,38 +174,43 @@ def confusion(
     return dict(out)
 
 
-def format_scoreboard(scores: Sequence[KindScore]) -> str:
-    header = (
-        "detector",
-        "kind",
-        "tpB",
-        "tpT",
-        "corr",
-        "fp",
-        "fn",
-        "unobs",
-        "P",
-        "R",
-        "F1",
-        "bounded",
+SCOREBOARD_HEADER = (
+    "detector",
+    "kind",
+    "tpB",
+    "tpT",
+    "corr",
+    "fp",
+    "fn",
+    "unobs",
+    "P",
+    "R",
+    "F1",
+    "bounded",
+)
+
+
+def scoreboard_cells(s: KindScore) -> tuple[str, ...]:
+    """One scoreboard row as the strings `format_scoreboard` prints (and the site shows)."""
+    return (
+        s.detector,
+        s.kind,
+        str(s.tp_bounded),
+        str(s.tp_touched),
+        str(s.corroborating),
+        str(s.fp),
+        str(s.fn),
+        str(s.unobservable),
+        f"{s.precision:.3f}",
+        f"{s.recall:.3f}",
+        f"{s.f1:.3f}",
+        f"{s.bounded_rate:.3f}",
     )
-    body = [
-        (
-            s.detector,
-            s.kind,
-            str(s.tp_bounded),
-            str(s.tp_touched),
-            str(s.corroborating),
-            str(s.fp),
-            str(s.fn),
-            str(s.unobservable),
-            f"{s.precision:.3f}",
-            f"{s.recall:.3f}",
-            f"{s.f1:.3f}",
-            f"{s.bounded_rate:.3f}",
-        )
-        for s in scores
-    ]
+
+
+def format_scoreboard(scores: Sequence[KindScore]) -> str:
+    header = SCOREBOARD_HEADER
+    body = [scoreboard_cells(s) for s in scores]
     widths = [max(len(r[i]) for r in [header, *body]) for i in range(len(header))]
 
     def fmt(r: tuple[str, ...]) -> str:
