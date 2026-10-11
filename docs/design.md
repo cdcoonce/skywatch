@@ -300,7 +300,8 @@ sigma_tot`, summed over the star's observed samples inside the label's span, whe
 `profile` is the injector's box with linear ramps (`ramp = 0.1 * duration_s`) and
 `sigma_tot = sqrt(noise_floor^2 + 1/flux0)` is the per-sample relative noise. A label with
 `footprint_samples == 0` is an event with S/N 0. `snr_stack` is the quadrature sum over a
-planet's events, `snr_max` the largest one. The filters hide rows only; the summary line
+planet's events, `snr_max` the largest one. Instrument-flagged samples (`quality` bit 0)
+count like any other, so the S/N reads as an upper bound for a detector that drops them. The filters hide rows only; the summary line
 always counts the whole run. It is how a periodic detector's acceptance targets are named
 from the run itself rather than estimated.
 
