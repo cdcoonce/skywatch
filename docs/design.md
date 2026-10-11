@@ -207,8 +207,20 @@ Planned detectors, in order:
 3. `field_common_mode` — estimate the field-wide multiplicative trend from the
    ensemble, flag spans where it departs from 1. The only detector that can
    name a cloud.
-4. `bls` — box least squares for periodic transits across nights. Should be the
-   only thing that finds shallow transits.
+4. `bls` — box least squares for periodic transits across nights (built; scored on
+   the 20-night surveys, where it should be the only thing that finds shallow
+   transits, and expected to report nothing real on 3-night ones). Per star it
+   divides each night by its median (after dividing out the field's common mode),
+   masks positive outliers with their flare tails, folds on periods from 0.5 d to
+   half the baseline (uniform in log-frequency) with boxes of 0.5 to 6 h, and ranks
+   boxes by `depth^2 n_in n_out / N`; the best box is a candidate at
+   `snr = depth sqrt(n_in) / sigma >= 7` (also required against a per-night local
+   contrast, with two nights each showing the dip), reported as one `transit`
+   detection per predicted in-night event with the S/N as score. A pulsation guard
+   rejects the star when a sinusoid fits the record at least as well as the box or
+   still stands out after the box is subtracted (so eclipsing binaries are rejected
+   too). One candidate per star; the grid, statistic and guard are in the
+   `skywatch/detectors/bls.py` docstring.
 5. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring
