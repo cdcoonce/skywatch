@@ -1040,3 +1040,144 @@ def test_the_second_pass_is_off_by_default():
     _, cv = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
     assert detect({0: cv}) == []  # the first pass leaves the planet behind the binary
     assert len(detect({0: cv}, second_pass=True)) == 3
+
+
+# -- second pass: gates and inputs the stubbed tests cannot see (review of #34) --------------------
+# The _Stub tests replace `_search`, so they say nothing about what the real search does to a
+# second candidate. These run the real thing.
+
+# A mask window no sample of a 20-night record falls in: a masked search that changes nothing.
+HARMLESS_MASK = Box(1000.0 * DAY, 500.0 * DAY, 3600.0, 0.0, 0, 0, 0.0)
+
+
+def _real_search(cv, masked=(), plan_mask=False, **kw):
+    det = BlsDetector(second_pass=True, **kw)
+    return det._search(det._clean(cv, C), None, C, masked=masked, plan_mask=plan_mask)
+
+
+def _long_box_star():
+    """A 6 h box in 8 h nights: its S/N is far above its local S/N."""
+    t = night_times(8)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 6 * 3600.0, 0.004)
+    return curve(0, t, prof, 0.01, np.random.default_rng(7))
+
+
+def _gate_stars():
+    """One star and detector settings per gate: the real search names that gate as the reason."""
+    _, _, planet = planted()
+    _, binary = eb_curve(EB_HALF_PERIOD)
+    _, one_off = dip_curve(3, depth=0.0)
+    t = night_times(10)
+    quiet = curve(0, t, np.ones(len(t)), 0.005, np.random.default_rng(5))
+    long_box = _long_box_star()
+    probe = BlsDetector(snr_threshold=1.0).search(long_box, C)
+    return {
+        "snr": (quiet, {}),
+        "local snr": (long_box, {"snr_threshold": (probe.snr + probe.snr_local) / 2}),
+        "min_events": (one_off, {}),
+        "support": (planet, {"support_snr": 1e9}),
+        "pulsation guard": (binary, {}),
+    }
+
+
+@pytest.mark.parametrize("why", ["snr", "local snr", "min_events", "support", "pulsation guard"])
+def test_the_second_candidate_faces_every_gate_in_the_real_search(why):
+    cv, kw = _gate_stars()[why]
+    assert _real_search(cv, **kw).rejected == why  # the star's own search is refused by the gate
+    # and so is a candidate of the masked search: nothing is waved through because it is second
+    assert _real_search(cv, masked=(HARMLESS_MASK,), **kw).rejected == why
+
+
+@pytest.mark.parametrize("why", ["local snr", "min_events", "support", "pulsation guard"])
+def test_a_real_rejection_plans_a_mask_for_every_reason_but_snr(why):
+    cv, kw = _gate_stars()[why]
+    cand = _real_search(cv, plan_mask=True, **kw)
+    assert cand.rejected == why and cand.mask
+    cv, kw = _gate_stars()["snr"]
+    assert _real_search(cv, plan_mask=True, **kw).mask == ()
+
+
+@pytest.mark.parametrize("why", ["local snr", "min_events", "support", "pulsation guard"])
+def test_the_real_search_is_searched_again_after_each_rejection_but_snr(why, caplog):
+    cv, kw = _gate_stars()[why]
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        BlsDetector(second_pass=True, **kw).detect({0: cv}, C)
+    lines = [r.getMessage() for r in caplog.records if "re-search" in r.getMessage()]
+    assert len(lines) == 1  # once: a re-search that finds nothing or fails a gate ends the star
+    caplog.clear()
+    cv, kw = _gate_stars()["snr"]
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        BlsDetector(second_pass=True, **kw).detect({0: cv}, C)
+    assert not [r for r in caplog.records if "re-search" in r.getMessage()]
+
+
+def test_a_star_whose_first_box_stands_is_never_searched_again(monkeypatch):
+    calls = []
+    monkeypatch.setattr(BlsDetector, "_re_search", lambda self, *a: calls.append(a))
+    _, _, cv = planted()
+    out = detect({0: cv}, second_pass=True)
+    assert len(out) == 3 and calls == []
+    # not even when the accepted candidate happens to carry a mask
+    det, out = _run_stub(_cand(2.0, None, MASK), _cand(5.3, None), second_pass=True)
+    assert len(det.calls) == 1 and len(out) == 2 and out[0].score == 12.0
+
+
+def test_a_search_with_no_box_left_is_logged(caplog):
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        _run_stub(_cand(2.0, "pulsation guard", MASK), None, second_pass=True)
+    lines = [r.getMessage() for r in caplog.records if "re-search" in r.getMessage()]
+    assert lines == ["bls star 0: re-search found no box"]
+
+
+@pytest.mark.parametrize(
+    "eb", [(3.0, 1.1, 40.0, 0.3, 0.1), (5.0, 1.0, 60.0, 0.3, 0.1)], ids=["40h", "60h"]
+)
+def test_the_dip_is_found_in_star_level_flux_when_an_eclipse_fills_the_nights(eb):
+    # an eclipse that fills most of every night is flat once each night is divided by its own
+    # median: only flux in the star's own units shows it all, and the mask must cover it
+    t, cand = _eb_mask(eb)
+    assert cand.rejected is not None and cand.mask
+    deep = 1.0 - eclipsing(t, *eb) > 0.02
+    assert deep.sum() > 5000 and _covered(t, cand.mask)[deep].all()
+
+
+def test_a_secondary_run_with_no_bin_at_the_seed_level_is_not_a_dip():
+    # 1.9 standard errors a bin over 4 h: S/N 7.6 over the run, yet no bin reaches support_snr
+    # (2), so it is not a dip and not the primary's secondary however long and deep it is
+    t = night_times(20).astype(float)
+    prof = box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2) * box_profile(
+        t, 2.0 * DAY, 1.1 * DAY, 4 * 3600.0, 0.00154
+    )
+    flat = box_profile(t, 2.0 * DAY, 1.1 * DAY, 4 * 3600.0, 1.0) < 1.0
+    covered = _clean_mask(prof, t, 2.0, 0.1, 0.01)
+    assert flat.sum() > 500 and not covered[flat].any()
+
+
+def test_a_secondary_is_as_long_as_the_whole_primary_dip_not_just_the_box():
+    # primary: a 3 h core at 20 percent inside 12 h wings. A clean 3 h, 5 percent dip half a
+    # period on is as long as the core but shorter than 0.7 of the whole dip: a planet that
+    # happens to sit there, not the mirror image of the primary
+    t = night_times(20).astype(float)
+    prof = (
+        box_profile(t, 2.0 * DAY, 0.1 * DAY, 3 * 3600.0, 0.2)
+        * box_profile(t, 2.0 * DAY, 0.1 * DAY, 12 * 3600.0, 0.0013)
+        * box_profile(t, 2.0 * DAY, 1.1 * DAY, 3 * 3600.0, 0.05)
+    )
+    second = box_profile(t, 2.0 * DAY, 1.1 * DAY, 3 * 3600.0, 1.0) < 1.0
+    covered = _clean_mask(prof, t, 2.0, 0.1, 0.01)
+    assert second.sum() > 500 and not covered[second].any()
+
+
+def test_the_level_follows_the_flux_through_the_common_mode_correction():
+    # flux * level is the star's flux in its own units up to the common mode, whatever the
+    # per-night medians and the common mode divided out on the way
+    _, _, curves = make_field(n_stars=12, n_nights=10)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    common_mode = det._common_mode(cleaned)
+    assert common_mode is not None
+    grid, cm = common_mode
+    c = cleaned[3]
+    t, flux, _, level = det._prepare(c, common_mode)
+    in_own_units = c.flux * c.level / cm[np.searchsorted(grid, c.t)]
+    np.testing.assert_allclose(flux * level, in_own_units[np.isin(c.t, t)], rtol=1e-9)
