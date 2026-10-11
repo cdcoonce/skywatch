@@ -1,4 +1,4 @@
-"""Command-line interface: simulate, detect, score, report."""
+"""Command-line interface: simulate, detect, score, report, view, site."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from skywatch import __version__, run, view
+from skywatch import __version__, run, site, view
 from skywatch.scoring.metrics import format_scoreboard
 from skywatch.world.field import FieldConfig
 from skywatch.world.survey import SurveyConfig
@@ -46,6 +46,10 @@ def build_parser() -> argparse.ArgumentParser:
     vw.add_argument("--pick", action="store_true", help="choose the busiest star-night")
     vw.add_argument("--out", default=None, help=".png or .svg (default runs/<id>/views/...)")
     vw.add_argument("--detectors", default=None, help="comma-separated, default every detector")
+
+    st = sub.add_parser("site", help="write the static page: the views beside the scoreboard")
+    st.add_argument("--spec", required=True, help="site spec JSON (runs, views, captions)")
+    st.add_argument("--out", default=None, help="page path (default: index.html beside the spec)")
     return p
 
 
@@ -96,6 +100,8 @@ def _dispatch(args: argparse.Namespace) -> None:
         print(run.report_run(Path(args.run)))
     elif args.command == "view":
         _view(args)
+    elif args.command == "site":
+        print(site.generate(Path(args.spec), Path(args.out) if args.out else None))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
