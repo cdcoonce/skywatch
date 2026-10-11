@@ -1181,3 +1181,32 @@ def test_the_level_follows_the_flux_through_the_common_mode_correction():
     t, flux, _, level = det._prepare(c, common_mode)
     in_own_units = c.flux * c.level / cm[np.searchsorted(grid, c.t)]
     np.testing.assert_allclose(flux * level, in_own_units[np.isin(c.t, t)], rtol=1e-9)
+
+
+def test_performance_with_re_searches_20_stars_10_nights(caplog):
+    # the guard above never reaches the second pass (its noise stars are refused on S/N): here
+    # four stars carry a deep one-off dip that wins the search and is refused for lack of events,
+    # so each is searched a second time (the planet behind it is not there to find)
+    t = night_times(10)
+    rng = np.random.default_rng(0)
+    curves = {}
+    for i in range(20):
+        j = i // 5
+        prof = np.ones(len(t))
+        if i % 5 == 0:  # four planets, each on its own period and phase
+            prof = box_profile(t, (2.3 + 0.37 * j) * DAY, (0.14 + 0.02 * j) * DAY, 3 * 3600.0, 0.01)
+        elif i % 5 == 1:  # one deep dip on a single night
+            night = 2 + j
+            prof = 1.0 - 0.03 * ((t >= night * DAY + 2 * 3600) & (t < night * DAY + 5 * 3600))
+        curves[i] = curve(i, t, prof, 0.005, rng)
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        t0 = time.perf_counter()
+        out = detect(curves, second_pass=True)
+        elapsed = time.perf_counter() - t0
+    searched = [r for r in caplog.records if "re-search" in r.getMessage()]
+    assert len(searched) == 4, "the fixture must fire re-searches or it guards nothing"
+    assert {d.star_id for d in out} == {0, 5, 10, 15}
+    # 2.1-2.7 s measured (three runs); four times the slowest, as above
+    assert elapsed < 11.0, (
+        f"20 stars x 10 nights with {len(searched)} re-searches took {elapsed:.1f} s"
+    )
