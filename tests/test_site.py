@@ -2,6 +2,7 @@
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from html.parser import HTMLParser
@@ -289,6 +290,26 @@ def test_file_outside_spec_dir_fails(tmp_path, tiny, capsys, file, message):
     _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, views), capsys, message)
 
 
+def test_two_views_sharing_a_file_fail_before_writing(tmp_path, tiny, capsys):
+    views = [
+        {"run": str(tiny), "pick": True, "file": "same.png", "caption": "a"},
+        {"run": str(tiny), "star": 2, "night": 1, "file": "same.png", "caption": "b"},
+    ]
+    _fails_before_writing(
+        tmp_path, _write_spec(tmp_path, tiny, views), capsys, "two views write the same file"
+    )
+
+
+def test_empty_runs_fail_before_writing(tmp_path, tiny, capsys):
+    spec = _write_spec(tmp_path, tiny, runs=[])
+    _fails_before_writing(tmp_path, spec, capsys, "runs")
+
+
+def test_empty_views_fail_before_writing(tmp_path, tiny, capsys):
+    spec = _write_spec(tmp_path, tiny, views=[])
+    _fails_before_writing(tmp_path, spec, capsys, "views")
+
+
 def _pngs(root: Path) -> list[Path]:
     return sorted(root.rglob("*.png"))
 
@@ -310,6 +331,83 @@ def test_out_under_a_regular_file_fails_before_drawing(tmp_path, tiny, capsys):
     assert main(["site", "--spec", str(spec), "--out", str(out)]) == 2
     assert "afile" in capsys.readouterr().err
     assert _pngs(tmp_path) == [] and blocker.read_text() == "not a directory"
+
+
+def test_pick_is_consulted_and_matches_the_cli(tmp_path, tiny, monkeypatch):
+    real = view.pick_view(tiny)
+    assert (real.star_id, real.night) == (0, 0)  # the tiny run's own pick is the default cell
+    chosen = view.Pick(star_id=3, night=1, kinds=("x",), n_detections=0)
+    monkeypatch.setattr(view, "pick_view", lambda run_dir, detectors=None: chosen)
+    spec = _write_spec(tmp_path, tiny)
+    out = site.generate(spec)
+    head = site.assemble(spec).figures[0]
+    assert (head.star_id, head.night) == (3, 1)
+    assert "tiny \u00b7 star 3 \u00b7 night 1" in out.read_text()
+    cli_png = tmp_path / "cli-pick.png"
+    assert main(["view", "--run", str(tiny), "--pick", "--out", str(cli_png)]) == 0
+    assert (spec.parent / "img" / "pick.png").read_bytes() == cli_png.read_bytes()
+
+
+def test_page_is_written_after_the_pictures(tmp_path, tiny, monkeypatch):
+    spec = _write_spec(tmp_path, tiny)
+
+    def boom(data, out):
+        raise RuntimeError("render failed")
+
+    monkeypatch.setattr(view, "render_view", boom)
+    with pytest.raises(RuntimeError, match="render failed"):
+        site.generate(spec)
+    assert not (spec.parent / "index.html").exists()
+
+
+def _pre(text: str) -> str:
+    return re.search(r"<pre[^>]*>(.*?)</pre>", text, re.DOTALL).group(1)
+
+
+def test_regenerate_adds_out_only_for_runs_outside_a_runs_folder(tmp_path, tiny, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    shutil.copytree(tiny, tmp_path / "runs" / "under")
+    views = [
+        {"run": str(tiny), "pick": True, "file": "a.png", "caption": "a"},
+        {"run": "runs/under", "pick": True, "file": "b.png", "caption": "b"},
+    ]
+    spec = _write_spec(tmp_path, tiny, views, runs=[str(tiny), "runs/under"])
+    pre = _pre(site.generate(spec).read_text())
+    sim = [ln for ln in pre.splitlines() if ln.startswith("skywatch simulate")]
+    assert len(sim) == 2
+    assert sim[0].endswith(f"--run-id tiny --out {tiny.parent.as_posix()}")
+    assert sim[1].endswith("--run-id under") and "--out" not in sim[1]
+
+
+def test_run_figure_and_regenerate_order_follow_the_spec(tmp_path, tiny):
+    runs_dir = tmp_path / "copies"
+    zulu, alpha = runs_dir / "zulu", runs_dir / "alpha"
+    shutil.copytree(tiny, zulu)
+    shutil.copytree(tiny, alpha)
+    views = [
+        {"run": str(zulu), "star": 1, "night": 0, "file": "one.png", "caption": "first"},
+        {"run": str(alpha), "star": 2, "night": 1, "file": "two.png", "caption": "second"},
+        {"run": str(zulu), "star": 3, "night": 1, "file": "three.png", "caption": "third"},
+    ]
+    spec = _write_spec(tmp_path, tiny, views, runs=[str(zulu), str(alpha)])
+    text = site.generate(spec).read_text()
+    labels = [
+        "zulu \u00b7 star 1 \u00b7 night 0",
+        "alpha \u00b7 star 2 \u00b7 night 1",
+        "zulu \u00b7 star 3 \u00b7 night 1",
+    ]
+    positions = [text.index(f'<span class="meta">{label}') for label in labels]
+    assert positions == sorted(positions)
+    assert text.index("<h3>zulu</h3>") < text.index("<h3>alpha</h3>")
+    sim = [ln for ln in _pre(text).splitlines() if ln.startswith("skywatch simulate")]
+    assert [ln.split("--run-id ")[1].split()[0] for ln in sim] == ["zulu", "alpha"]
+
+
+def test_meta_line_and_figure_label_are_exact(built):
+    _, out = built
+    text = out.read_text()
+    assert "seed 3 \u00b7 8 stars \u00b7 2 nights \u00b7 120 s cadence" in text
+    assert '<span class="meta">tiny \u00b7 star 2 \u00b7 night 1</span>' in text
 
 
 def test_unscored_run_and_bad_star_fail_before_writing(tmp_path, tiny, capsys):
