@@ -468,7 +468,8 @@ def test_performance_20_stars_10_nights():
     out = detect(curves)
     elapsed = time.perf_counter() - t0
     assert {d.star_id for d in out} == {0, 5, 10, 15}
-    assert elapsed < 30.0, f"20 stars x 10 nights took {elapsed:.1f} s"
+    # 2.0-2.9 s measured (load average up to 140); four times the slowest of three runs
+    assert elapsed < 12.0, f"20 stars x 10 nights took {elapsed:.1f} s"
 
 
 # -- review follow-up: pins for the defaults and the gates the first suite let through -----

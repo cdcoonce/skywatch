@@ -13,8 +13,9 @@ Per star:
 
 1. Samples with ``quality`` bit 0 set (instrument-flagged field-wide spans) and non-finite
    samples are dropped.
-2. Nights are split with :func:`skywatch.detectors.nights.split_nights` and each night is
-   divided by its own median.
+2. Nights are split with :func:`skywatch.detectors.nights.split_nights` (a gap of more than
+   ``night_gap_cadences`` = 100 cadences starts a new night) and each night is divided by its
+   own median.
 
 Field-wide, once: **common-mode removal.** A tracking drift keeps its new level after the
 flagged span ends and a cloud's wings are not flagged, so a field-wide step of 5-30 percent
@@ -94,7 +95,10 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   to the whole record, against the box's: rejected when ``2 * power >= guard_ratio *
   depth**2 * n_in * n_out / (N * sigma**2)`` (``guard_ratio = 1``). One sinusoid keeps at
   most 81 percent of a square wave's variance (54 percent at a quarter duty cycle, 10
-  percent at five), and the best box keeps about 40 percent of a sinusoid's.
+  percent at five), and the overlap is symmetric: the best box keeps 81 percent of a sinusoid's
+  variance at most. So this half is the weaker one against a pulsator (measured
+  ``box chi2 / (2 * sine power)`` is 0.94 at 1.3 d, 0.28 at 5 h, 0.47 at 7 h: at 1.3 d it is
+  6 percent from passing) and the residual test below is what guarantees its rejection.
 * *Residual.* The box (over the inner 0.8 of its duration, the rest of a window 1.5 times
   as wide left out) is subtracted and the Fourier power of what is left is searched for a
   peak: a transit leaves white noise, a pulsator its pulsation, an eclipsing binary its
@@ -579,7 +583,9 @@ class BlsDetector:
           fitted to the whole record, is compared with the box's. A box of duty cycle at
           most one half is never matched by one sinusoid (it keeps at most 81% of a square
           wave's variance, 54% at a quarter duty), a sinusoid is matched better by a sine
-          than by its best box (the box keeps about 40%); rejected when
+          than by its best box (the box keeps at most 81% of its variance, the same overlap
+          read the other way; the margin is thin at some periods, the residual test holds the
+          rest); rejected when
           ``2 * power >= guard_ratio * depth**2 * n_in * n_out / (n * sigma**2)``.
         """
         core = in_box(t, replace(box, duration_s=_GUARD_CORE_WIDTH * box.duration_s))
