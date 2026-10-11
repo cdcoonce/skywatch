@@ -54,8 +54,22 @@ a single static page with this picture and two more beside the scoreboard.
 picture and the finding it produced: fragments of an event a detector had
 already found were being booked as false alarms, and now corroborate instead.
 
-Every issue filed so far is closed. Next: hosting, then `bls` across nights for
-the shallow transits every detector still misses.
+`skywatch site --spec docs/site.json` generates [docs/index.html](docs/index.html),
+the committed views beside each run's scoreboard, regenerable from the seeds
+with the commands it prints. `skywatch planets` lists which planets in a run a
+periodic search could find, and it showed that the 3-night runs hold none, so
+20-night surveys of the same seeds are the bench for `bls`, the box least
+squares search across nights.
+[0007](docs/log/0007-the-page-the-survey-that-could-not-be-searched-and-the-first-periodic-find.md)
+records the page, the measurement and the detector:
+`bls` bounds every event of every confirmable planet on the 20-night runs
+except a planet on an eclipsing binary (issue #32), and finds a 1.4% dip over
+five hours that no per-night detector sees:
+[seed 7, star 185, night 6](docs/img/seed7-bls-star185-night6.png).
+
+![seed 7, star 185, night 6](docs/img/seed7-bls-star185-night6.png)
+
+Open: hosting (the page is built; publishing it is the owner's call) and #32.
 
 ## Develop
 
