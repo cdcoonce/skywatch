@@ -43,8 +43,13 @@ growing window recovers the first-window events, and truth labels that touch
 no sample are excluded from the denominator and shown as `unobs`).
 
 `skywatch view` draws one star's night with the injected truth and every
-detector's spans on it; see [seed 7, star 33, night 1](docs/img/seed7-pick.png),
-where only the field detector names the tracking drift.
+detector's spans on it. This is seed 7, star 33, night 1, where only the field
+detector names the tracking drift:
+
+![seed 7, star 33, night 1](docs/img/seed7-pick.png)
+
+`skywatch site --spec docs/site.json` regenerates [docs/index.html](docs/index.html),
+a single static page with this picture and two more beside the scoreboard.
 [0006](docs/log/0006-the-first-picture-and-what-it-found.md) records the
 picture and the finding it produced: fragments of an event a detector had
 already found were being booked as false alarms, and now corroborate instead.
