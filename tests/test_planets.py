@@ -229,6 +229,71 @@ def test_filters_drop_rows_but_not_the_summary(run_dir):
     assert _parse(none) == ([], summary_full)
 
 
+def _row(planet_id, events, snr_stack, snr_max):
+    return planets.PlanetRow(
+        planet_id=planet_id,
+        star_id=planet_id,
+        period_d=1.0,
+        depth=0.01,
+        dur_h=2.0,
+        events=events,
+        snr_stack=snr_stack,
+        snr_max=snr_max,
+    )
+
+
+def test_min_snr_filters_on_snr_stack_inclusively():
+    a = _row(1, 3, snr_stack=6.0, snr_max=3.0)
+    b = _row(2, 3, snr_stack=2.0, snr_max=2.0)
+    ids = lambda text: [r["planet_id"] for r in _parse(text)[0]]
+    full_summary = _parse(planets.format_planets([a, b]))[1]
+    cut = planets.format_planets([a, b], min_snr=5.0)
+    assert ids(cut) == ["1"]  # snr_stack 6.0 passes although snr_max 3.0 would not
+    assert _parse(cut)[1] == full_summary
+    assert ids(planets.format_planets([a, b], min_snr=6.0)) == ["1"]  # >= keeps the boundary
+
+
+def test_summary_counts_strong_planets_at_exactly_seven():
+    rows = [
+        _row(1, 2, 7.0, 5.0),
+        _row(2, 2, 6.99, 5.0),
+        _row(3, 2, 5.0, 4.0),
+        _row(4, 1, 50.0, 50.0),
+    ]
+    _, summary = _parse(planets.format_planets(rows))
+    assert summary == "4 planets; 3 with >= 2 events; 1 with >= 2 events and snr_stack >= 7"
+
+
+def test_dropped_samples_lower_snr_and_come_from_the_labels_own_star(run_dir, tmp_path):
+    clone = _clone(run_dir, tmp_path)
+    before = {r.planet_id: r for r in planets.planet_rows(run_dir)}
+    pid = max((r for r in before.values() if r.events >= 2), key=lambda r: r.snr_stack).planet_id
+    star, _, _, prm = max(
+        (
+            lab
+            for lab in _labels(run_dir)
+            if lab[3]["planet_id"] == pid and lab[3]["footprint_samples"] > 0
+        ),
+        key=lambda lab: lab[3]["footprint_samples"],  # a whole, unclipped transit
+    )
+    lo = prm["t_mid"] - prm["duration_s"] / 6  # the flat middle third of the transit
+    hi = prm["t_mid"] + prm["duration_s"] / 6
+
+    removed = []
+
+    def drop(d):
+        keep = [not (d["star_id"][i] == star and lo <= d["t"][i] <= hi) for i in range(len(d["t"]))]
+        removed.append(len(keep) - sum(keep))
+        for k in d:
+            d[k] = [v for v, ok in zip(d[k], keep, strict=True) if ok]
+
+    _rewrite(clone / "observations.parquet", drop)
+    assert removed[0] > 0  # the transit's core really lost samples
+    after = {r.planet_id: r for r in planets.planet_rows(clone)}
+    assert after[pid].snr_stack < before[pid].snr_stack
+    assert after[pid].snr_stack == pytest.approx(_expected(clone)[pid][1], rel=1e-9, abs=1e-12)
+
+
 def test_cli_output_is_byte_identical_across_invocations(run_dir, capsys):
     argv = ["planets", "--run", str(run_dir)]
     assert main(argv) == 0
