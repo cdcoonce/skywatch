@@ -1,0 +1,24 @@
+{
+  "runs": ["runs/seed7-200s-3n", "runs/seed42-200s-3n"],
+  "views": [
+    {
+      "run": "runs/seed7-200s-3n",
+      "pick": true,
+      "file": "img/seed7-pick.png",
+      "caption": "Seed 7, star 33, night 1: a held tracking drift, a cosmic ray, a hot pixel and an end-of-night flare on one curve. Only the field detector names the drift."
+    },
+    {
+      "run": "runs/seed42-200s-3n",
+      "pick": true,
+      "file": "img/seed42-pick.png",
+      "caption": "Seed 42, star 24, night 2: median_residual's two fragments inside a flare it had already bounded were booked as false alarms until the scorer learned to call them corroborating."
+    },
+    {
+      "run": "runs/seed7-200s-3n",
+      "star": 7,
+      "night": 1,
+      "file": "img/seed7-drift-star7-night1.png",
+      "caption": "Seed 7, star 7, night 1: the tracking drift as the field detector sees it, spanning an hour past the ramp because its causal baseline absorbs the step."
+    }
+  ]
+}
