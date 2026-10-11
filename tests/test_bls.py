@@ -833,7 +833,7 @@ def test_an_undefined_local_snr_does_not_pass_the_gate(monkeypatch):
     monkeypatch.setattr(bls, "night_contrasts", lambda *a: (np.zeros(0), np.zeros(0)))
     _, _, cv = planted()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
+        warnings.simplefilter("error")  # and says so without a numpy warning
         cand = BlsDetector().search(cv, C)
     assert cand.rejected == "local snr" and math.isnan(cand.snr_local)
 

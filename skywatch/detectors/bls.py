@@ -811,7 +811,10 @@ class BlsDetector:
         alt = self._alternative(box, power_by_period, periods)
         depth_k, weight_k = night_contrasts(t, flux, night, box)
         z_k = depth_k * np.sqrt(weight_k) / sigma
-        snr_local = float(depth_k @ weight_k / (sigma * math.sqrt(weight_k.sum())))
+        w_sum = float(weight_k.sum())
+        snr_local = (
+            float(depth_k @ weight_k / (sigma * math.sqrt(w_sum))) if w_sum > 0 else math.nan
+        )
         supported = int((z_k >= self.support_snr).sum())
 
         def reject(why: str, excess: float | None = None) -> Candidate:
