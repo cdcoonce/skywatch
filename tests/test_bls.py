@@ -1858,9 +1858,10 @@ def test_a_star_with_many_flares_must_clear_the_higher_local_bar():
 
 
 def test_the_flare_bar_never_lowers_the_ordinary_one():
-    cv = flaring(0)
-    hard = BlsDetector(snr_threshold=50.0, flare_snr_threshold=7.2)
-    assert hard.search(cv, C).rejected == "snr"
+    cv = flaring(0)  # S/N 45, local S/N 37: a bar of 40 passes the first and fails the second
+    low = BlsDetector(snr_threshold=40.0, flare_snr_threshold=1.0)
+    assert low.search(cv, C).rejected == "local snr"
+    assert BlsDetector(snr_threshold=50.0, flare_snr_threshold=7.2).search(cv, C).rejected == "snr"
     d = BlsDetector()
     assert d.flare_fraction == 0.03 and d.flare_snr_threshold == 7.2
     assert d.guard_night_ratio == 0.81
