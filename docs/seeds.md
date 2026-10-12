@@ -30,9 +30,8 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 231-234 | 20 | planet-free | development | held-out for #45 (the shape test), scored once; used |
 | 241-246 | 20 | planets | development | review of PR #46 (never-seen check of the shape test); used |
 | 251-254 | 20 | planet-free | development | review of PR #46 (never-seen check of the shape test); used |
-
-| 261-266 | 20 | planets | **reserved for PR #47's review** (never-seen check) | |
-| 271-274 | 20 | planet-free | **reserved for PR #47's review** (never-seen check) | |
+| 261-266 | 20 | planets | development | review of PR #47 (never-seen check of the flare-tail gate); used |
+| 271-274 | 20 | planet-free | development | review of PR #47 (never-seen check of the flare-tail gate); used |
 
 Next unused range: 280 and up.
 

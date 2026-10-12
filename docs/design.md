@@ -294,8 +294,8 @@ Planned detectors, in order:
    planet-free run of the development and design seeds at 5 or fewer, and the lowest local S/N of a
    transit true positive on a flare star is 7.28. The flare bar sits inside the distribution of false
    claims, not in a gap of it (11 claims at 7.0 to 7.19 rejected, 7 at 7.2 to 7.4 survive; pf-seed44
-   meets the rule because star 126 reads 7.195), so flare stars are not solved by a bar (issue #43;
-   fast pulsators the detrending leaves a 2-event box on: issue #44). Development, `main` to the branch (33 runs):
+   meets the rule because star 126 reads 7.195), so flare stars are not solved by a bar (issue #43,
+   next paragraph; fast pulsators the detrending leaves a 2-event box on: issue #44). Development, `main` to the branch (33 runs):
    transit true positives 271 to 271, false positives 74 to 58, eclipses reported as transits 8 to
    8, pulsations reported as transits 81 to 3 (29 to 0 on seeds 61-66), planet-free 20-night runs
    0, 4, 2, 10 to 0, 4, 2, 0. Held-out, scored once (seeds 71-76): transit true positives 33 to 33,
@@ -305,6 +305,59 @@ Planned detectors, in order:
    not re-tuned. `single_transit` is identical span for span on 33 runs; the time of `bls` is
    unchanged. The audit is `scripts/bls_planet_free_audit.py`; the gates are in the
    `skywatch/detectors/bls.py` docstring.
+
+   Flare tails (issue #43). What a claim on a flare star sits on was measured on the development
+   runs (9 planet-free claims, 36 more without a planet match, 10 true positives on flare hosts; the
+   table is in the issue's comment): the box is a stretch free of flare residue (mean 0.01 sigma) and
+   the rest of its event nights carries 0.35 sigma of it (median 0.01 sigma), the tails the one-sided
+   clip stops short of. The residue's own S/N is 77 percent of the local S/N in the middle of the
+   claims (38 to 108 percent; 3 percent for the true positives, 0 to 74), 42 percent of it from flares
+   the clip seeded and the rest from ones it never did. The box does not sit on a decay (31 of 45 have
+   a smaller share of their samples within 1 h after a clipped sample than the rest of the star, 18 of
+   45 within 3 h) and is not asymmetric (the levels before and after it differ by 0.10 sigma, the
+   shape statistic is negative in 39 of 45), so neither a veto on events after a flare nor an
+   asymmetry test describes them. The fix is a last gate: the local S/N of the same box with the
+   samples inside and within 3 hours after each flare-sized masked run (10 or more consecutive clipped
+   samples) left out of both sides of the contrast (`Candidate.snr_clean`) must reach 7.0; 3 hours is
+   6 e-foldings of the longest decay the world makes. Development, `main` to the branch (64 stored
+   runs): transit true positives 350 to 347, false positives (all kinds) 81 to 50, eclipses reported as
+   transits 15 to 15, pulsations 3 to 3, flares reported as transits 32 to 6, detections 546 to 442,
+   claims on flare stars 55 stars to 17; 18 more runs (91-100, 111-114, planet-free 101-104): true
+   positives 187 to 187, false positives 21 to 15, flares 5 to 0. Planet-free 20-night runs, detections
+   per run: seeds 41-44 0, 4, 2, 0 to 0, 0, 2, 0; 51-58 2, 2, 0, 0, 2, 2, 3, 5 to 0, 0, 0, 0, 0, 2, 0, 2;
+   81-84 0, 6, 0, 0 to 0, 2, 0, 0; 101-104 0, 2, 3, 3 to 0, 0, 0, 3. Held-out, scored once (seeds
+   131-136, planet-free 141-144): true positives 29 to 29, false positives 7 to 3, eclipses 0 to 0,
+   pulsations 0 to 0, flares 5 to 0, detections 48 to 35; planet-free 2, 0, 0, 0 to 0, 0, 0, 0. Three
+   development true positives are lost: seed 12 star 32 and seed 62 star 38 to flare windows over
+   the box (flare stars whose box overlaps one planet event and is mostly residue), and seed 61
+   star 56 (a constant star at local S/N 7.04) to a window opened by an 11-sample cosmic-ray run,
+   not a flare. All three, and never-seen seed 261 star 29 (lost to a cosmic-ray run removing 152
+   reference samples), are overlap credit at periods unrelated to the planet's (the box's period
+   is 5.00, 0.515, 1.69 and 0.239 times the planet's), not planets found; the other 8 flare-host
+   planets keep every grade.
+   The flare bar of 7.2 stays: without it seed 96 star 10 (local S/N 7.13, clean 7.93) is claimed
+   again. 9 of the 45 flare claims remain, flares the clip never seeded (an oracle that excludes 6
+   e-foldings of every true flare leaves none). `single_transit` is identical span for span on 27
+   runs; the time of `bls` is unchanged.
+
+   What opens a window. On five never-seen planet runs (1,000 stars) there are 2,142 flare-sized
+   runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent only a
+   cosmic ray; 800 of the 1,000 stars carry a window. The gate therefore detects a clip run, not a
+   flare, and taxes lost reference samples on marginal boxes (a box under local S/N 7.5 or so, on a
+   night with a window, can fall under 7.0 on weight alone). A decay-shaped run definition is issue
+   #48.
+
+   Never seen (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
+   the constants were fixed; the review of PR #47), `main` to the branch:
+
+   | runs | transit tp | fp (all kinds) | flare->transit | detections | per run |
+   |---|---|---|---|---|---|
+   | planets 261-266 | 78 to 77 | 5 to 1 | 0 to 0 | 87 to 80 | 14, 3, 30, 15, 7, 18 to 10, 0, 30, 15, 7, 18 |
+   | planet-free 271-274 | 0 to 0 | 7 to 2 | 8 to 4 | 25 to 12 | 11, 6, 6, 2 to 5, 3, 2, 2 |
+
+   Eclipses reported as transits (3 to 3) and pulsations (1 to 1) are unchanged. The planet-free
+   rule (at most 5 detections a run) is met, 271 exactly at the limit (star 13, a flare star at
+   local S/N 9.43, clean 9.04).
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
    preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every
