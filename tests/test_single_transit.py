@@ -290,6 +290,8 @@ def test_a_sinusoid_gives_nothing_but_would_without_the_guard(period_d):
     t = night_times(10)
     prof = 1.0 + 0.02 * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
     cv = curve(0, t, prof, 0.005, rng)
+    # the guard alone removes it: the shape test is off, or it would hide a dead guard
+    assert detect({0: cv}, shape_threshold=None) == []
     assert detect({0: cv}) == []
     # ... and the shape test would refuse the rounded dips of a slow one, so it is off too
     assert detect({0: cv}, guards=False, shape_threshold=None) != []
@@ -309,6 +311,8 @@ def eb_with_dip(dip=None, seed=0, n_nights=20):
 
 def test_an_eclipsing_binary_gives_nothing_when_guard_b_is_on():
     _t, cv = eb_with_dip()
+    # the guard alone removes it: the shape test is off, or it would hide a dead guard
+    assert detect({0: cv}, shape_threshold=None) == []
     assert detect({0: cv}) == []
     # the eclipses are 20 and 8 percent deep: without the guards every night reports one ...
     assert len(detect({0: cv}, guards=False, shape_threshold=None)) >= 10
@@ -463,6 +467,45 @@ def test_the_test_reads_the_night_of_the_box_only(monkeypatch):
     both = shapes(curve(0, t, prof, 0.005, np.random.default_rng(3)), guards=False)
     assert len(both) == 2
     assert sizes == [(NIGHT_N, 1, 1)] * 2
+
+
+def wing(seed):
+    # a 1.6 h V centred 0.4 h past the night's end (the limit case above); only the noise varies
+    return one_event(lambda t: v_profile(t, 4, 8.4, 1.6, 0.05), seed=seed)
+
+
+def test_a_statistic_of_1_2_is_refused_and_one_of_0_9_is_kept():
+    # pins the effective threshold between 0.9 and 1.2, not only the default attribute
+    refused, kept = wing(14), wing(27)
+    assert shapes(refused) == [pytest.approx(1.22, abs=0.05)]
+    assert shapes(kept) == [pytest.approx(0.90, abs=0.05)]
+    assert detect({0: refused}) == []
+    assert len(detect({0: kept})) == 1
+
+
+def test_sigma_is_the_nights_scatter_outside_the_box_not_the_whole_nights(monkeypatch):
+    seen = []
+    real = BlsDetector._shape_excess
+
+    def spy(self, t, flux, night, sigma, box):
+        seen.append(sigma)
+        return real(self, t, flux, night, sigma, box)
+
+    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
+    cv = one_event(lambda t: v_profile(t, 4, 4.0, 5.0, 0.02))  # a V filling 5 h of the 8 h night
+    shapes(cv)
+    # the white noise is 0.005; the whole night's MAD (dip included) reads about 0.0075
+    assert seen == [pytest.approx(0.005, rel=0.15)]
+
+
+def test_a_weaker_v_night_still_removes_the_star():
+    # guards off (two strong events would read as a sinusoid). The V on night 2 is the weaker box
+    # (1.2 percent against 3 percent): the rule is "any box", not "the strongest box"
+    t = night_times(10)
+    prof = v_profile(t, 2, 4.0, 3.0, 0.012) * dip_profile(t, 7, 2.5, 3.0, 0.03)
+    cv = curve(0, t, prof, 0.005, np.random.default_rng(3))
+    assert len(detect({0: cv}, guards=False, shape_threshold=None)) == 2
+    assert detect({0: cv}, guards=False) == []
 
 
 # -- determinism, order, speed ---------------------------------------------------------------
