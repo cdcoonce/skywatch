@@ -391,6 +391,7 @@ class _Arrays:
     level: np.ndarray
     t_obs: np.ndarray
     night_obs: np.ndarray
+    flare_fraction: float = 0.0  # share of the star's clean samples masked as positive outliers
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -468,7 +469,9 @@ class Candidate:
     unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
     only for a rejection other than ``"snr"``); `trend` is ``(cycles/day, amplitude)`` of the
     sinusoid that was subtracted before this box was found (None when none was); `shape` is
-    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run).
+    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run);
+    `sine_ratio` is the chi-square gain of the best sinusoid over the box's with a free level
+    for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed).
     """
 
     box: Box
@@ -483,6 +486,7 @@ class Candidate:
     mask: tuple[Box, ...] = ()
     trend: tuple[float, float] | None = None
     shape: float | None = None
+    sine_ratio: float | None = None
 
 
 def frequency_grid(
@@ -805,6 +809,9 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
+        guard_night_ratio: float | None = 0.81,
+        flare_fraction: float = 0.03,
+        flare_snr_threshold: float = 7.2,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -839,6 +846,12 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
+        if guard_night_ratio is not None and not guard_night_ratio > 0:
+            raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
+        if not 0 < flare_fraction <= 1:
+            raise ValueError(f"flare_fraction must be in (0, 1], got {flare_fraction}")
+        if not flare_snr_threshold > 0:
+            raise ValueError(f"flare_snr_threshold must be > 0, got {flare_snr_threshold}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -859,6 +872,9 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
+        self.guard_night_ratio = guard_night_ratio
+        self.flare_fraction = flare_fraction
+        self.flare_snr_threshold = flare_snr_threshold
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -1149,6 +1165,7 @@ class BlsDetector:
         star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
         """
         t, flux, night, level = self._prepare(c, common_mode)
+        flare_fraction = 1.0 - len(t) / len(c.t)
         t_obs, night_obs = c.t, c.night_of
         if masked:
             drop = np.zeros(len(t), dtype=bool)
@@ -1159,7 +1176,7 @@ class BlsDetector:
             t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
-        arrays = _Arrays(t, flux, night, level, t_obs, night_obs)
+        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, flare_fraction)
         cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
         if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
             return cand
@@ -1205,22 +1222,10 @@ class BlsDetector:
         td = (a.t - float(a.t[0])) / DAY_S
         k = np.unique(a.night[keep], return_inverse=True)[1]
         x = _demean_by_night(a.flux[keep] - 1.0, k)
-        spectrum = self._band_power(a.t[keep], x, sigma, cadence_s)
-        if spectrum is None:
+        fit = self._strongest_sinusoid(a.t[keep], td[keep], x, k, sigma, cadence_s, float(td[-1]))
+        if fit is None:
             return None
-        f_band, power, level, df = spectrum
-        # The power only ranks the peaks: it is approximate (it ignores the nights' intercepts,
-        # the cross term between a frequency and its mirror, and the gaps inside nights), and a
-        # sinusoid and its alias one cycle/day away are close in it; the few strongest peaks are
-        # placed by least squares and the one with the largest chi-square gain wins.
-        best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
-        for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, float(td[-1]))):
-            f = _refine_frequency(td[keep], x, k, float(f_band[i]), df)
-            sin_a, cos_a, gain = _sine_fit(td[keep], x, k, f)
-            if best is None or gain > best[0]:
-                best = (gain, f, sin_a, cos_a)
-        assert best is not None
-        gain, f, sin_a, cos_a = best
+        gain, f, sin_a, cos_a, level = fit
         ratio = gain / (2.0 * sigma**2) / level
         if ratio < self.trend_min_ratio:
             return None
@@ -1229,6 +1234,77 @@ class BlsDetector:
         arg = 2.0 * np.pi * f * td
         trend = sin_a * np.sin(arg) + cos_a * np.cos(arg)
         return trend, (f, math.hypot(sin_a, cos_a), ratio)
+
+    def _strongest_sinusoid(
+        self,
+        t: np.ndarray,
+        td: np.ndarray,
+        x: np.ndarray,
+        k: np.ndarray,
+        sigma: float,
+        cadence_s: int,
+        span_d: float,
+    ) -> tuple[float, float, float, float, float] | None:
+        """``(chi-square gain, cycles/day, sin, cos, false-alarm level)`` of the best sinusoid.
+
+        `t` (s) and `td` (days) are the samples, `x` their zero-mean flux with each night's mean
+        removed, `k` the night number, `sigma` the white-noise scatter the Fourier power is
+        normalised with and `span_d` the length of the whole record in days (peaks closer than
+        its inverse are one peak). The power of :meth:`_band_power` only ranks the peaks: it is
+        approximate (it ignores the nights' intercepts, the cross term between a frequency and
+        its mirror, and the gaps inside nights), and a sinusoid and its alias one cycle/day away
+        are close in it; the few strongest peaks are placed by least squares and the one with the
+        largest chi-square gain, with a free intercept for every night, wins. None when the
+        guard band holds no frequency.
+        """
+        spectrum = self._band_power(t, x, sigma, cadence_s)
+        if spectrum is None:
+            return None
+        f_band, power, level, df = spectrum
+        best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
+        for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, span_d)):
+            f = _refine_frequency(td, x, k, float(f_band[i]), df)
+            sin_a, cos_a, gain = _sine_fit(td, x, k, f)
+            if best is None or gain > best[0]:
+                best = (gain, f, sin_a, cos_a)
+        assert best is not None
+        return (*best, level)
+
+    def _night_sine_ratio(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box, cadence_s: int
+    ) -> float:
+        """Chi-square gain of the best sinusoid over the box's, both with a free level per night.
+
+        The nights were divided by their own medians, which absorb part of a sinusoid of a few
+        hours in a night of eight, so the pulsation guard's plain Fourier power (no night level,
+        a scatter that contains the pulsation) understates a pulsator against the box. Here both
+        are fitted to the whole record the way the nights make them comparable: the box's gain is
+        ``(sum w_k d_k)**2 / sum w_k`` over the nights (:func:`night_contrasts`, the square of
+        ``snr_local * sigma``) and the sinusoid's is the best in the guard band
+        (:meth:`_strongest_sinusoid`). The scatter cancels. A box train keeps at most 81 percent of
+        a sinusoid's variance and a sinusoid at most 81 percent of a square wave's, so the ratio
+        is at most about 0.81 for a planet and at least about 1.23 for a pulsator whose best box
+        is its fold. 0 when the scatter or the box leaves nothing to compare.
+        """
+        depth_k, weight_k = night_contrasts(t, flux, night, box)
+        if len(weight_k) == 0 or not float(weight_k.sum()) > 0:
+            return 0.0
+        box_gain = float(depth_k @ weight_k) ** 2 / float(weight_k.sum())
+        sigma = self._white_sigma(flux, night)
+        if not (box_gain > 0 and sigma > 0):
+            return 0.0
+        k = np.unique(night, return_inverse=True)[1]
+        x = _demean_by_night(flux - 1.0, k)
+        fit = self._strongest_sinusoid(
+            t,
+            (t - float(t[0])) / DAY_S,
+            x,
+            k,
+            sigma,
+            cadence_s,
+            (float(t[-1]) - float(t[0])) / DAY_S,
+        )
+        return 0.0 if fit is None else fit[0] / box_gain
 
     def _slower_sinusoid_wins(
         self, td: np.ndarray, x: np.ndarray, k: np.ndarray, gain: float
@@ -1327,17 +1403,36 @@ class BlsDetector:
         )
         supported = int((z_k >= self.support_snr).sum())
 
-        def reject(why: str, excess: float | None = None, shape: float | None = None) -> Candidate:
+        def reject(
+            why: str,
+            excess: float | None = None,
+            shape: float | None = None,
+            sine_ratio: float | None = None,
+        ) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
                 mask = self._dip_mask(t, star_flux, box, sigma)
             return Candidate(
-                box, sigma, snr, [], why, excess, alt, snr_local, supported, mask, shape=shape
+                box,
+                sigma,
+                snr,
+                [],
+                why,
+                excess,
+                alt,
+                snr_local,
+                supported,
+                mask,
+                shape=shape,
+                sine_ratio=sine_ratio,
             )
 
+        local_bar = self.snr_threshold
+        if a.flare_fraction >= self.flare_fraction:  # a flare star: its tails make red noise
+            local_bar = max(local_bar, self.flare_snr_threshold)
         if snr < self.snr_threshold:
             return reject("snr")
-        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
+        if not snr_local >= local_bar:  # also an undefined local S/N (no night has both)
             return reject("local snr")
         events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:
@@ -1345,16 +1440,32 @@ class BlsDetector:
         if supported < self.min_events:
             return reject("support")
         r = None
+        ratio = None
         if self.guard_fap is not None:
             pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box)
+            if not pulsating and self.guard_night_ratio is not None:
+                ratio = self._night_sine_ratio(t, flux, night, box, cadence_s)
+                pulsating = ratio >= self.guard_night_ratio
             if pulsating:
-                return reject("pulsation guard", r)
+                return reject("pulsation guard", r, sine_ratio=ratio)
         shape = None
         if self.shape_threshold is not None:
             shape = self._shape_excess(t, flux, night, sigma, box)
             if shape >= self.shape_threshold:
                 return reject("shape", r, shape)
-        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported, shape=shape)
+        return Candidate(
+            box,
+            sigma,
+            snr,
+            events,
+            None,
+            r,
+            alt,
+            snr_local,
+            supported,
+            shape=shape,
+            sine_ratio=ratio,
+        )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
         """Search one light curve on its own (no common-mode correction); None if unusable."""

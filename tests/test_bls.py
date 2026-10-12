@@ -1744,3 +1744,137 @@ def test_the_centring_window_is_half_an_hour_not_two(offset_h):
     cand = BlsDetector().search(cv, C)
     assert cand.rejected == "shape" and cand.shape > 2.0
     assert detect({0: cv}) == []
+
+
+# -- planet-free stars (#39): a sinusoid is told from a box with the nights' levels free -------
+
+
+def night_pulsator(seed, period_h, amp=0.0025, noise=0.02, n_nights=20):
+    """A pure sinusoid of `period_h` hours in 8 h nights, white noise on top (no planet)."""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = 1.0 + amp * np.sin(2 * np.pi * t / (period_h * 3600.0) + 0.7)
+    return curve(0, t, prof, noise, rng)
+
+
+@pytest.mark.parametrize("period_h,seed", [(6.03, 1), (9.3, 0)])
+def test_a_pulsator_the_plain_sine_test_lets_through_is_refused_with_the_nights_levels_free(
+    period_h, seed
+):
+    # 0.25 percent in 2 percent noise: the nights' own medians absorb part of a 6-9 h sinusoid, so
+    # the guard's plain Fourier power does not reach the box's chi-square (and its residual stays
+    # under the false-alarm level) and a box of 3-6 h on the same phase every night passes
+    cv = night_pulsator(seed, period_h)
+    before = BlsDetector(guard_night_ratio=None, detrend_pulsation=False).search(cv, C)
+    assert before.rejected is None and before.snr_local > 7.0 and len(before.events) >= 15
+    cand = BlsDetector(detrend_pulsation=False).search(cv, C)
+    assert cand.rejected == "pulsation guard" and cand.sine_ratio >= 0.81
+    assert detect({0: cv}) == []  # nor does subtracting the sinusoid leave a box
+
+
+def test_the_ratio_is_the_sinusoids_chi_square_gain_over_the_boxs_with_free_nightly_levels():
+    # a noise-free sinusoid with the box over its lowest half-cycle: the box keeps 8 / pi**2 = 81
+    # percent of the sinusoid's variance, so the ratio is about 1 / 0.81 = 1.23; a square wave
+    # is the other way round, a sinusoid keeps at most 81 percent of its variance
+    det = BlsDetector()
+    t = night_times(20)
+    night = (t // DAY).astype(np.int64)
+    jitter = np.random.default_rng(0).normal(0.0, 0.0003, len(t))  # the scatter must be defined
+    sine = 1.0 + 0.01 * np.sin(2 * np.pi * t / (0.25 * DAY) - np.pi / 2.0) + jitter
+    low = Box(0.25 * DAY, 0.25 * DAY * 0.5, 0.125 * DAY, 0.01, 0, len(t), 0.0)
+    ratio = det._night_sine_ratio(t, sine, night, low, C)
+    assert 1.1 < ratio < 1.4
+    period, dur = 0.4 * DAY, 0.2 * DAY  # a 50 percent duty square wave over 9.6 h cycles
+    square = box_profile(t, period, 0.1 * DAY, dur, 0.01) + jitter
+    ratio = det._night_sine_ratio(
+        t, square, night, Box(period, 0.1 * DAY, dur, 0.01, 0, len(t), 0.0), C
+    )
+    assert 0.6 < ratio < 0.85
+
+
+def test_a_planet_stays_under_the_ratio_even_when_it_is_short_and_deep():
+    det = BlsDetector()
+    _, _, plain = planted()
+    t = night_times(20)
+    prof = box_profile(t, 0.51 * DAY, 0.07 * DAY, 3 * 3600.0, 0.012)
+    hot = curve(0, t, prof, 0.005, np.random.default_rng(0))
+    for cv in (plain, hot):
+        cand = det.search(cv, C)
+        assert cand.rejected is None and 0.0 < cand.sine_ratio < 0.81
+    assert det.search(hot, C).sine_ratio > 0.4  # the hot one sits near the bound (0.73 on seed 38)
+
+
+def test_the_ratio_is_recorded_and_the_test_can_be_switched_off():
+    _, _, cv = planted()
+    assert BlsDetector().search(cv, C).sine_ratio is not None
+    assert BlsDetector(guard_fap=None).search(cv, C).sine_ratio is None
+    assert BlsDetector(guard_night_ratio=None).search(cv, C).sine_ratio is None
+    # a bar at zero... is refused, an unreachable one lets the sinusoid through
+    with pytest.raises(ValueError):
+        BlsDetector(guard_night_ratio=0)
+    sine = night_pulsator(1, 6.03)
+    assert (
+        BlsDetector(guard_night_ratio=1e9, detrend_pulsation=False).search(sine, C).rejected is None
+    )
+
+
+# -- planet-free stars (#39): flare stars are held to a higher local S/N ---------------------------
+
+
+def flaring(seed, per_night=1, amp=0.05, tau=6.0, depth=0.012, n_nights=12):
+    """A planet on a star with `per_night` flares in every night (positions drawn at random)."""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = box_profile(t, 2.3 * DAY, 0.14 * DAY, 3 * 3600.0, depth)
+    for k in range(n_nights):
+        for _ in range(per_night):
+            at = k * DAY + rng.integers(20, NIGHT_N - 120) * C
+            dt = (t - at) / C
+            prof = prof + np.where(dt >= 0, amp * np.exp(-np.maximum(dt, 0.0) / tau), 0.0)
+    return curve(0, t, prof, 0.005, rng)
+
+
+def masked_share(det, cv):
+    c = det._clean(cv, C)
+    return 1.0 - len(det._prepare(c, None)[0]) / len(c.t)
+
+
+def test_a_star_with_many_flares_must_clear_the_higher_local_bar():
+    det = BlsDetector()
+    cv = flaring(0)
+    assert masked_share(det, cv) >= 0.03  # a flare star by the rule: 3 percent of its samples
+    _, _, quiet = planted(n_nights=12, depth=0.012)
+    assert masked_share(det, quiet) < 0.03
+    base = det.search(cv, C)
+    assert base.rejected is None and base.snr_local > 7.0  # it passes the ordinary bar
+    bar = base.snr_local + 0.1
+    flare = BlsDetector(flare_snr_threshold=bar)
+    assert flare.search(cv, C).rejected == "local snr"
+    assert flare.detect({0: cv}, C) == []
+    # a quiet star with a planet at least as clear is not held to it, nor is the flare star when
+    # the share that makes a flare star is raised above its own
+    assert BlsDetector(flare_snr_threshold=1e3).search(quiet, C).rejected is None
+    assert BlsDetector(flare_snr_threshold=bar, flare_fraction=0.99).search(cv, C).rejected is None
+
+
+def test_the_flare_bar_never_lowers_the_ordinary_one():
+    cv = flaring(0)
+    hard = BlsDetector(snr_threshold=50.0, flare_snr_threshold=7.2)
+    assert hard.search(cv, C).rejected == "snr"
+    d = BlsDetector()
+    assert d.flare_fraction == 0.03 and d.flare_snr_threshold == 7.2
+    assert d.guard_night_ratio == 0.81
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"flare_fraction": 0},
+        {"flare_fraction": 1.5},
+        {"flare_snr_threshold": 0},
+        {"guard_night_ratio": -1},
+    ],
+)
+def test_the_new_parameters_are_validated(kw):
+    with pytest.raises(ValueError):
+        BlsDetector(**kw)
