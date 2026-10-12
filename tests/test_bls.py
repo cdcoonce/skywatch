@@ -1407,3 +1407,31 @@ def test_detrending_needs_the_guard_and_validates_its_parameters():
     for kw in [{"trend_min_ratio": 0.5}, {"trend_snr_threshold": 0}]:
         with pytest.raises(ValueError):
             BlsDetector(**kw)
+
+
+def test_only_a_star_the_pulsation_guard_rejected_is_searched_again(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("the pulsation was fitted for a star the guard did not reject")
+
+    monkeypatch.setattr(BlsDetector, "_pulsation_trend", refuse)
+    rng = np.random.default_rng(5)
+    t = night_times(20)
+    stars = {
+        0: curve(0, t, np.ones(len(t)), 0.005, rng),  # no box at the S/N gate
+        1: planted(n_nights=20)[2],  # a box that stands
+        2: curve(
+            2, t, 1.0 - 0.03 * ((t >= 3 * DAY + 3600) & (t < 3 * DAY + 4 * 3600)), 0.005, rng
+        ),  # a one-night dip: rejected for lack of events
+    }
+    assert BlsDetector().search(stars[2], C).rejected in {"min_events", "support"}
+    assert {d.star_id for d in detect(stars)} == {1}
+
+
+def test_the_white_noise_scatter_does_not_contain_the_pulsation():
+    det = BlsDetector()
+    _, cv = pulsator(0, amp=0.02, transit=False)
+    a = _arrays(det, cv)
+    assert det._white_sigma(a.flux, a.night) == pytest.approx(0.005, rel=0.05)
+    # the scatter about the median, which the search uses for its S/N, is the pulsation's
+    assert 1.4826 * np.median(np.abs(a.flux - np.median(a.flux))) > 0.01
+    assert det._white_sigma(a.flux[:1], a.night[:1]) == 0.0
