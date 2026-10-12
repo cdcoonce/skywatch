@@ -1683,3 +1683,64 @@ def test_a_planet_on_a_pulsating_host_still_clears_the_shape_test():
         _, cv = pulsator(seed)
         cand = BlsDetector().search(cv, C)
         assert cand.rejected is None and cand.trend is not None and cand.shape < 0
+
+
+# -- the shape gate's boundary, period cap and amplitude sign (#40 review) -------------------------
+
+
+def test_a_statistic_equal_to_the_threshold_rejects():
+    # the gate is `shape >= threshold`: a threshold set to the candidate's own statistic rejects it
+    _, cv = eb_leak("one-sided")
+    cand = BlsDetector().search(cv, C)
+    at = BlsDetector(shape_threshold=cand.shape).search(cv, C)
+    assert at.rejected == "shape" and at.shape == cand.shape
+
+
+def test_a_triangle_wider_than_the_period_is_not_a_template():
+    # A V train whose eclipse fills the whole period (0.7 d): the only template a wider-than-period
+    # triangle adds is the bare |x| cusp, which fits it ~3 percent better than any capped width.
+    # A tuned pin (no realistic fixture separates the cap): the capped statistic reads 1.45 to 1.5.
+    t = night_times(20)
+    night = t // DAY
+    P, ep, noise = 0.7 * DAY, 0.14 * DAY, 0.012
+    ph = np.mod(t - ep + P / 2, P) - P / 2
+    flux = (1 - 0.02 * np.clip(1 - np.abs(ph) / (P / 2), 0, 1)) * (
+        1 + np.random.default_rng(1).normal(0, noise, len(t))
+    )
+    box = Box(P, ep, 3 * 3600.0, 0.01, 0, len(t), 0.0)
+    # sigma is passed (not measured): scaled so the capped statistic sits just under the 1.5 gate
+    sigma = noise * 14.15 / 1.5
+    stat = BlsDetector()._shape_excess(t, flux, night, sigma, box)
+    assert 1.45 < stat < 1.5
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("dur_h", [1.4, 3.0])
+def test_a_brightening_on_some_event_nights_does_not_make_a_planet_a_v(dur_h, seed):
+    # the fits take positive amplitudes only: a night that shows a brightening where the others
+    # show the dip is left out, not fitted with a negative depth (which read this planet, with
+    # every other event night mirrored about 1, as a V: +6.7, +4.3 and +2.1 against -5 to -7.5)
+    det = BlsDetector()
+    t = night_times(20)
+    cv = curve(0, t, ramped(t, 2.3, 0.14, dur_h, 0.015), 0.005, np.random.default_rng(seed))
+    cand = det.search(cv, C)
+    a = _arrays(det, cv)
+    flux = np.where(a.night % 2 == 1, 2.0 - a.flux, a.flux)
+    assert det._shape_excess(a.t, flux, a.night, cand.sigma, cand.box) < -1.5
+
+
+@pytest.mark.parametrize("offset_h", [0.8, 1.0, 1.2])
+def test_the_centring_window_is_half_an_hour_not_two(offset_h):
+    # A 2 h transit with a shallow 2.4 h V dip centred `offset_h` off its middle on every event
+    # night. Each night may slide the box and the triangle within _SHAPE_SHIFT_H of the box: at
+    # 0.5 h the triangle is the only one that can reach the V and the dip reads +2.3 to +2.9
+    # (rejected); with a 2 h window a box slides onto the V's flank too and it reads +0.3 to +0.9
+    # (accepted). The lower side of the window is pinned by the planets with ramps above.
+    t = night_times(20)
+    period, epoch = 2.3 * DAY, 0.14 * DAY
+    ph = np.mod(t - epoch - offset_h * 3600.0 + period / 2.0, period) - period / 2.0
+    v = 1.0 - 0.01 * np.clip(1.0 - np.abs(ph) / (2.4 * 1800.0), 0.0, 1.0)
+    cv = curve(0, t, ramped(t, 2.3, 0.14, 2.0, 0.015) * v, 0.005, np.random.default_rng(1))
+    cand = BlsDetector().search(cv, C)
+    assert cand.rejected == "shape" and cand.shape > 2.0
+    assert detect({0: cv}) == []
