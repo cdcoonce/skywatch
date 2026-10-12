@@ -79,12 +79,15 @@ The best box per star is a candidate when all of these hold, tested in this orde
   measured as a contrast against the same night's out-of-box samples, no night level
   involved: ``sum(w_k d_k) / (sigma * sqrt(sum w_k))`` with ``d_k`` the night's
   out-minus-in mean and ``w_k = n_in n_out / (n_in + n_out)``. It equals ``snr`` when the
-  box is small against its nights and is lower otherwise.
+  box is small against its nights and is lower otherwise. A flare star (``flare_fraction`` =
+  0.03 of its clean samples or more masked as positive outliers in step 3) must reach
+  ``flare_snr_threshold`` = 7.2 instead (see Planet-free stars).
 * The predicted windows cover observed samples on at least ``min_events`` (2) distinct
   nights.
 * At least ``min_events`` nights each show the dip at ``support_snr`` (2.0) on their own, so
   one bad night cannot make a candidate.
-* The pulsation guard passes (below).
+* The pulsation guard passes (below), including the sinusoid-against-box ratio at the bar of
+  0.81.
 * The shape guard passes (below).
 
 Pulsation guard
@@ -106,6 +109,82 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   second eclipse. The false-alarm level is ``ln(M / guard_fap)``, ``M`` the number of
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
+
+Box versus sine with the nights' levels free
+--------------------------------------------
+The box-versus-sine test above is the weaker half against a pulsator and, since the nights are
+divided by their own medians, it compares unlike things: a plain Fourier power (no night level) and
+a box chi-square, both in units of a scatter that contains the pulsation. A third test
+(:meth:`BlsDetector._night_sine_ratio`, ``guard_night_ratio`` = 0.81, ``None`` switches it off,
+``Candidate.sine_ratio``) puts both on the same footing: the chi-square gain of the best
+sinusoid of 1-30 cycles/day fitted to the whole record with a free level for every night (the
+six strongest peaks placed by least squares, as the detrending does) over the box's gain with a
+free level for every night, ``(sum w_k d_k)**2 / sum w_k`` over the nights of
+:func:`night_contrasts` (the square of ``snr_local * sigma``). The scatter cancels. A sinusoid keeps
+at most 81 percent of a square wave's variance and a box at most 81 percent of a sinusoid's, so the
+ratio is at most about 0.81 for a box train and at least about 1.23 for a pulsator whose best box is
+its fold; the bar is the first number, a bound of the model and not a fitted value. The box is
+rejected as ``"pulsation guard"`` (so a pulsating host is still detrended) when the ratio reaches
+it. It runs after the two tests above and only for a candidate that passed them.
+
+Planet-free stars
+-----------------
+On a run with no planets every transit claim is false. ``single_transit``'s threshold was set by a
+rule on such runs (at most 5 detections on each planet-free 20-night run, issue #33); ``bls`` was
+held to it in issue #39. At ``main`` after the shape gate the four 20-night planet-free runs (200
+stars, seeds 41 to 44) gave 0, 4, 2 and 10 detections and eight more simulated for design (seeds
+51 to 58) 2, 2, 3, 12, 2, 2, 6 and 23. Over the 41 runs without a planet on the star (the 33
+development runs and those eight) 41 of 763 flare-star runs, 8 of 920 sinusoidal ones, 2 of 4986
+constant ones and 3 of 558 eclipsing binaries made a claim (129, 122, 4 and 9 detections). Two
+gates, chosen on those runs and nothing else:
+
+* **Sinusoid against box** (above). Seven of the eight pulsators had been accepted at the first
+  pass (6 to 12 hour sinusoids of 0.15 to 0.85 percent in 8 hour nights, boxes of 0.5 to 1.35 d on
+  the same pulsation phase every night). The box-versus-sine test read 0.53 to 0.99 on them (it
+  rejects at 1); the ratio with free nightly levels reads 1.15 to 1.40 on six and 0.97 on the
+  seventh (seed 38 star 119: 9.3 h, 0.15 percent). On the 93 development candidates on a star with
+  a planet it reads at most 0.75 (seed 33 star 118, whose detections match a cloud and a flare, not
+  the planet), 0.73 for the highest where the detection is the planet (seed 38 star 168, a 0.509 d
+  planet with 20 events) and 0.57 or less for every other. The eighth pulsator (seed 13 star 130)
+  came through the detrending and is not a pulsation effect: its box holds 9 samples with a 9.9
+  percent depth in two windows of 10 and 8 minutes, beside a cosmic ray and just before a flare
+  onset; it is left (2 pulsation-labelled detections).
+* **Flare stars.** Flare tails are red noise that ``sigma`` (the MAD) does not contain: the claims
+  on flare stars have a local S/N of 7.0 to 19.5 (median 7.7) with boxes of 2 to 6 hours, and on
+  seed 44 star 199 (7 events, P 1.512 d) every event touches the start or the end of its night and
+  five of the seven nights have 32 to 74 flare samples masked. A star with ``flare_fraction``
+  (0.03) of its clean samples masked as positive outliers must reach a local S/N of
+  ``flare_snr_threshold`` (7.2) instead of 7.0. 32 of the 41 flare-star claims are on such stars and
+  no candidate of another class is (they are under 2.8 percent), so the cut is a measured
+  separation and not a fit. The bar is the lowest on a grid of 0.1 that brings every 20-night planet-free run
+  of the development and design seeds to 5 or fewer: at 7.1 seed 44 is still at 10 (star 199's
+  local S/N is 7.107), from 7.15 to 7.19 at 3 (star 126, 7.195), at 7.2 at 0. The same bar applied to every star
+  would have lost a development transit true positive (seed 61 star 56, local S/N 7.04); on flare
+  stars the lowest local S/N of a transit true positive is 7.28 (seed 12 star 32), a margin of 0.08.
+
+Measured. Development (seeds 7 and 42 at 3 and 20 nights, 11-14, 31-50 and 61-66 at 20 nights; 33
+runs), ``main`` to the branch: transit true positives 271 to 271 (270 bounded and 1 touched, both
+before and after), false positives (all kinds) 74 to 58, eclipses reported as transits 8 to 8,
+pulsations reported as transits 81 to 3 (52 to 3 on seeds 7-50 and 29 to 0 on 61-66; the 3 are seed
+13 star 130 and seed 44 star 44, a planet host), detections 533 to 402. Planet-free 20-night runs
+(seeds 41-44, then the design seeds 51-58), detections per run: 0, 4, 2, 10 to 0, 4, 2, 0 and 2, 2, 3,
+12, 2, 2, 6, 23 to 2, 2, 0, 0, 2, 2, 3, 5; the 3-night runs (0, 2, 0) are unchanged. Held-out,
+scored once after both gates were committed (seeds 71-76 at 200 stars and 20 nights): transit true
+positives 33 to 33 (32 bounded and 1 touched, both before and after), false positives 8 to 8,
+eclipses reported as transits 5 to 5, pulsations reported as transits 12 to 0 (one pulsator, seed 75
+star 181, ratio 1.46), detections 62 to 50. Planet hosts there read at most 0.57. **The
+planet-free bar is not met on the held-out planet-free runs** (seeds 81-84, 20 nights): detections
+0, 6, 0, 0 at ``main`` and on the branch. pf-seed82 gives 6: two flare stars, star 136 with 4 events at
+local S/N 7.5 and star 184 with 2 at 9.1, both above the flare bar. It was not re-tuned; a flare bar
+above 7.5 would have removed star 136 and cost seed 12 star 32 on the development runs. Seeds 21-26
+(used once before) and 7 and 42: ``bls`` detections identical to ``main``, span for span. ``single_transit``,
+which reads ``Candidate.rejected``, reports the same detections span for span and score for score on
+33 runs (the 4 of seeds 7 and 42, seeds 21-26, 71-76, the planet-free runs 41-44 and 51-58, and the
+five development runs with a planet-free pulsator). The time of ``bls`` on one 20-night run is the
+the same (about 92 s on seed 26 at ``main`` and on the branch).
+
+``scripts/bls_planet_free_audit.py`` prints the ratio, the flare share and the verdict of every
+star a run would report.
 
 Shape guard
 -----------
@@ -329,6 +408,15 @@ Limits
   level (the out-of-box renormalisation repairs the depth, not the search).
 * Two single events of different planets six days apart look like one period.
 * Output spans are half-open: ``t_end = t_last + cadence_s``.
+* Flare stars still make claims above the flare bar: on the held-out planet-free seed 82 two
+  flare stars gave 6 detections (local S/N 7.5 and 9.1). The bar is 0.08 above the lowest
+  transit true positive on a flare star (7.28), so it cannot be raised much without losing planets
+  (see Planet-free stars). The 3 percent cut is a share of masked samples, not a class: a flare
+  star with fewer flares in its record is held to 7.0.
+* The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and 0.08 on the
+  planet side of the bar (0.73 for a 0.509 d, 3 h planet; a planted 3 h planet at 0.51 d reads 0.54).
+  A short-period, deep planet is the one that approaches it; a pulsator weaker than the S/N bar
+  never reaches the guard at all.
 """
 
 from __future__ import annotations
