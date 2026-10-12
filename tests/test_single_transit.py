@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pytest
 
+import skywatch.detectors.single_transit as st
 from skywatch.detectors import REGISTRY, Detector, load_all
 from skywatch.detectors.single_transit import SingleTransitDetector, search_night
 from skywatch.scoring.match import span_iou
@@ -69,6 +70,16 @@ def test_constructor_validation(kw):
         SingleTransitDetector(**kw)
 
 
+def test_defaults_are_the_documented_ones():
+    # the headline threshold and the search constants are results, not incidental values:
+    # a default-constructed detector is what `skywatch detect` builds
+    d = SingleTransitDetector()
+    assert d.snr_threshold == 8.0
+    assert (d.min_in, d.min_out) == (15, 30)
+    assert d.durations_h == (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
+    assert (d.contrast, d.guards, d.mask_pad_h) == (True, True, 0.5)
+
+
 def test_empty_and_tiny_curves():
     t = np.arange(3, dtype=np.int64) * C
     tiny = LightCurve(1, t, np.ones(3), np.ones(3), np.zeros(3, dtype=np.uint8))
@@ -107,6 +118,44 @@ def test_search_night_needs_min_in_and_min_out():
     assert search_night(t[:44], flux[:44], C, (0.5 * HOUR,), 15, 30) is None  # 44 < 15 + 30
 
 
+def _night(dip_slice, depth=0.05, n=NIGHT_N, seed=0):
+    rng = np.random.default_rng(seed)
+    t = np.arange(n, dtype=np.int64) * C
+    flux = 1.0 + rng.normal(0.0, 0.005, n)
+    flux[dip_slice] -= depth
+    return t, flux
+
+
+def test_sigma_is_the_mad_of_the_night_outside_the_box():
+    t, flux = _night(slice(100, 340))  # the dip fills half the night
+    flux[5] += 0.2  # outliers outside the box: a std would be far above the MAD
+    flux[400] += 0.2
+    out = np.ones(NIGHT_N, dtype=bool)
+    out[100:340] = False
+    found = search_night(t, flux, C, (4 * HOUR,), 15, 30)
+    assert found is not None and (found[5], found[6]) == (100, 339)
+    ref = flux[out]
+    assert found[4] == pytest.approx(1.4826 * np.median(np.abs(ref - np.median(ref))))
+
+
+def test_min_out_limits_the_box_not_only_the_night():
+    t, flux = _night(slice(10, 55), n=70)  # a 45-sample dip with 25 samples to hold it against
+    found = search_night(t, flux, C, (45 * C,), 15, 30)
+    assert found is not None and found[3] >= 30  # n_out: the full 45-sample box is not allowed
+    assert found[2] <= 40
+
+
+@pytest.mark.parametrize("at_start", [True, False])
+def test_search_night_truncated_box_covers_the_visible_part_only(at_start):
+    # 100 dip samples are visible against a 3 h (180-sample) box: only a box hanging over the
+    # night's edge holds exactly them
+    sl = slice(0, 100) if at_start else slice(NIGHT_N - 100, NIGHT_N)
+    t, flux = _night(sl)
+    found = search_night(t, flux, C, (3 * HOUR,), 15, 30)
+    assert found is not None
+    assert (found[5], found[6], found[2]) == (sl.start, sl.stop - 1, 100)
+
+
 # -- what it finds -----------------------------------------------------------------------
 
 
@@ -140,6 +189,23 @@ def test_a_dip_half_past_the_night_edge_is_found_as_a_truncated_box(start_h):
     lo, hi = clipped_window(4, start_h, 3.0)
     assert hi - lo == pytest.approx(1.5 * HOUR, abs=C)
     assert span_iou(out[0].t_start, out[0].t_end, lo, hi) >= 0.5
+
+
+@pytest.mark.parametrize("start_h", [-3.6, 7.6])  # 0.4 h (24 samples) of a 4 h dip is visible
+def test_a_short_remnant_of_a_deep_dip_at_a_night_edge_is_found_exactly(start_h):
+    # 24 samples are shorter than the shortest grid duration (0.5 h = 30): the box must hang
+    # over the night's edge to hold exactly the remnant
+    _t, cv = one_dip(night=4, start_h=start_h, dur_h=4.0, depth=0.1, noise=0.002)
+    (d,) = detect({0: cv})
+    ns = 4 * DAY
+    lo, hi = (ns, ns + 24 * C) if start_h < 0 else (ns + (NIGHT_N - 24) * C, ns + NIGHT_N * C)
+    assert (d.t_start, d.t_end) == (lo, hi)
+
+
+def test_the_span_is_the_covered_samples_half_open():
+    _t, cv = one_dip(night=4, start_h=2.5, dur_h=3.0, depth=0.1, noise=0.002)
+    (d,) = detect({0: cv})
+    assert (d.t_start, d.t_end) == (4 * DAY + int(2.5 * HOUR), 4 * DAY + int(5.5 * HOUR))
 
 
 def test_one_detection_per_night_with_a_dip_and_det_ids_count_up():
@@ -189,6 +255,16 @@ def test_common_mode_offset_shared_by_the_field_is_not_a_transit():
     for k in (2, 6):
         step[(t >= k * DAY + 5 * HOUR) & (t < k * DAY + 8 * HOUR)] = 0.9
     curves = {i: curve(i, t, step, 0.005, rng) for i in range(12)}
+    assert detect(curves) == []
+
+
+def test_a_common_mode_dip_on_one_night_is_not_a_transit():
+    # one night, every star: guard (a) does not read this as a pulsation, so only the
+    # division by the field's per-time median stands between it and twelve "transits"
+    t, rng, _ = make_field()
+    dip = np.ones(len(t))
+    dip[(t >= 3 * DAY + 2 * HOUR) & (t < 3 * DAY + 5 * HOUR)] = 0.9
+    curves = {i: curve(i, t, dip, 0.005, rng) for i in range(12)}
     assert detect(curves) == []
 
 
@@ -242,6 +318,16 @@ def test_a_planted_dip_on_an_eclipsing_binary_is_found_beside_masked_eclipses():
     assert span_iou(out[0].t_start, out[0].t_end, lo, hi) >= 0.5
 
 
+def test_a_star_with_two_unequal_single_events_is_not_searched():
+    # documented limit: the second event stays in the guard's residual, but the periodic search
+    # rejects its best box for min_events, not as a pulsation, so there is no eclipse to mask
+    # and no re-search (guard (b) reads the rejection reason)
+    rng = np.random.default_rng(5)
+    t = night_times(10)
+    prof = dip_profile(t, 2, 2.0, 3.0, 0.015) * dip_profile(t, 7, 4.0, 2.0, 0.006)
+    assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
+
+
 # -- determinism, order, speed ---------------------------------------------------------------
 
 
@@ -265,15 +351,33 @@ def test_stars_are_independent_of_each_other_beyond_the_common_mode():
     assert [d.det_id for d in detect({0: cv, 1: other})] == [d.det_id for d in detect({0: cv})]
 
 
-def test_performance_20_stars_10_nights():
+def test_one_search_per_night(monkeypatch):
+    calls = []
+    real = st.search_night
+
+    def counting(*a, **k):
+        calls.append(1)
+        return real(*a, **k)
+
+    monkeypatch.setattr(st, "search_night", counting)
     t = night_times(10)
     rng = np.random.default_rng(0)
+    curves = {i: curve(i, t, np.ones(len(t)), 0.005, rng) for i in range(12)}
+    detect(curves)
+    assert len(calls) == 12 * 10
+
+
+def test_performance_60_stars_20_nights():
+    # measured CPU time here: 0.55 s (slowest of three runs, host load above 70). The bound is
+    # about four times that, so a 15-fold slowdown of the night search fails it
+    t = night_times(20)
+    rng = np.random.default_rng(0)
     curves = {}
-    for i in range(20):
-        prof = dip_profile(t, i % 10, 2.0, 3.0, 0.015) if i % 5 == 0 else np.ones(len(t))
+    for i in range(60):
+        prof = dip_profile(t, i % 20, 2.0, 3.0, 0.015) if i % 5 == 0 else np.ones(len(t))
         curves[i] = curve(i, t, prof, 0.005, rng)
-    t0 = time.perf_counter()
+    t0 = time.process_time()
     out = detect(curves)
-    elapsed = time.perf_counter() - t0
-    assert {d.star_id for d in out} == {0, 5, 10, 15}
-    assert elapsed < 10.0, f"20 stars x 10 nights took {elapsed:.1f} s"
+    elapsed = time.process_time() - t0
+    assert {d.star_id for d in out} == set(range(0, 60, 5))
+    assert elapsed < 2.3, f"60 stars x 20 nights took {elapsed:.2f} s of CPU"
