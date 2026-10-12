@@ -1762,6 +1762,21 @@ def test_a_brightening_night_still_lowers_the_one_amplitude_gains(dur_h):
     assert with_nights.g_triangle < without.g_triangle
 
 
+def test_the_gain_with_a_depth_for_each_night_does_not_wait_for_the_one_amplitude_gain():
+    # Every event night but one brightens where the dip should be: the one-amplitude gains are
+    # swamped (the brightening nights subtract; the total is not positive, so both gains are 0),
+    # and the night that does show the dip still has a gain with a depth of its own.
+    det = BlsDetector()
+    t = night_times(20)
+    cv = curve(0, t, ramped(t, 2.3, 0.14, 3.0, 0.015), 0.005, np.random.default_rng(0))
+    cand = det.search(cv, C)
+    a = _arrays(det, cv)
+    flux = np.where(a.night % 6 == 0, a.flux, 2.0 - a.flux)
+    fit = det._shape_gains(a.t, flux, a.night, cand.box)
+    assert fit.g_box == 0.0 and fit.g_triangle == 0.0
+    assert fit.g_box_night > 0.0 and fit.g_triangle_night > 0.0
+
+
 @pytest.mark.parametrize("offset_h", [0.8, 1.0, 1.2])
 def test_the_centring_window_is_half_an_hour_not_two(offset_h):
     # A 2 h transit with a shallow 2.4 h V dip centred `offset_h` off its middle on every event
