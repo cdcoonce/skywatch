@@ -24,10 +24,13 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 151-156 | 20 | planets | **held-out, reserved for #44** | not yet scored |
 | 160-199 | any | either | design range for #43 | |
 | 201-206 | 20 | planets | **held-out, reserved for #41** | not yet scored |
-| 210-219 | any | either | design range for #45 | |
-| 221-226 | 20 | planets | **held-out, reserved for #45** | not yet scored |
-| 231-234 | 20 | planet-free | **held-out, reserved for #45** | not yet scored |
+| 210-217 | 20 | planets | development | #45 design (the shape test's threshold was set on these and the development seeds); used |
+| 218-219 | 20 | planet-free | development | #45 design; used |
+| 221-226 | 20 | planets | development | held-out for #45 (the shape test), scored once; used |
+| 231-234 | 20 | planet-free | development | held-out for #45 (the shape test), scored once; used |
 
 Next unused range: 240 and up.
+
+Also read for #45 (the statistic of every box `single_transit` reported, to set the shape threshold; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights; planet-free 41-43 at 3 nights), 11-14, 21-26, 31-50, 61-66, 71-76, 91-100 (planets) and the planet-free 41-44 and 51-58 at 20 nights.
 
 Caveat on record: seeds 21-26 were where PR #34's review found the problems that became #35 and #36, so they were held out from those changes' thresholds but not from the choice of problem.
