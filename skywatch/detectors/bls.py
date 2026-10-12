@@ -106,6 +106,74 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
 
+Pulsating hosts
+---------------
+The guard rejects a whole star: a sinusoid of 0.1-2 percent stands out of the residual after
+the box is subtracted, so a planet on a pulsating star went with it (5 of the 14 strong planets
+on held-out seeds 21-26, issue #35). ``detrend_pulsation`` (on by default; needs the guard) searches
+such a star again with its pulsation subtracted. It is a *subtract-then-search*, not a joint
+fit, in three steps, and only for a star whose best box was rejected by the pulsation guard:
+
+1. **Fit.** The best sinusoid in the guard band (1-30 cycles/day) with a free intercept for
+   every night (:meth:`BlsDetector._pulsation_trend`): the six strongest peaks of the Fourier
+   power are placed by least squares (:func:`_refine_frequency`) and the largest chi-square
+   gain wins (the Fourier power only ranks the peaks: the nights' intercepts take most of a
+   sinusoid near a night's length, 62 percent of a 0.9 day one, so the strongest peak can be
+   an alias one cycle/day away and the least-squares fit of the six is what places it). The
+   noise is the scatter of within-night first differences, which a slow pulsation does not
+   inflate, not the guard's. The sinusoid is used only if its power is at least
+   ``trend_min_ratio`` (3) times the guard's false-alarm level.
+2. **Subtract and search.** Subtract it, divide the nights by their median again, and search.
+3. **Refit around the box.** When that search finds a box at the S/N gate, fit the sinusoid
+   again with the box and the window 1.5 times as wide left out, and search once more. At a
+   fixed frequency this is the sinusoid of the joint fit of sinusoid and box (the box takes the
+   in-box samples), so the joint solution is reached without a joint search over every period,
+   duration and phase; a 1 percent, 3 h transit left in the first fit pulled the sinusoid until
+   the residual failed the guard (power 43 against the level 13) and no planet came out. Leaving
+   out the *rejected* box instead removes most of the record (that box is the fold of the
+   pulsation).
+
+The result is a candidate in its own right: every gate applies (the guard on the detrended
+flux), and ``snr`` and ``snr_local`` must reach ``trend_snr_threshold`` (9), because a detrended
+star is a second look at a star the first look rejected, and a second look is a second chance
+at a false alarm. A star that comes out rejected keeps its original candidate and is rejected as
+before. Detections still carry ``kind_guess="transit"``; ``Candidate.trend`` is the
+``(cycles/day, amplitude)`` removed and the INFO log has one line for each such star.
+
+Three failures designed against, each with a test: a sinusoid slower than the guard band (a 3 day
+one is a ramp in every night, folds into the 1.33 cycles/day alias, and subtracting that leaves
+the other alias as a dip in every night: S/N 14, 20 events) is detected by trying 0.1-0.99
+cycles/day and refused when one of them fits better; an eclipsing binary has harmonics that are
+sinusoids, so a single sinusoid is subtracted, not a series (with three, an eclipsing binary of
+5 percent was accepted once); and flare stars, whose red residue gives a peak 1-2 times the
+white-noise level, are below ``trend_min_ratio`` (every weak real pulsator on the development
+runs is at 4 or more).
+
+Measured on the 24 development runs (the stored seed 7 and 42 runs at 3 and 20 nights, seeds 31-50
+at 20 nights; these chose ``trend_min_ratio``, ``trend_snr_threshold``, one sinusoid and the
+refit): 7 more transit true positives (all events of three strong planets on pulsating hosts, seed
+31 star 32, seed 39 star 194, seed 46 star 25, and one event of a candidate on seed 44 star 44),
+no transit true positive lost, no change in false positives or in eclipses reported as transits,
+one more pulsation reported as a transit (seed 44, the candidate's other event). 300 synthetic
+pure pulsators (0.1-2 percent, 1-12 h, noise 0.3-0.8 percent, 20 nights) gave no detection. Held-
+out, scored once after every threshold was fixed (seeds 21-26, 200 stars, 20 nights; they were not
+used for any choice): transit true positives 30 to 46, false positives 6 to 6, eclipses reported
+as transits 13 to 13, pulsations reported as transits 0 to 0, 1.26 times the CPU time (1.24 times
+the wall clock). The five strong planets on pulsating hosts that the guard lost: three now have
+every event bounded or touched (seed 21 star 85, seed 22 star 6: 9 bounded and 1 touched of 10,
+seed 24 star 37), seed 21 star 83 has one of
+its two events bounded, and seed 23 star 139 is still lost (its detrended box, at 3.177 d the
+planet's 12.731 d over four, has S/N 9.7 but local S/N 7.4, below ``trend_snr_threshold``).
+
+Limits: one sinusoid per star (a multi-mode pulsator is not removed); sinusoids slower than 1
+cycle/day are not touched (a planet on such a host stays rejected); the sinusoid is a global one,
+so an amplitude that changes over the record is only partly removed; ``trend_snr_threshold`` costs
+a planet on a pulsating star whose box reaches S/N 7-9; a pulsator with one real transit can borrow
+a 1 h noise dip as the second event that ``min_events`` asks for, so the candidate has one true and
+one spurious event (dev seed 44 star 44: P 5.562 d, S/N 13.3, a bounded transit and a touched noise
+dip; about 1 in 120 such stars on 240 synthetic pulsators with one 3 h transit, never a detection
+without the real transit; on ``main`` these stars give nothing).
+
 Second pass
 -----------
 ``second_pass`` (**off by default**) searches a star once more when its best box is rejected by
@@ -160,7 +228,8 @@ Limits
   third signal on a star is out of scope. The strongest peak at a clearly different period that
   is not a small-integer ratio of the best period is logged at INFO (``skywatch.detectors.bls``)
   as an alternative. Without the second pass a star whose strongest box is not a planet (an
-  eclipsing binary, a pulsator) is rejected whole, so a planet behind it is lost too; with
+  eclipsing binary; a pulsator unless its pulsation is subtracted, see above) is rejected whole,
+  so a planet behind it is lost too; with
   ``second_pass=True`` the planet is found unless its events sit inside the masked dip, the
   binary's eclipses fill most of every night (the re-search then has no clean night), or the
   re-search's best box is not the planet (a flare star's residue passes the gates on
@@ -203,6 +272,10 @@ _ALIAS_TOLERANCE = 0.02  # a re-search period within this fraction of P, P/2 or 
 _DIP_MIN_BINS = 8  # the dip fold has at least this many phase bins, whatever the period
 _DIP_CORE_MIN_BINS = 0.5  # half-width floor (in bins) of the box core in the dip fold
 _RENORMALISE_MIN_SAMPLES = 5  # a night of fewer samples is not divided by its median again
+_TREND_SLOW_F_MIN = 0.1  # cycles/day: the slowest sinusoid tried when asking if one is slower
+_TREND_SLOW_STEP = 0.01  # ... and the step between the frequencies tried
+_TREND_PEAKS = 6  # Fourier peaks placed by least squares, the best of which is the sinusoid
+_TREND_REFINE_STEPS = 14  # golden-section steps that place a pulsation's frequency
 _CHUNK_ELEMENTS = 1_000_000  # periods per chunk = this // n samples (keeps arrays cache-sized)
 
 
@@ -214,6 +287,18 @@ class _Clean:
     flux: np.ndarray
     night_of: np.ndarray
     level: np.ndarray  # the night median each sample's flux was divided by
+
+
+@dataclass(frozen=True)
+class _Arrays:
+    """What one search works on: the prepared samples and the observed ones (masks applied)."""
+
+    t: np.ndarray
+    flux: np.ndarray
+    night: np.ndarray
+    level: np.ndarray
+    t_obs: np.ndarray
+    night_obs: np.ndarray
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -289,7 +374,8 @@ class Candidate:
     rejected); `excess` is the guard's strongest residual-sinusoid power (None if not
     computed); `alternative` is ``(period_s, power / best power)`` of the strongest
     unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
-    only for a rejection other than ``"snr"``).
+    only for a rejection other than ``"snr"``); `trend` is ``(cycles/day, amplitude)`` of the
+    sinusoid that was subtracted before this box was found (None when none was).
     """
 
     box: Box
@@ -302,6 +388,7 @@ class Candidate:
     snr_local: float = 0.0
     supported_nights: int = 0
     mask: tuple[Box, ...] = ()
+    trend: tuple[float, float] | None = None
 
 
 def frequency_grid(
@@ -522,6 +609,74 @@ def _renormalise_nights(
     return flux
 
 
+def _demean_by_night(x: np.ndarray, k: np.ndarray) -> np.ndarray:
+    """`x` minus the mean of its own night (the fit's per-night intercept); `k` numbers nights."""
+    return x - (np.bincount(k, weights=x) / np.bincount(k))[k]
+
+
+def _sine_fit(
+    t_d: np.ndarray, x: np.ndarray, k: np.ndarray, f_per_d: float
+) -> tuple[float, float, float]:
+    """Least-squares ``a sin + b cos`` at `f_per_d` cycles/day: ``(a, b, chi-square gain)``.
+
+    `t_d` is in days, `x` the zero-mean flux, `k` the night number of each sample; the basis and
+    `x` are both demeaned by night, so
+    each night carries its own free intercept (the nights were divided by their median, which
+    is not the mean of a pulsation that has not completed a cycle in the night).
+    """
+    arg = 2.0 * np.pi * f_per_d * t_d
+    s = _demean_by_night(np.sin(arg), k)
+    c = _demean_by_night(np.cos(arg), k)
+    ss, cc, sc = float(s @ s), float(c @ c), float(s @ c)
+    xs, xc = float(s @ x), float(c @ x)
+    det = ss * cc - sc * sc
+    if not det > 0:
+        return 0.0, 0.0, 0.0
+    a = (xs * cc - xc * sc) / det
+    b = (xc * ss - xs * sc) / det
+    return a, b, a * xs + b * xc
+
+
+def _refine_frequency(
+    t_d: np.ndarray, x: np.ndarray, k: np.ndarray, f0: float, half_width: float
+) -> float:
+    """Frequency in ``f0 +- half_width`` (cycles/day) maximising :func:`_sine_fit`'s gain.
+
+    A golden-section search: the gain is unimodal within one zero-padded Fourier bin of the
+    peak.
+    """
+    lo, hi = f0 - half_width, f0 + half_width
+    inv_phi = (math.sqrt(5.0) - 1.0) / 2.0
+    c = hi - inv_phi * (hi - lo)
+    d = lo + inv_phi * (hi - lo)
+    gc = _sine_fit(t_d, x, k, c)[2]
+    gd = _sine_fit(t_d, x, k, d)[2]
+    for _ in range(_TREND_REFINE_STEPS):
+        if gc > gd:
+            hi, d, gd = d, c, gc
+            c = hi - inv_phi * (hi - lo)
+            gc = _sine_fit(t_d, x, k, c)[2]
+        else:
+            lo, c, gc = c, d, gd
+            d = lo + inv_phi * (hi - lo)
+            gd = _sine_fit(t_d, x, k, d)[2]
+    return 0.5 * (lo + hi)
+
+
+def _top_peaks(f: np.ndarray, power: np.ndarray, n: int, min_sep: float) -> list[int]:
+    """Indices of the `n` highest local maxima of `power` that are at least `min_sep` apart."""
+    interior = np.flatnonzero((power[1:-1] > power[:-2]) & (power[1:-1] >= power[2:])) + 1
+    if len(interior) == 0:
+        interior = np.array([int(power.argmax())])
+    chosen: list[int] = []
+    for i in interior[np.argsort(power[interior])[::-1]]:
+        if all(abs(f[i] - f[j]) >= min_sep for j in chosen):
+            chosen.append(int(i))
+            if len(chosen) == n:
+                break
+    return chosen
+
+
 def in_box(t: np.ndarray, box: Box) -> np.ndarray:
     """Boolean mask of samples of `t` inside the box's predicted windows."""
     ph = np.mod(np.asarray(t, dtype=np.float64) - box.epoch_s + box.period_s / 2.0, box.period_s)
@@ -552,6 +707,9 @@ class BlsDetector:
         night_gap_cadences: int = 100,
         common_mode_min_stars: int = 10,
         second_pass: bool = False,
+        detrend_pulsation: bool = True,
+        trend_min_ratio: float = 3.0,
+        trend_snr_threshold: float = 9.0,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -580,6 +738,10 @@ class BlsDetector:
                 "guard frequencies must satisfy 0 < min < max, got "
                 f"{guard_f_min_per_d}, {guard_f_max_per_d}"
             )
+        if not trend_min_ratio >= 1:
+            raise ValueError(f"trend_min_ratio must be >= 1, got {trend_min_ratio}")
+        if not trend_snr_threshold > 0:
+            raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -596,6 +758,9 @@ class BlsDetector:
         self.night_gap_cadences = night_gap_cadences
         self.common_mode_min_stars = common_mode_min_stars
         self.second_pass = second_pass
+        self.detrend_pulsation = detrend_pulsation
+        self.trend_min_ratio = trend_min_ratio
+        self.trend_snr_threshold = trend_snr_threshold
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -657,19 +822,24 @@ class BlsDetector:
 
     # -- guard ---------------------------------------------------------------------------
 
-    def _peak_power(
-        self, t: np.ndarray, x: np.ndarray, sigma: float, cadence_s: int
-    ) -> tuple[float, float]:
-        """(strongest normalised Fourier power of `x` in the guard band, its false-alarm level).
+    def _band_power(
+        self,
+        t: np.ndarray,
+        x: np.ndarray,
+        sigma: float,
+        cadence_s: int,
+    ) -> tuple[np.ndarray, np.ndarray, float, float] | None:
+        """(frequencies in cycles/day, normalised Fourier power, false-alarm level, bin step s).
 
         `x` (zero-mean flux) is summed into ``max(cadence_s, 300)`` s bins on one regular grid
-        (empty bins are zero) and Fourier transformed, zero-padded fourfold. For white noise
-        the normalised power ``|X(f)|**2 / (n sigma**2)`` of each independent frequency is
-        exponentially distributed with unit mean, so over ``M = (f_max - f_min) * baseline``
-        independent frequencies the level exceeded by chance with probability ``guard_fap``
-        per star is ``ln(M / guard_fap)``. A sinusoid of amplitude A over n samples has
-        power ``n A**2 / (4 sigma**2)`` and gains ``2 * power`` in chi-square. `t` and `x`
-        hold only the samples that take part (the others are simply absent).
+        (empty bins are zero) and Fourier transformed, zero-padded fourfold, and the guard band
+        is kept. For white noise the normalised power ``|X(f)|**2 / (n sigma**2)`` of each
+        independent frequency is exponentially distributed with unit mean, so over ``M =
+        (f_max - f_min) * baseline`` independent frequencies the level exceeded by chance with
+        probability ``guard_fap`` per star is ``ln(M / guard_fap)``. A sinusoid of amplitude A
+        over n samples has power ``n A**2 / (4 sigma**2)`` and gains ``2 * power`` in
+        chi-square. `t` and `x` hold only the samples that take part (the others are simply
+        absent). None when the band holds no frequency.
         """
         dt = float(max(cadence_s, 300))
         n_bins = int(np.floor((t[-1] - t[0]) / dt)) + 1
@@ -681,11 +851,23 @@ class BlsDetector:
         f_hi = min(self.guard_f_max_per_d, 0.5 * DAY_S / dt)
         band = (f_per_d >= self.guard_f_min_per_d) & (f_per_d <= f_hi)
         if not band.any():
-            return 0.0, math.inf
-        power = float((np.abs(spec[band]) ** 2).max() / (len(t) * sigma**2))
+            return None
+        power = np.abs(spec[band]) ** 2 / (len(t) * sigma**2)
         independent = max(1.0, (f_hi - self.guard_f_min_per_d) * (t[-1] - t[0]) / DAY_S)
         assert self.guard_fap is not None
-        return power, math.log(independent / self.guard_fap)
+        return f_per_d[band], power, math.log(independent / self.guard_fap), DAY_S / (n_fft * dt)
+
+    def _peak_power(
+        self, t: np.ndarray, x: np.ndarray, sigma: float, cadence_s: int
+    ) -> tuple[float, float]:
+        """(strongest normalised Fourier power of `x` in the guard band, its false-alarm level).
+
+        See :meth:`_band_power` for the normalisation and the level.
+        """
+        spectrum = self._band_power(t, x, sigma, cadence_s)
+        if spectrum is None:
+            return 0.0, math.inf
+        return float(spectrum[1].max()), spectrum[2]
 
     def _pulsating(
         self, t: np.ndarray, flux: np.ndarray, sigma: float, cadence_s: int, box: Box
@@ -791,7 +973,8 @@ class BlsDetector:
         search, the statistics, the guard and the event list (they are treated as not
         observed) and each night is divided by the median of what is left. With `plan_mask`
         a rejected candidate carries the windows a re-search should leave out
-        (:meth:`_dip_mask`).
+        (:meth:`_dip_mask`). A candidate that is not reportable is searched once more with the
+        star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
         """
         t, flux, night, level = self._prepare(c, common_mode)
         t_obs, night_obs = c.t, c.night_of
@@ -804,6 +987,141 @@ class BlsDetector:
             t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
+        arrays = _Arrays(t, flux, night, level, t_obs, night_obs)
+        cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
+        if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
+            return cand
+        again = self._detrended(arrays, c, cadence_s, plan_mask)
+        return cand if again is None else again
+
+    def _can_detrend(self) -> bool:
+        return self.detrend_pulsation and self.guard_fap is not None
+
+    def _white_sigma(self, flux: np.ndarray, night: np.ndarray) -> float:
+        """Scatter of the white noise: ``1.4826 * MAD`` of the within-night first differences
+        over ``sqrt(2)``. Unlike the scatter about the median it does not contain a slow
+        pulsation, whose amplitude would otherwise hide the pulsation it comes from."""
+        same = night[1:] == night[:-1]
+        d = np.diff(flux)[same]
+        if len(d) < 2:
+            return 0.0
+        return _MAD_SCALE * float(np.median(np.abs(d - np.median(d)))) / math.sqrt(2.0)
+
+    def _pulsation_trend(
+        self, a: _Arrays, cadence_s: int, box: Box | None = None
+    ) -> tuple[np.ndarray, tuple[float, float, float]] | None:
+        """The star's pulsation at the samples of `a`, and ``(cycles/day, amplitude, ratio)``.
+
+        The best sinusoid in the guard band with a free intercept for every night: the six
+        strongest peaks of the Fourier power (:meth:`_band_power`) are each placed to
+        a fraction of a zero-padded bin by :func:`_refine_frequency`, amplitude and phase are
+        fitted by least squares, and the largest chi-square gain wins. The sinusoid counts only
+        when its power (``gain / (2 sigma**2)``, ``sigma`` the white-noise scatter) is at least
+        ``trend_min_ratio`` times the guard's false-alarm level (``ratio`` is that multiple);
+        None otherwise. The samples of `box` and a window 1.5 times as wide are left out of the
+        fit, so that a transit is not fitted by the sinusoid; with a `box` the sinusoid is also
+        refused when a slower one fits better (:meth:`_slower_sinusoid_wins`).
+        """
+        keep = np.ones(len(a.t), dtype=bool)
+        if box is not None:
+            keep = ~in_box(a.t, replace(box, duration_s=_GUARD_MASK_WIDTH * box.duration_s))
+        if int(keep.sum()) < 4:
+            return None
+        sigma = self._white_sigma(a.flux[keep], a.night[keep])
+        if not sigma > 0:
+            return None
+        td = (a.t - float(a.t[0])) / DAY_S
+        k = np.unique(a.night[keep], return_inverse=True)[1]
+        x = _demean_by_night(a.flux[keep] - 1.0, k)
+        spectrum = self._band_power(a.t[keep], x, sigma, cadence_s)
+        if spectrum is None:
+            return None
+        f_band, power, level, df = spectrum
+        # The power only ranks the peaks: it is approximate (it ignores the nights' intercepts,
+        # the cross term between a frequency and its mirror, and the gaps inside nights), and a
+        # sinusoid and its alias one cycle/day away are close in it; the few strongest peaks are
+        # placed by least squares and the one with the largest chi-square gain wins.
+        best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
+        for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, float(td[-1]))):
+            f = _refine_frequency(td[keep], x, k, float(f_band[i]), df)
+            sin_a, cos_a, gain = _sine_fit(td[keep], x, k, f)
+            if best is None or gain > best[0]:
+                best = (gain, f, sin_a, cos_a)
+        assert best is not None
+        gain, f, sin_a, cos_a = best
+        ratio = gain / (2.0 * sigma**2) / level
+        if ratio < self.trend_min_ratio:
+            return None
+        if box is not None and self._slower_sinusoid_wins(td[keep], x, k, gain):
+            return None
+        arg = 2.0 * np.pi * f * td
+        trend = sin_a * np.sin(arg) + cos_a * np.cos(arg)
+        return trend, (f, math.hypot(sin_a, cos_a), ratio)
+
+    def _slower_sinusoid_wins(
+        self, td: np.ndarray, x: np.ndarray, k: np.ndarray, gain: float
+    ) -> bool:
+        """True when a sinusoid slower than the guard band fits better than the one at `gain`.
+
+        Nights are one day apart and every night is divided by its own median, so a sinusoid
+        of period ``P`` days and one of ``1 / (1 / P + 1)`` differ only by what the 8 hours of
+        a night show of them: a 3 day sinusoid is seen as a ramp in every night and folds into
+        a box at 1.33 cycles/day, inside the guard band, whose subtraction leaves the ramp's
+        other alias as a dip every night. Frequencies from ``_TREND_SLOW_F_MIN`` to the band's
+        lower edge are tried (with the same free intercept for every night); when the best of
+        them has the larger chi-square gain the star's variability is slower than what this
+        method removes, and it is left to the guard.
+        """
+        slow = np.arange(_TREND_SLOW_F_MIN, self.guard_f_min_per_d, _TREND_SLOW_STEP)
+        return any(_sine_fit(td, x, k, float(f))[2] > gain for f in slow)
+
+    def _detrended(
+        self, a: _Arrays, c: _Clean, cadence_s: int, plan_mask: bool
+    ) -> Candidate | None:
+        """The candidate found once the star's pulsation is subtracted, if it is reportable.
+
+        Subtract-then-search, with the sinusoid refitted around the box it uncovers:
+
+        1. Fit the sinusoid to the whole record, subtract it, search.
+        2. When that search finds a box worth a look (S/N at the gate), fit the sinusoid again
+           with that box's samples left out and search once more. A transit that is in the
+           record when the sinusoid is fitted pulls the fit towards itself (a 1 percent, 3 h
+           transit left a residual that failed the guard), and a box that does not belong to
+           the star (the fold of the pulsation) must not decide which samples are left out the
+           first time. Only the second fit is used for the answer when there is one.
+
+        The result must pass every gate (``snr`` and ``snr_local`` at ``trend_snr_threshold``,
+        a second look at a star whose first look failed); None when no sinusoid stands out or
+        the result is rejected, and the caller keeps the original candidate then.
+        """
+        fit = self._pulsation_trend(a, cadence_s)
+        if fit is None:
+            return None
+        flux = _renormalise_nights(a.flux - fit[0], a.night)
+        cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask)
+        if cand is not None and cand.rejected != "snr":
+            fit = self._pulsation_trend(a, cadence_s, cand.box)
+            if fit is None:
+                return None
+            flux = _renormalise_nights(a.flux - fit[0], a.night)
+            cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask)
+        if cand is None or cand.rejected is not None:
+            return None
+        if min(cand.snr, cand.snr_local) < self.trend_snr_threshold:
+            return None
+        return replace(cand, trend=fit[1][:2])
+
+    def _search_arrays(
+        self, a: _Arrays, c: _Clean, cadence_s: int, plan_mask: bool
+    ) -> Candidate | None:
+        t, flux, night, level, t_obs, night_obs = (
+            a.t,
+            a.flux,
+            a.night,
+            a.level,
+            a.t_obs,
+            a.night_obs,
+        )
         if len(t) < 4:
             return None
         baseline = float(c.t[-1] - c.t[0]) + cadence_s
@@ -897,6 +1215,17 @@ class BlsDetector:
             cand = self._re_search(star_id, c, common_mode, cadence_s, cand)
             if cand is None:
                 return []
+        if cand.trend is not None:
+            log.info(
+                "bls star %s: pulsation %.3f cycles/day, amplitude %.4f, subtracted; "
+                "P %.3f d, S/N %.1f (local %.1f)",
+                star_id,
+                cand.trend[0],
+                cand.trend[1],
+                cand.box.period_s / DAY_S,
+                cand.snr,
+                cand.snr_local,
+            )
         return [
             Detection(
                 detector=self.name,

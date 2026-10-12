@@ -1210,3 +1210,327 @@ def test_performance_with_re_searches_20_stars_10_nights(caplog):
     assert elapsed < 11.0, (
         f"20 stars x 10 nights with {len(searched)} re-searches took {elapsed:.1f} s"
     )
+
+
+# -- pulsating hosts: the sinusoid is subtracted before the box search (#35) -------------------
+
+
+def pulsator(seed, period_d=0.9, amp=0.015, depth=0.01, noise=0.005, n_nights=20, transit=True):
+    """A star with a sinusoid and (optionally) a 3 h transit at P 3.1 d, epoch 0.05 d.
+
+    The epoch puts four events inside the nights of a 20-night record (days 0, 3, 6 and 9).
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = 1.0 + amp * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
+    if transit:
+        prof = prof * box_profile(t, 3.1 * DAY, 0.05 * DAY, 3 * 3600.0, depth)
+    return t, curve(0, t, prof, noise, rng)
+
+
+def _arrays(det, cv):
+    """The prepared samples of one star, as the search sees them."""
+    c = det._clean(cv, C)
+    t, flux, night, level = det._prepare(c, None)
+    return bls._Arrays(t, flux, night, level, c.t, c.night_of)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_planet_on_a_pulsating_host_is_found_with_every_event_bounded(seed):
+    t, cv = pulsator(seed)
+    truth = planted_windows(t, 3.1, 0.05, 3.0)
+    assert len(truth) == 4
+    out = detect({0: cv})
+    for lo, hi in truth:
+        assert max((span_iou(d.t_start, d.t_end, lo, hi) for d in out), default=0.0) >= 0.5
+    for d in out:  # and nothing else is reported
+        assert max(span_iou(d.t_start, d.t_end, lo, hi) for lo, hi in truth) >= 0.5
+    assert len(out) == len(truth)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_the_same_pulsating_star_without_the_transit_gives_nothing(seed):
+    _, cv = pulsator(seed, transit=False)
+    assert detect({0: cv}) == []
+    assert BlsDetector().search(cv, C).rejected == "pulsation guard"
+
+
+def test_without_the_detrending_the_guard_rejects_the_whole_star():
+    _, cv = pulsator(0)
+    off = BlsDetector(detrend_pulsation=False)
+    assert off.detect({0: cv}, C) == []
+    assert off.search(cv, C).rejected == "pulsation guard"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_sinusoid_near_the_transit_period_is_not_a_transit(seed):
+    # 0.33 cycles/day is below the guard band; in nights divided by their median it is a ramp
+    # that folds into a box at 1.33 cycles/day. Subtracting that alias once left the ramp's other
+    # alias as a dip in every night (S/N 14, 20 events at 0.6 d in two of these three seeds)
+    _, cv = pulsator(seed, period_d=3.0, amp=0.015, transit=False)
+    assert detect({0: cv}) == []
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_planet_beside_a_sinusoid_at_a_nearby_period_adds_no_false_event(seed):
+    t, cv = pulsator(seed, period_d=3.0, amp=0.015)
+    truth = planted_windows(t, 3.1, 0.05, 3.0)
+    for d in detect({0: cv}):
+        assert max(span_iou(d.t_start, d.t_end, lo, hi) for lo, hi in truth) >= 0.5
+
+
+def test_a_slower_sinusoid_than_the_band_is_told_from_one_inside_it():
+    det = BlsDetector()
+    for period_d, slower in [(3.0, True), (0.9, False)]:
+        _, cv = pulsator(0, period_d=period_d, transit=False)
+        a = _arrays(det, cv)
+        td = (a.t - float(a.t[0])) / DAY
+        k = np.unique(a.night, return_inverse=True)[1]
+        x = bls._demean_by_night(a.flux - 1.0, k)
+        # the gain of the best in-band sinusoid, as the detrending finds it
+        f_band, power, _, df = det._band_power(a.t, x, det._white_sigma(a.flux, a.night), C)
+        peaks = bls._top_peaks(f_band, power, bls._TREND_PEAKS, 1.0 / float(td[-1]))
+        gain = max(
+            bls._sine_fit(td, x, k, bls._refine_frequency(td, x, k, float(f_band[i]), df))[2]
+            for i in peaks
+        )
+        assert det._slower_sinusoid_wins(td, x, k, gain) is slower
+
+
+def _events_found(out, truth):
+    """How many of the `truth` windows some detection bounds (IoU >= 0.5)."""
+    return sum(
+        1
+        for lo, hi in truth
+        if max((span_iou(d.t_start, d.t_end, lo, hi) for d in out), default=0.0) >= 0.5
+    )
+
+
+def test_a_box_below_the_local_bar_is_refused_though_it_is_real():
+    # a 0.17 percent transit on the 1.5 percent pulsator: detrended S/N 9.3 but local S/N 8.0,
+    # so only the local bar (and not the S/N one) refuses it at the bar of 9
+    t, cv = pulsator(1, depth=0.0017)
+    truth = planted_windows(t, 3.1, 0.05, 3.0)
+    assert detect({0: cv}) == []
+    assert BlsDetector().search(cv, C).rejected == "pulsation guard"
+    cand = BlsDetector(trend_snr_threshold=7.9).search(cv, C)
+    assert cand.rejected is None and cand.snr > 9.0 > cand.snr_local > 7.9
+    assert _events_found(detect({0: cv}, trend_snr_threshold=7.9), truth) == 4
+
+
+def test_a_box_above_the_bar_of_nine_is_accepted():
+    # a 0.22 percent transit: S/N 11.7 and local S/N 10.0, between a bar of 9 and one of 12
+    t, cv = pulsator(1, depth=0.0022)
+    assert _events_found(detect({0: cv}), planted_windows(t, 3.1, 0.05, 3.0)) == 4
+
+
+def test_the_ratio_floor_is_three_in_the_units_of_the_guards_level():
+    # a 0.4 d pulsator: amplitude 0.05 percent gives a ratio of 2.6 (refused), 0.07 percent
+    # about 4.7 (accepted); the ratio is gain / (2 sigma**2) over the guard's level
+    det = BlsDetector()
+    _, weak = pulsator(3, period_d=0.4, amp=0.0005, transit=False)
+    _, mid = pulsator(3, period_d=0.4, amp=0.0007, transit=False)
+    assert det._pulsation_trend(_arrays(det, weak), C) is None
+    got = det._pulsation_trend(_arrays(det, mid), C)
+    assert got is not None and 3.0 < got[1][2] < 6.0
+
+
+def test_a_fast_pulsator_is_detrended():
+    # 10 cycles/day, well above a band that stopped at 5
+    t, cv = pulsator(0, period_d=0.1, amp=0.015)
+    assert _events_found(detect({0: cv}), planted_windows(t, 3.1, 0.05, 3.0)) == 4
+
+
+def test_the_refit_leaves_out_one_and_a_half_boxes(monkeypatch):
+    det = BlsDetector()
+    _, cv = pulsator(0)
+    a = _arrays(det, cv)
+    box = Box(3.1 * DAY, 0.05 * DAY, 2 * 3600.0, 0.03, 0, len(a.t), 0.0)
+    seen = []
+    real = bls.in_box
+    monkeypatch.setattr(bls, "in_box", lambda t, b: (seen.append(b.duration_s), real(t, b))[1])
+    det._pulsation_trend(a, C, box)
+    assert seen == [pytest.approx(1.5 * box.duration_s)]
+
+
+def test_a_short_box_still_leaves_the_transit_out_of_the_fit():
+    # a 2 h box on a 3 h, 5 percent transit: the wings of the transit stay in the fit unless
+    # the window is wider than the box (fit error 0.64 of the amplitude at 1.0 x, 0.03 at 1.5 x)
+    det = BlsDetector()
+    _, cv = pulsator(0, amp=0.003, depth=0.05, noise=0.003)
+    a = _arrays(det, cv)
+    truth = 0.003 * np.sin(2 * np.pi * a.t / (0.9 * DAY) + 0.7)
+    k = np.unique(a.night, return_inverse=True)[1]
+    box = Box(3.1 * DAY, 0.05 * DAY, 2 * 3600.0, 0.05, 0, len(a.t), 0.0)
+    err = float(bls._demean_by_night(det._pulsation_trend(a, C, box)[0] - truth, k).std())
+    assert err < 0.1 * 0.003
+
+
+def test_performance_with_pulsating_hosts_20_stars_10_nights(caplog):
+    # two of the 20 stars pulsate (1.5 percent, 0.9 and 0.6 d) and carry the 3 h transit of
+    # `pulsator`: the guard rejects each, so each is detrended and searched twice more
+    t = night_times(10)
+    rng = np.random.default_rng(0)
+    curves = {}
+    for i in range(20):
+        if i in (0, 10):
+            curves[i] = pulsator(i, period_d={0: 0.9, 10: 0.6}[i], n_nights=10)[1]
+        else:
+            curves[i] = curve(i, t, np.ones(len(t)), 0.005, rng)
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        t0 = time.perf_counter()
+        out = detect(curves)
+        elapsed = time.perf_counter() - t0
+    subtracted = [r for r in caplog.records if "subtracted" in r.getMessage()]
+    assert len(subtracted) == 2, "the fixture must run the detrending or it guards nothing"
+    assert {d.star_id for d in out} == {0, 10}
+    # 3.1-6.0 s measured (several runs, host load average 30-60); four times the slowest
+    assert elapsed < 24.0, f"20 stars x 10 nights with 2 pulsators took {elapsed:.1f} s"
+
+
+def test_performance_of_the_pulsation_fit_on_a_20_night_record():
+    # the fit is a small part of a detrended star's search (about 0.15 s of 1.5 s), so the test
+    # above cannot see it grow: raising _TREND_REFINE_STEPS from 14 to 600 left that one under
+    # its bound (3.1 s to 5.7 s) and turned this one red (3.2 s). A fit without and one with a box.
+    det = BlsDetector()
+    a = _arrays(det, pulsator(0, n_nights=20)[1])
+    box = Box(3.1 * DAY, 0.05 * DAY, 3 * 3600.0, 0.03, 0, len(a.t), 0.0)
+    t0 = time.perf_counter()
+    first = det._pulsation_trend(a, C)
+    refit = det._pulsation_trend(a, C, box)
+    elapsed = time.perf_counter() - t0
+    assert first is not None and refit is not None, "the fixture must fit a sinusoid"
+    assert first[1][0] == pytest.approx(1 / 0.9, abs=0.01)
+    # 0.10-0.18 s measured (several runs, host load average 30-60); four times the slowest
+    assert elapsed < 0.75, f"two pulsation fits on 20 nights took {elapsed:.2f} s"
+
+
+def test_detrending_is_deterministic():
+    _, cv = pulsator(1)
+    a, b = detect({0: cv}), detect({0: cv})
+    assert a == b and len(a) == 4
+    assert BlsDetector().search(cv, C) == BlsDetector().search(cv, C)
+
+
+def test_a_star_with_no_pulsation_is_searched_as_before():
+    _, _, cv = planted()
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None and cand.trend is None
+    assert detect({0: cv}) == detect({0: cv}, detrend_pulsation=False)
+    rng = np.random.default_rng(5)
+    t = night_times(20)
+    noise = curve(0, t, np.ones(len(t)), 0.005, rng)
+    assert detect({0: noise}) == []
+
+
+def test_the_candidate_records_the_sinusoid_that_was_subtracted(caplog):
+    _, cv = pulsator(0)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert cand.trend is not None
+    assert cand.trend[0] == pytest.approx(1 / 0.9, abs=0.003)
+    assert cand.trend[1] == pytest.approx(0.015, rel=0.05)
+    with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
+        detect({0: cv})
+    lines = [r.getMessage() for r in caplog.records if "subtracted" in r.getMessage()]
+    assert len(lines) == 1 and "bls star 0: pulsation 1.1" in lines[0]
+
+
+def test_the_sinusoid_is_found_at_its_frequency_with_its_amplitude():
+    # 0.9 d is 1.11 cycles/day: the Fourier peak of a record of 8 h nights is not at its
+    # frequency (the nights' own intercepts take most of it); the least-squares refinement of
+    # the six strongest peaks is
+    det = BlsDetector()
+    for period_d, amp in [(0.9, 0.015), (5 / 24, 0.004), (0.4, 0.002)]:
+        _, cv = pulsator(3, period_d=period_d, amp=amp, transit=False)
+        a = _arrays(det, cv)
+        (f, got, ratio) = det._pulsation_trend(a, C)[1]
+        assert f == pytest.approx(1 / period_d, abs=0.002)
+        assert got == pytest.approx(amp, rel=0.1)
+        assert ratio > 3.0
+
+
+def test_noise_has_no_sinusoid_and_a_weak_one_needs_the_ratio():
+    det = BlsDetector()
+    rng = np.random.default_rng(7)
+    t = night_times(20)
+    a = _arrays(det, curve(0, t, np.ones(len(t)), 0.005, rng))
+    assert det._pulsation_trend(a, C) is None
+    _, cv = pulsator(3, period_d=0.4, amp=0.002, transit=False)
+    a = _arrays(det, cv)
+    assert det._pulsation_trend(a, C) is not None
+    assert BlsDetector(trend_min_ratio=1e6)._pulsation_trend(a, C) is None
+
+
+def test_the_fit_leaves_out_the_box_so_a_transit_does_not_pull_it():
+    # a deep transit on a weakly pulsating star: the fit with the transit in it is further
+    # from the truth than the fit that leaves the transit's samples out
+    det = BlsDetector()
+    _, cv = pulsator(0, amp=0.004, depth=0.03, noise=0.004)
+    a = _arrays(det, cv)
+    box = Box(3.1 * DAY, 0.05 * DAY, 3 * 3600.0, 0.03, 0, len(a.t), 0.0)
+    truth = 0.004 * np.sin(2 * np.pi * a.t / (0.9 * DAY) + 0.7)
+    k = np.unique(a.night, return_inverse=True)[1]
+
+    def error(fit):
+        return float(bls._demean_by_night(fit[0] - truth, k).std())
+
+    assert error(det._pulsation_trend(a, C, box)) < 0.7 * error(det._pulsation_trend(a, C))
+
+
+def test_a_detrended_candidate_must_clear_its_own_snr_bar():
+    _, cv = pulsator(1, depth=0.004)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None and min(cand.snr, cand.snr_local) > 9.0
+    assert detect({0: cv}, trend_snr_threshold=100.0) == []
+    assert BlsDetector(trend_snr_threshold=100.0).search(cv, C).rejected == "pulsation guard"
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_an_eclipsing_binary_is_still_refused(seed):
+    # 8 percent primary and 5 percent secondary eclipses of 3 h every 1.4 d: harmonics of the
+    # binary are sinusoids too, and subtracting them must not make it a transit
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    prof = box_profile(t, 1.4 * DAY, 0.05 * DAY, 3 * 3600.0, 0.08) * box_profile(
+        t, 1.4 * DAY, 0.75 * DAY, 3 * 3600.0, 0.05
+    )
+    assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
+
+
+def test_detrending_needs_the_guard_and_validates_its_parameters():
+    _, cv = pulsator(0)
+    # without the guard there is nothing to be rejected by and nothing to subtract
+    cand = BlsDetector(guard_fap=None).search(cv, C)
+    assert cand is not None and cand.trend is None
+    for kw in [{"trend_min_ratio": 0.5}, {"trend_snr_threshold": 0}]:
+        with pytest.raises(ValueError):
+            BlsDetector(**kw)
+
+
+def test_only_a_star_the_pulsation_guard_rejected_is_searched_again(monkeypatch):
+    def refuse(*args, **kwargs):
+        raise AssertionError("the pulsation was fitted for a star the guard did not reject")
+
+    monkeypatch.setattr(BlsDetector, "_pulsation_trend", refuse)
+    rng = np.random.default_rng(5)
+    t = night_times(20)
+    stars = {
+        0: curve(0, t, np.ones(len(t)), 0.005, rng),  # no box at the S/N gate
+        1: planted(n_nights=20)[2],  # a box that stands
+        2: curve(
+            2, t, 1.0 - 0.03 * ((t >= 3 * DAY + 3600) & (t < 3 * DAY + 4 * 3600)), 0.005, rng
+        ),  # a one-night dip: rejected for lack of events
+    }
+    assert BlsDetector().search(stars[2], C).rejected in {"min_events", "support"}
+    assert {d.star_id for d in detect(stars)} == {1}
+
+
+def test_the_white_noise_scatter_does_not_contain_the_pulsation():
+    det = BlsDetector()
+    _, cv = pulsator(0, amp=0.02, transit=False)
+    a = _arrays(det, cv)
+    assert det._white_sigma(a.flux, a.night) == pytest.approx(0.005, rel=0.05)
+    # the scatter about the median, which the search uses for its S/N, is the pulsation's
+    assert 1.4826 * np.median(np.abs(a.flux - np.median(a.flux))) > 0.01
+    assert det._white_sigma(a.flux[:1], a.night[:1]) == 0.0

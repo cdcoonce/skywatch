@@ -119,9 +119,21 @@ Limits
 Coupling with ``bls``
 ---------------------
 Guard (b) tests ``cand.rejected != "pulsation guard"``: a star whose periodic search is not
-rejected as a pulsator is not masked and re-searched, it is dropped. If ``bls`` later detrends
-pulsating hosts (so that ``_search`` returns a reportable candidate for them), a host it accepts
-is no longer masked and re-searched here. The module also uses ``BlsDetector._clean``,
+rejected as a pulsator is not masked and re-searched, it is dropped. ``bls`` now detrends
+pulsating hosts (``detrend_pulsation``, #35), so ``_search`` returns a reportable candidate for
+some of them, and a host it accepts is no longer masked and re-searched here. Measured with
+both merged (14 runs: the 4 development runs and 6 held-out, 4 more planet-free): four stars
+flip from guard-rejected to accepted inside this module's ``bls`` searches (periods 8.225, 3.601,
+0.869 and 3.446 d, planets of seed 21 stars 83 and 85, seed 22 star 6 and seed 24 star 37), and
+guard (b) now drops them instead of masking them; their re-search found nothing on a pulsating
+host before either, and no eclipsing binary flips (its harmonics are not accepted as a
+sinusoid). The detections are identical, span for span and score for score, on the 4
+development and 6 held-out runs, and the planet-free runs give the same all-detection counts
+(4, 0, 1, 2). The cost is real: each guard-rejected star is searched by ``bls`` again with its
+pulsation subtracted, about 2.2 times the CPU time of this detector on a 20-night run (seed26:
+15.8 s to 35.0 s). It would change the output only for a pulsating host that carries a
+single-event planet and also a periodic box that clears the bar of 9, which no run contains.
+The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search`` and the fields of ``Box`` and
 ``Candidate.mask``; a rename in ``bls`` breaks it.
 """
