@@ -276,6 +276,12 @@ _TREND_SLOW_F_MIN = 0.1  # cycles/day: the slowest sinusoid tried when asking if
 _TREND_SLOW_STEP = 0.01  # ... and the step between the frequencies tried
 _TREND_PEAKS = 6  # Fourier peaks placed by least squares, the best of which is the sinusoid
 _TREND_REFINE_STEPS = 14  # golden-section steps that place a pulsation's frequency
+_SHAPE_BOX_STEPS = 15  # box widths tried by the shape test: a geometric ladder of this many
+_SHAPE_TRIANGLE_STEPS = 23  # ... and triangle widths, from the shortest box to 4x the longest
+_SHAPE_TRIANGLE_SPAN = 4.0
+_SHAPE_SHIFT_H = 0.5  # both shapes are centred within this many hours of the box ...
+_SHAPE_SHIFT_STEP = 0.1  # ... in steps of this fraction of their width
+_SHAPE_MIN_SAMPLES = 10  # fewer samples on the box's nights than this: no verdict
 _CHUNK_ELEMENTS = 1_000_000  # periods per chunk = this // n samples (keeps arrays cache-sized)
 
 
@@ -368,14 +374,15 @@ class Candidate:
     """A star's best box and what became of it.
 
     `rejected` is None for a reportable candidate, else the first gate that failed:
-    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"`` or ``"pulsation guard"``
-    (``"alias"`` for a re-search that found the first box's period again).
+    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"``, ``"pulsation guard"`` or
+    ``"shape"`` (``"alias"`` for a re-search that found the first box's period again).
     `events` are the predicted in-night windows ``(t_start, t_end, night)`` (empty once
     rejected); `excess` is the guard's strongest residual-sinusoid power (None if not
     computed); `alternative` is ``(period_s, power / best power)`` of the strongest
     unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
     only for a rejection other than ``"snr"``); `trend` is ``(cycles/day, amplitude)`` of the
-    sinusoid that was subtracted before this box was found (None when none was).
+    sinusoid that was subtracted before this box was found (None when none was); `shape` is
+    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run).
     """
 
     box: Box
@@ -389,6 +396,7 @@ class Candidate:
     supported_nights: int = 0
     mask: tuple[Box, ...] = ()
     trend: tuple[float, float] | None = None
+    shape: float | None = None
 
 
 def frequency_grid(
@@ -710,6 +718,7 @@ class BlsDetector:
         detrend_pulsation: bool = True,
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
+        shape_threshold: float | None = 1.5,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -742,6 +751,8 @@ class BlsDetector:
             raise ValueError(f"trend_min_ratio must be >= 1, got {trend_min_ratio}")
         if not trend_snr_threshold > 0:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
+        if shape_threshold is not None and not shape_threshold > 0:
+            raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -761,6 +772,7 @@ class BlsDetector:
         self.detrend_pulsation = detrend_pulsation
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
+        self.shape_threshold = shape_threshold
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -901,6 +913,80 @@ class BlsDetector:
         box_chi2 = box.depth**2 * n_in * (n - n_in) / (n * sigma**2)
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
         return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
+
+    def _shape_excess(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> float:
+        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+
+        An eclipse is V-shaped, a transit has a flat bottom, and a box fit to a V sits on its core
+        (the grid stops at 6 h, a binary's eclipse can last 13 h). The samples of the nights that
+        hold an event are put at their offset from the nearest event centre (`x`). Two families of
+        templates are fitted to the dip ``1 - flux`` with a free depth and a free level for every
+        night (the nights were divided by their own medians, which an event distorts): boxes of
+        a geometric ladder of widths from the shortest to the longest duration, and triangles
+        (``max(0, 1 - 2|x| / w)``, base ``w``) from the shortest duration to
+        ``_SHAPE_TRIANGLE_SPAN`` times the longest, never wider than the period. Both are tried at
+        centres within ``_SHAPE_SHIFT_H`` of the box in steps of ``_SHAPE_SHIFT_STEP`` of their
+        width, so that a V is not preferred only because it forgives a centre the phase bins
+        (15 minutes) and the period grid placed badly: a 0.8 h transit fit with a centre a
+        quarter hour off read as a V. With ``g`` the largest chi-square gain
+        (``sigma**2`` times it, in flux units) of each family the result is ``(g_triangle -
+        g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) / S/N``, which
+        does not grow with the signal. A box-shaped dip makes the box win and the result negative
+        (the least squares gain of a triangle on a box is at most 0.89 of the box's); a V makes it
+        positive. Zero when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples or no
+        dip fits either family.
+        """
+        period = box.period_s
+        cycle = np.rint((t - box.epoch_s) / period)
+        x = (t - box.epoch_s) - cycle * period
+        events = np.unique(night[np.abs(x) <= box.duration_s / 2.0])
+        nights = np.isin(night, events)
+        if int(nights.sum()) < _SHAPE_MIN_SAMPLES:
+            return 0.0
+        x = x[nights]
+        dip = 1.0 - flux[nights]
+        k = np.unique(night[nights], return_inverse=True)[1]
+        count = np.bincount(k).astype(np.float64)
+
+        def terms(template: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            """Per night: ``centred template @ dip`` and ``centred template @ centred template``."""
+            centred = template - (np.bincount(k, weights=template) / count)[k]
+            return np.bincount(k, weights=centred * dip), np.bincount(k, weights=centred**2)
+
+        reach = _SHAPE_SHIFT_H * HOUR_S
+
+        def best_gain(widths: np.ndarray, triangle: bool) -> float:
+            """Largest chi-square gain over the widths, each night centred where it fits best."""
+            best = 0.0
+            for w in widths:
+                num = []
+                den = []
+                for c in np.arange(-reach, reach + 1e-6, min(reach, _SHAPE_SHIFT_STEP * w)):
+                    d = np.abs(x - c)
+                    template = np.clip(1.0 - 2.0 * d / w, 0.0, None) if triangle else d <= w / 2.0
+                    n_c, d_c = terms(template.astype(np.float64))
+                    num.append(n_c)
+                    den.append(d_c)
+                num_a, den_a = np.array(num), np.array(den)
+                score = np.where(
+                    (den_a > 0) & (num_a > 0), num_a / np.sqrt(np.maximum(den_a, 1e-300)), 0.0
+                )
+                pick = score.argmax(axis=0)
+                cols = np.arange(len(pick))
+                total, norm = float(num_a[pick, cols].sum()), float(den_a[pick, cols].sum())
+                if total > 0 and norm > 0:
+                    best = max(best, total * total / norm)
+            return best
+
+        lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
+        wide = np.geomspace(lo, _SHAPE_TRIANGLE_SPAN * hi, _SHAPE_TRIANGLE_STEPS)
+        g_box = best_gain(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
+        g_triangle = best_gain(wide[wide <= period], triangle=True)
+        if not g_box > 0:
+            return 0.0
+        return (g_triangle - g_box) / (sigma * math.sqrt(g_box))
 
     def _dip_mask(self, t: np.ndarray, flux: np.ndarray, box: Box, sigma: float) -> tuple[Box, ...]:
         """Windows (boxes at the best period) that cover the box's dip and its secondary.
@@ -1155,11 +1241,13 @@ class BlsDetector:
         )
         supported = int((z_k >= self.support_snr).sum())
 
-        def reject(why: str, excess: float | None = None) -> Candidate:
+        def reject(why: str, excess: float | None = None, shape: float | None = None) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
                 mask = self._dip_mask(t, star_flux, box, sigma)
-            return Candidate(box, sigma, snr, [], why, excess, alt, snr_local, supported, mask)
+            return Candidate(
+                box, sigma, snr, [], why, excess, alt, snr_local, supported, mask, shape=shape
+            )
 
         if snr < self.snr_threshold:
             return reject("snr")
@@ -1175,7 +1263,12 @@ class BlsDetector:
             pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box)
             if pulsating:
                 return reject("pulsation guard", r)
-        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported)
+        shape = None
+        if self.shape_threshold is not None:
+            shape = self._shape_excess(t, flux, night, sigma, box)
+            if shape >= self.shape_threshold:
+                return reject("shape", r, shape)
+        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported, shape=shape)
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
         """Search one light curve on its own (no common-mode correction); None if unusable."""
@@ -1262,7 +1355,7 @@ class BlsDetector:
         if second is None:
             log.info("bls star %s: re-search found no box", star_id)
             return None
-        periodic = first.rejected == "pulsation guard"
+        periodic = first.rejected in ("pulsation guard", "shape")
         if (
             periodic
             and second.rejected is None

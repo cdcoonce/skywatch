@@ -289,7 +289,9 @@ def test_guard_is_what_rejects_the_sinusoid():
     cand = BlsDetector().search(cv, C)
     assert cand is not None and cand.snr > 7.0
     assert cand.rejected == "pulsation guard" and cand.excess > 100.0
-    assert len(detect({0: cv}, guard_fap=None)) > 0  # without the guard it is a "transit"
+    # without the guard it is a "transit" (the shape test would also refuse it: it is no box)
+    assert len(detect({0: cv}, guard_fap=None, shape_threshold=None)) > 0
+    assert detect({0: cv}, guard_fap=None) == []
 
 
 @pytest.mark.parametrize("kw", [{"guard_ratio": 1e9}, {"guard_fap": 1e-300}])
@@ -538,6 +540,7 @@ def test_default_parameters():
     assert (d.guard_f_min_per_d, d.guard_f_max_per_d) == (1.0, 30.0)
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
     assert d.second_pass is False  # opt-in: held-out seeds gain false positives, no transits
+    assert d.shape_threshold == 1.5
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -1534,3 +1537,135 @@ def test_the_white_noise_scatter_does_not_contain_the_pulsation():
     # the scatter about the median, which the search uses for its S/N, is the pulsation's
     assert 1.4826 * np.median(np.abs(a.flux - np.median(a.flux))) > 0.01
     assert det._white_sigma(a.flux[:1], a.night[:1]) == 0.0
+
+
+# -- eclipsing binaries: a V is not a box (#36) ----------------------------------------------------
+# Binaries as the world draws them (V-shaped eclipses, the secondary 0.2 to 0.8 of the primary) that
+# the first pass reported as transits on the development runs, with the noise of the star they came
+# from. Each is (period d, epoch d, eclipse duration h, primary depth, secondary depth), noise.
+
+EB_LEAKS = {
+    # seed35-200s-20n star 184: every reported event is the same eclipse, the other one is never
+    # inside a predicted window (an odd-even or half-phase test has nothing to compare)
+    "one-sided": ((2.9881, 0.8595, 6.7766, 0.0609, 0.0406), 0.0183),
+    # seed40-200s-20n star 179: a 13.5 h eclipse in 8 h nights, fit by a 3 h box
+    "wide": ((4.8555, 2.6003, 13.5156, 0.0511, 0.0103), 0.023),
+    # seed48-200s-20n star 185: both eclipses seen, the box on half the period, 13 events
+    "both seen": ((1.1505, 0.2102, 1.5208, 0.0594, 0.0308), 0.0272),
+    # the hard case: equal depths, so the box on P / 2 is the whole signal and the eclipses of
+    # odd and even events are the same (odd-even cannot tell it from a planet at P / 2)
+    "equal depth": ((2.1, 0.14, 2.6, 0.06, 0.06), 0.02),
+}
+
+
+def eb_leak(key, seed=0, n_nights=20):
+    eb, noise = EB_LEAKS[key]
+    t = night_times(n_nights)
+    return t, curve(0, t, eclipsing(t, *eb), noise, np.random.default_rng(seed))
+
+
+def ramped(t, period_d, epoch_d, dur_h, depth, ramp=0.1):
+    """A transit as the world draws it: a flat bottom with `ramp` of the duration as each ramp."""
+    period, dur = period_d * DAY, dur_h * 3600.0
+    ph = np.mod(t - epoch_d * DAY + period / 2.0, period) - period / 2.0
+    edge = np.minimum(ph + dur / 2.0, dur / 2.0 - ph) / (ramp * dur)
+    return 1.0 - depth * np.clip(edge, 0.0, 1.0)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("key", list(EB_LEAKS))
+def test_these_binaries_are_reported_as_transits_without_the_shape_test(key, seed):
+    # the premise: every guard of the first pass lets them through
+    _, cv = eb_leak(key, seed)
+    cand = BlsDetector(shape_threshold=None).search(cv, C)
+    assert cand is not None and cand.rejected is None and len(cand.events) >= 2
+    assert len(detect({0: cv}, shape_threshold=None)) == len(cand.events)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("key", list(EB_LEAKS))
+def test_a_v_shaped_eclipse_train_is_not_a_transit(key, seed):
+    _, cv = eb_leak(key, seed)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected == "shape" and cand.events == []
+    assert cand.shape >= BlsDetector().shape_threshold
+    assert detect({0: cv}) == []
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("dur_h", [0.8, 1.4, 2.5, 3.3, 5.5])
+def test_a_planet_with_ramps_is_not_taken_for_an_eclipse(dur_h, seed):
+    # durations between the box grid's values (a 2.5 h transit is fit by a 2 or 3 h box)
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    cv = curve(0, t, ramped(t, 2.3, 0.14, dur_h, 0.015), 0.005, rng)
+    cand = BlsDetector().search(cv, C)
+    assert cand is not None and cand.rejected is None
+    assert cand.shape < 0  # the box wins: that is the shape of the dip
+    out = detect({0: cv})
+    assert len(out) == len(cand.events) >= 2
+
+
+def test_the_shape_statistic_is_positive_for_a_v_and_negative_for_a_box():
+    det = BlsDetector()
+    t = night_times(20)
+    night = t // DAY
+    box = Box(2.0 * DAY, 0.14 * DAY, 3 * 3600.0, 0.04, 0, len(t), 0.0)
+    v = eclipsing(t, 2.0, 0.14, 4.0, 0.05, 0.0)  # a triangle of 4 h, every 2 d
+    flat = ramped(t, 2.0, 0.14, 3.0, 0.05)  # a flat-bottomed 3 h transit, every 2 d
+    assert det._shape_excess(t, v, night, 0.005, box) > 1.5
+    assert det._shape_excess(t, flat, night, 0.005, box) < -1.5
+
+
+def test_the_shape_statistic_is_zero_without_samples_in_the_box():
+    det = BlsDetector()
+    t = night_times(4)
+    box = Box(2.0 * DAY, 0.9 * DAY, 3600.0, 0.01, 0, len(t), 0.0)  # inside the day gap
+    assert det._shape_excess(t, np.ones(len(t)), t // DAY, 0.005, box) == 0.0
+
+
+def test_the_shape_threshold_is_validated_and_off_with_none():
+    assert BlsDetector().shape_threshold == 1.5
+    assert BlsDetector(shape_threshold=None).shape_threshold is None
+    for bad in (0, -1.0):
+        with pytest.raises(ValueError):
+            BlsDetector(shape_threshold=bad)
+    _, cv = eb_leak("one-sided")
+    assert BlsDetector(shape_threshold=None).search(cv, C).shape is None
+
+
+def test_a_threshold_above_the_statistic_lets_the_eclipse_through():
+    _, cv = eb_leak("one-sided")
+    cand = BlsDetector().search(cv, C)
+    kept = BlsDetector(shape_threshold=cand.shape + 1.0).search(cv, C)
+    assert kept.rejected is None and kept.shape == pytest.approx(cand.shape)
+
+
+def test_an_accepted_planet_records_its_shape_statistic():
+    _, _, cv = planted()
+    cand = BlsDetector().search(cv, C)
+    assert cand.rejected is None and cand.shape is not None and cand.shape < 0
+
+
+def test_a_shape_rejection_plans_the_mask_of_a_second_pass():
+    _, cv = eb_leak("one-sided")
+    cand = _real_search(cv, plan_mask=True)
+    assert cand.rejected == "shape" and cand.mask
+    assert _real_search(cv, masked=(HARMLESS_MASK,)).rejected == "shape"
+
+
+def test_after_a_shape_rejection_the_first_period_and_its_halves_are_refused():
+    # the box of a rejected binary is its eclipse train, whose residue repeats like a pulsator's
+    first = _cand(2.0, "shape", MASK)
+    for ratio in (1.0, 0.5, 2.0):
+        det, out = _run_stub(first, _cand(2.0 * ratio, None), second_pass=True)
+        assert out == [] and len(det.calls) == 2
+    _, out = _run_stub(first, _cand(2.0 * 1.1, None), second_pass=True)
+    assert len(out) == 2
+
+
+def test_a_planet_on_a_pulsating_host_still_clears_the_shape_test():
+    for seed in range(3):
+        _, cv = pulsator(seed)
+        cand = BlsDetector().search(cv, C)
+        assert cand.rejected is None and cand.trend is not None and cand.shape < 0
