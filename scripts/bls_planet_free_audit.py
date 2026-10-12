@@ -5,8 +5,10 @@ Usage::
     uv run python scripts/bls_planet_free_audit.py runs/pf-seed44-200s-20n [more runs ...]
 
 Every star is searched with the sinusoid-against-box gate raised out of reach
-(``guard_night_ratio=1e9``) so that ``Candidate.sine_ratio`` is read for each candidate that
-passes the other gates; the flare-tail gate is left on and its rejections are kept, so that
+(``guard_night_ratio=1e9``) and the flare bar at the ordinary local S/N bar, so that
+``Candidate.sine_ratio`` is read for each candidate that passes the other gates, including a
+flare star that fails only the flare bar (listed as "flare star below its local bar"); the
+flare-tail gate is left on and its rejections are kept, so that
 ``Candidate.snr_clean`` (the local S/N with the samples inside and within ``flare_window_h`` after
 a flare-sized masked run left out) is read too; nothing is acted on. One line per candidate: the
 star's variability, whether it carries a planet, S/N, local S/N and the clean S/N, events, the
@@ -31,8 +33,9 @@ def audit(run_dir: Path) -> list[str]:
     hosts = {p.star_id for p in store.read_planets(run_dir)}
     cadence_s = store.read_manifest(run_dir)["config"]["cadence_s"]
     defaults = BlsDetector()
-    # compute the ratio and never reject on it; the flare-tail gate rejects last and is read
-    detector = BlsDetector(guard_night_ratio=1e9)
+    # compute the ratio and leave the flare bar at the ordinary one, never reject on either; the
+    # flare-tail gate rejects last and is read
+    detector = BlsDetector(guard_night_ratio=1e9, flare_snr_threshold=defaults.snr_threshold)
     curves = store.read_curves(run_dir)
     cleaned = {}
     for star_id in sorted(curves):
@@ -49,6 +52,8 @@ def audit(run_dir: Path) -> list[str]:
         verdict = "reported"
         if cand.sine_ratio >= defaults.guard_night_ratio:
             verdict = "sinusoid beats the box"
+        elif flare >= defaults.flare_fraction and cand.snr_local < defaults.flare_snr_threshold:
+            verdict = "flare star below its local bar"
         elif cand.rejected == "flare tails":
             verdict = "flare tails: the clean S/N is under the bar"
         host = "planet host" if star_id in hosts else "no planet"
