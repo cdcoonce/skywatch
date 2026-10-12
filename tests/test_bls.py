@@ -1796,6 +1796,9 @@ def test_events_that_are_unlike_slices_of_one_eclipse_are_read_with_a_depth_for_
     cand = BlsDetector(shape_chi2=None).search(cv, C)  # the ratio of the depth-per-night reading
     assert cand.rejected == "shape" and cand.shape >= 1.5 and cand.events == []
     assert detect({0: cv}) == []
+    # the chi-square is the depth-per-night advantage too (the one depth reads the box 64 ahead)
+    by_chi = BlsDetector(shape_threshold=1e9).search(cv, C)
+    assert by_chi.rejected == "shape" and by_chi.shape_chi2 > 100.0
 
 
 def test_a_v_that_the_ratio_cannot_see_is_refused_by_the_chi_square_it_wins_by():
