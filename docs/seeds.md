@@ -24,7 +24,10 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 151-156 | 20 | planets | **held-out, reserved for #44** | not yet scored |
 | 160-199 | any | either | design range for #43 | |
 | 201-206 | 20 | planets | **held-out, reserved for #41** | not yet scored |
+| 210-219 | any | either | design range for #45 | |
+| 221-226 | 20 | planets | **held-out, reserved for #45** | not yet scored |
+| 231-234 | 20 | planet-free | **held-out, reserved for #45** | not yet scored |
 
-Next unused range: 210 and up.
+Next unused range: 240 and up.
 
 Caveat on record: seeds 21-26 were where PR #34's review found the problems that became #35 and #36, so they were held out from those changes' thresholds but not from the choice of problem.
