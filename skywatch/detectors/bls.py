@@ -89,6 +89,9 @@ The best box per star is a candidate when all of these hold, tested in this orde
 * The pulsation guard passes (below), including the sinusoid-against-box ratio at the bar of
   0.81.
 * The shape guard passes (below).
+* The flare-tail gate passes (below): ``snr_clean``, the local S/N with the samples inside and the
+  ``flare_window_h`` = 3 hours after each flare-sized masked run left out of the contrast, reaches
+  ``snr_threshold``. It is the last gate, so a pulsator or a binary is still named by its own.
 
 Pulsation guard
 ---------------
@@ -497,6 +500,7 @@ class _Arrays:
     night_obs: np.ndarray
     flare_windows: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
     # [start, end] (s) of the spans after each flare-sized masked run (see :func:`flare_windows`)
+    flare_fraction: float = 0.0  # share of the star's clean samples masked as positive outliers
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -599,8 +603,9 @@ class Candidate:
     """A star's best box and what became of it.
 
     `rejected` is None for a reportable candidate, else the first gate that failed:
-    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"``, ``"pulsation guard"`` or
-    ``"shape"`` (``"alias"`` for a re-search that found the first box's period again).
+    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"``, ``"pulsation guard"``,
+    ``"shape"`` or ``"flare tails"`` (``"alias"`` for a re-search that found the first box's
+    period again).
     `events` are the predicted in-night windows ``(t_start, t_end, night)`` (empty once
     rejected); `excess` is the guard's strongest residual-sinusoid power (None if not
     computed); `alternative` is ``(period_s, power / best power)`` of the strongest
@@ -609,7 +614,10 @@ class Candidate:
     sinusoid that was subtracted before this box was found (None when none was); `shape` is
     the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run);
     `sine_ratio` is the chi-square gain of the best sinusoid over the box's with a free level
-    for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed).
+    for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed);
+    `snr_clean` is ``snr_local`` with the samples inside and within ``flare_window_h`` after each
+    flare-sized masked run left out of the contrast (:func:`flare_windows`; equal to
+    ``snr_local`` when there is no such run, NaN when no night keeps both box and reference).
     """
 
     box: Box
@@ -949,6 +957,8 @@ class BlsDetector:
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
         guard_night_ratio: float | None = 0.81,
+        flare_fraction: float = 0.03,
+        flare_snr_threshold: float = 7.2,
         flare_window_h: float | None = 3.0,
         flare_min_run: int = 10,
     ) -> None:
@@ -987,6 +997,10 @@ class BlsDetector:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if guard_night_ratio is not None and not guard_night_ratio > 0:
             raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
+        if not 0 < flare_fraction <= 1:
+            raise ValueError(f"flare_fraction must be in (0, 1], got {flare_fraction}")
+        if not flare_snr_threshold > 0:
+            raise ValueError(f"flare_snr_threshold must be > 0, got {flare_snr_threshold}")
         if flare_window_h is not None and not flare_window_h > 0:
             raise ValueError(f"flare_window_h must be > 0 or None, got {flare_window_h}")
         if flare_min_run < 1:
@@ -1012,6 +1026,8 @@ class BlsDetector:
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
         self.guard_night_ratio = guard_night_ratio
+        self.flare_fraction = flare_fraction
+        self.flare_snr_threshold = flare_snr_threshold
         self.flare_window_h = flare_window_h
         self.flare_min_run = flare_min_run
 
@@ -1304,6 +1320,7 @@ class BlsDetector:
         star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
         """
         t, flux, night, level = self._prepare(c, common_mode)
+        flare_fraction = 1.0 - len(t) / len(c.t)
         windows = np.zeros((0, 2))
         if self.flare_window_h is not None:
             windows = flare_windows(
@@ -1319,7 +1336,7 @@ class BlsDetector:
             t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
-        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, windows)
+        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, windows, flare_fraction)
         cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
         if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
             return cand
@@ -1579,9 +1596,12 @@ class BlsDetector:
                 snr_clean=snr_clean,
             )
 
+        local_bar = self.snr_threshold
+        if a.flare_fraction >= self.flare_fraction:  # a flare star: its tails make red noise
+            local_bar = max(local_bar, self.flare_snr_threshold)
         if snr < self.snr_threshold:
             return reject("snr")
-        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
+        if not snr_local >= local_bar:  # also an undefined local S/N (no night has both)
             return reject("local snr")
         events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:
