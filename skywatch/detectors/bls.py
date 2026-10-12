@@ -320,7 +320,8 @@ wide on eclipses of 1.5 to 13.5 h. On 5 of the 8 every reported event was the sa
 of the other was never inside a predicted window; only its wings reached a night), so an odd-even
 depth test or a half-phase secondary search had nothing to compare there: a per-night odd-even
 contrast at ``|z| >= 3`` would have removed 2 of the 8 stars (20 of the 40 detections). What all 8
-share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector._shape_excess`):
+share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector._shape_test`, built on
+:meth:`BlsDetector._shape_excess`, the one-amplitude reading described first):
 
 * The samples of the nights that hold a box event are put at their offset ``x`` from the nearest
   event centre, and the dip ``1 - flux`` is fitted with two families of templates, each with a free
@@ -333,21 +334,63 @@ share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector.
   cannot forgive: with one centre for all nights planted 0.8 h transits read as a V at 1.4 and 2.4,
   against the threshold of 1.5.
 * With ``g_box`` and ``g_triangle`` the largest chi-square gains of the two families (in flux units,
-  ``amplitude**2 * template.template``), the statistic is ``(g_triangle - g_box) / (sigma *
-  sqrt(g_box))``: about ``(chi2 of the triangle - chi2 of the box) / S/N``, so it does not grow with
-  the signal. A box-shaped dip makes it negative, a V positive. The candidate is rejected
-  (``rejected == "shape"``) when it reaches ``shape_threshold`` (1.5; ``None`` switches the gate
-  off), and ``Candidate.shape`` holds it. The gate runs last, so a pulsator is still named by the
-  pulsation guard. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
+  ``amplitude**2 * template.template``), the statistic of this one-amplitude reading
+  (:meth:`BlsDetector._shape_excess`, which ``single_transit`` calls) is ``(g_triangle - g_box) /
+  (sigma * sqrt(g_box))``: about ``(chi2 of the triangle - chi2 of the box) / S/N``, so it does not
+  grow with the signal. A box-shaped dip makes it negative, a V positive. The gate
+  (:meth:`BlsDetector._shape_test`) rejects the candidate (``rejected == "shape"``) when the larger
+  of that and the depth-per-night reading below reaches ``shape_threshold`` (1.5; ``None``
+  switches the gate off) or when the chi-square advantage below reaches ``shape_chi2``;
+  ``Candidate.shape`` holds the larger of the two ratios. The gate runs after the pulsation guard,
+  so a pulsator is still named by it. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
   20-night run, 0.1 percent of its CPU time).
+* A night where no centre has a positive score (it brightens where the dip should be) takes the
+  first centre's numerator (at most 0) and norm in the gain with one amplitude (``pick = 0``): a
+  small subtraction at an arbitrary place. Issue #41 asked whether to make it add nothing. That
+  moved the statistic of 14 of the 223 stars that reached the gate on 78 development runs (12 up,
+  2 down; none across 1.5, the highest planet still at 0.93; the 3-night binary of seed 295 from
+  2.00 to 3.02), and on the 12 never-seen seeds 300-311 it took a planet (seed 304 star 110: 3
+  events, S/N 9.7, the box at a third of its period) from 0.82 to 1.503, over the gate: 2 true
+  positives and a false positive lost, nothing gained. So it is kept, and pinned by a test. With
+  a depth for each night (below) the question does not arise: such a night adds nothing.
+
+A second reading and a chi-square bar (issue #41). The gains above give every night the same
+depth. A transit repeats, a box fits that, and the events of an eclipsing binary are not all the
+same slice of its eclipse: the box at half its period alternates primary and secondary, and a
+night at the edge holds a steep wing. Seed 42 star 0 in its 3-night run is the clearest case. The
+box lands on a whole 14 percent secondary on night 0 and on the last hour of a 50 percent primary
+on night 2 (whose centre is 0.78 h before the night starts); each night alone reads 3.72 and 4.11,
+and jointly the box needs depths 0.087 and 0.107, which one amplitude holds, while the best
+triangle needs 0.133 and 0.72, which one amplitude cannot: the box wins by 64 in chi-square and
+the statistic reads -1.29. So the fits are read twice, from the same loop (:meth:`BlsDetector.
+_shape_gains`):
+
+* a depth for each night (the V and the box each keep one width; the gain is the sum over the nights
+  with a positive amplitude of ``num**2 / den``), and the candidate's statistic, ``Candidate.shape``,
+  is the larger of the two ratios;
+* the chi-square by which the best triangle beats the best box with a depth for each night,
+  ``(g_triangle - g_box) / noise**2`` (``Candidate.shape_chi2``), rejected at ``shape_chi2`` (14;
+  ``None`` switches this half off, ``shape_threshold=None`` both). It is not divided by the S/N: at
+  S/N 20 a V that wins by 5 sigma reads 0.9 to 1.3 as a ratio. ``noise`` is the larger of the star's
+  scatter (the MAD of what is outside the box) and the rms residual of the best box on the event
+  nights: a depth for each night can absorb noise that is not white, and a gain measured against
+  the white core of the noise would read as shape (a planet whose samples are 15 percent of the time
+  at 8 times the noise read 31 against the MAD, 5 against the residual). The second reading and
+  the chi-square use ``noise``; the first reading uses the star's scatter, as before #41.
+
+Nothing the one-amplitude reading rejected is let through. ``_shape_excess`` (that reading) returns
+what it returned before #41, to the last bit (223 stars that reached the gate on the development
+runs), and is what ``single_transit`` calls: it sees one night, where the two amplitudes are the
+same fit. ``single_transit`` reports the same detections, byte for byte, on 78 development runs (7
+of them planet-free) and the 6 held-out ones.
 
 Measured. The development runs and the planted cases below fixed the form of the statistic and the
 1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
 development runs, six of the eight binaries read 7.5, 6.6, 4.2, 3.7, 1.8 and 1.7 and the two 3-night
 ones 0.13 (seed 7 star 143: a 12.7 h eclipse that fills the 8 h nights) and -1.29 (seed 42 star 0: a
 2.4 h eclipse, 50 and 15 percent deep, that does not fill them; its two event nights read 3.72 and 4.11
-when each is fitted alone, so it is the joint fit that loses it, one depth and one width for both
-nights, and why is not established); of the other 101 stars the highest are 1.29 (a
+when each is fitted alone, so it is the joint fit that loses it: one depth for both nights, see
+issue #41 below); of the other 101 stars the highest are 1.29 (a
 flare star's false positive), 1.12 (a pulsating star reported as a transit, 20 events), 0.97 and
 0.96 (false positives) and 0.93 (a planet: the highest of the 66 planets, the next 0.46), and the 9
 candidates found by detrending a pulsation read -4.6 to -0.4. The branch against ``main`` on those
@@ -383,14 +426,84 @@ measured optimum: on 11 audited runs a 2 h window kept every binary above 1.5 an
 changes the statistic of a pure V train by under 3 percent (P 0.7 d: 13.97 against 14.36); a
 tuned test pins it, no planted planet reaches it.
 
+Eclipses the joint reading missed (issue #41). The shape gate of #40 left 9 of the 38 binaries that
+reach it on 78 development runs (the runs above, seeds 280-291 at 20 nights and 280-299 at 3
+nights, designed on; 20 binaries on the 20-night runs, 18 on the 3-night runs; the table is
+``scripts/bls_wide_eclipse_audit.py --markdown``) with a statistic under 1.5. Eclipse
+length is not what leaked: only 1 of the 9 has an eclipse longer than the night (seed 7's 12.7 h
+in 8 h nights), and 3 of the 4 binaries with eclipses of a night or more were rejected. The nine,
+by eclipse length and run length: under half a night, 20 nights, 1 of 7 (seed 288 star 48: a 1.7 h,
+2 percent deep train at S/N 21.9, 20 events, 0.96); under half a night, 3 nights, 5 of 16; half
+to one night, 20 nights, 2 of 10 (seed 64 star 195, 0.70, and seed 285 star 166, 1.33); a night or
+more, 3 nights, 1 of 1. Two things hid them. (1) One depth for all nights. The box sits at half
+the eclipse's period on 22 of the 38, so its events alternate primary and secondary, and a night
+at the edge holds a steep wing: seed 42's 3-night binary above reads 3.72 and 4.11 alone and -1.29
+jointly because the box needs depths 0.087 and 0.107 (one amplitude holds them) and the triangle
+0.133 and 0.72 (one cannot): the box wins by 64 in chi-square; with a depth for each night the
+triangle wins by 185. (2) The ratio is the chi-square advantage divided by the S/N: seed 64 star
+195 (S/N 19.2) is a V that wins by 23.9 in chi-square, about 5 sigma, and reads 0.70 (1.26 with a
+depth for each night); seed 288 star 48 wins by 18.7 and reads 0.96. After the change 33 of the 38
+are rejected; the 5 that still leak on the development runs are all on 3-night runs at S/N 8.1 to
+12.8 with 2 or 3 event nights, with a chi-square advantage of at most 7.9 (seed 7 star 143, seed 288
+star 48, seed 290 star 172, seed 294 star 115, seed 296 star 73). That bound is a fact of the
+development runs, not a property of the gate: the never-seen 3-night runs (below) leak a binary at
+13.5. Four were rescued: two by the ratio with a depth
+for each night (seed 42 star 0 at 4.56; seed 285 star 166 at 1.96) and two by the chi-square alone
+(seed 64 star 195 at 23.9 and seed 288 star 48 at 18.7). Chosen on those runs: the highest
+chi-square advantage of the 140 planet hosts that reach the gate is 9.1 (then 7.4, 4.8, 3.8; the
+statistic at most 0.93) and of the 44 other stars 10.0 (a flare star, 1.41); the bar of 14 is 1.5
+times the highest planet and 0.75 of the lowest binary it rescues.
+Planted, 40 000 planets drawn as the world draws them (ramps of 10 percent, 0.5 to 6 h, depth 0.5
+to 3 percent, noise 0.3 to 2 percent, 2 to 13 event nights, the box on the nearest ladder width,
+each event up to 10 minutes off) at S/N 7 or more (39 682): a chi-square advantage above 14 in
+11 (0.03 percent), above 16 in 6, a depth-per-night ratio above 1.2 in 3 and above 1.5 in none.
+Branch against ``main`` on the 71 planet development runs (all detections of ``bls``): transit
+true positives 448 to 448, false positives (all kinds) 50 to 50, eclipses reported as transits
+41 to 10 (all 10 on 3-night runs), pulsations reported as transits 4 to
+4, flares reported as transits 7 to 7, detections 576 to 545; on the 7 planet-free runs (41-44 at
+20 nights, 41-43 at 3 nights) 0, 0, 2, 0 and 0, 2, 0 detections to 0, 0, 2, 0 and 0, 0, 0 (the
+one that goes is seed 42 star 0's). Held-out, scored twice (seeds 201-206, 200 stars, 20 nights:
+first with the variant in which a night that brightens adds nothing to the gain with one amplitude
+(the ``pick = 0`` quirk fixed), which was then reverted, and again with the final code; the
+thresholds (``shape_chi2`` = 14, the noise floor) were in the code of 9141d90 before either scoring
+and did not change after, and the two scorings are identical, which is why these seeds could not
+decide the ``pick = 0`` question): transit true positives 40 to 40, false positives 7 to 7,
+eclipses reported as transits 0 to 0, pulsations 0 to 0, flares 3 to 3. No binary reached the
+shape gate on those six runs (19 stars did: the planet hosts at most -0.12, the others at most
+0.25; chi-square at most 1.6), so the held-out seeds show no cost and cannot show the gain. Never
+seen (seeds 300-311, 200 stars, 20 nights, scored twice by the builder, with the ``pick = 0``
+variant and with the final code, and the first decided that question): true positives 135 to
+135, false positives 15 to 14, eclipses reported as transits 2 to 0 (seed 309 star 57, a 3.5 h
+eclipse, depths 0.37 and 0.13, joint statistic 0.00, 3.14 with a depth for each night, chi-square
+76.8), pulsations 2 to 2, flares 1 to 1. Never seen, reviewed after the numbers above were fixed
+(seeds 320-331 at 200 stars and 20 nights, 12 runs, and 340-369 at 200 stars and 3 nights, 30
+runs; the 42 runs hold 177 and 467 binaries): the branch is byte-identical to ``main`` on every
+run (transit true positives 173 = 173, false positives 13 = 13, eclipses reported as transits 6 =
+6, pulsations 1 = 1, flares 0 = 0), so these seeds show no gain and no cost. No binary reached the
+shape gate on 320-331 (41 stars did: 39 planet hosts, at most 8.5 in chi-square, and 2 flare
+stars), and 15 did on the 3-night runs. Three of those leak, in both versions: seed 349 star 32
+(chi-square 3.8), seed 360 star 51 (6.2) and seed 361 star 78 (13.5, 0.5 under the bar), all 2
+event nights at S/N 9.9 to 11.4; the other 12 are rejected by ``main``'s reading already (2.30
+and up in the ratio, 38.7 and up in chi-square). So the benefit of this change is measured on
+the development runs it was designed on (seed 288 star 48, 20 detections; seed 64 star 195, 5)
+and on one never-seen binary (seed 309 star 57): the binaries it rescues are rare. The cost of the
+gate is not measurably changed (the same fits, read twice: 22 against 25 ms of CPU for each of 19
+candidates, on a loaded host).
+
 Limits of the gate: a V that fills most of every night is not told from a box (seed 7's 3-night
-binary above, and the unseen 7 h eclipse in 8 h nights), and seed 42's 3-night binary, whose eclipse
-does not fill the nights, is lost for a reason not established; the margin is thin at both ends (the
-eclipses at 1.7 and 1.8 and a planet at 0.93, against 1.5; a planted "both eclipses seen" binary
-reads 1.6 and 1.9); an eclipse wider than the nights has little curvature left to read. A shape-
-rejected star plans the second pass's mask like any other rejection and its re-search refuses the
-first period and its halves and double like a pulsation rejection (``second_pass`` was not measured
-with the gate).
+binary above), and a V at S/N under 13 on two or three nights is not either (the five above); the
+margin is thin at the binary end (18.7, 18.8 and 23.9 in chi-square against 14 on the development
+runs, and an unseen binary that leaks at 13.5; the eclipses at 1.7 and 1.8 as ratios, against 1.5)
+and wider at the planet end (the highest planet 9.1 on development, 8.5 never seen, against 14;
+0.93 against 1.5): the gap between the highest planet and the lowest binary the bar does not
+rescue is open both ways. A bar of 10 would have caught the 13.5, still above the planets; it was
+not taken, because moving it now would be tuning on seeds that were not held out any more. The
+chi-square is in units of the larger of the star's MAD scatter and the box's
+residual scatter, so noise that is red or heavy-tailed raises the bar rather than the statistic; an
+eclipse wider than the nights has little curvature in each night and is told by the nights adding
+up (seed 64 star 195, 5 nights), not by one. A shape-rejected star plans the second pass's mask
+like any other rejection and its re-search refuses the first period and its halves and double
+like a pulsation rejection (``second_pass`` was not measured with the gate).
 
 Pulsating hosts
 ---------------
@@ -739,7 +852,9 @@ class Candidate:
     for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed);
     `snr_clean` is ``snr_local`` with the samples inside and within ``flare_window_h`` after each
     flare-sized masked run left out of the contrast (:func:`flare_windows`; equal to
-    ``snr_local`` when there is no such run, NaN when no night keeps both box and reference).
+    ``snr_local`` when there is no such run, NaN when no night keeps both box and reference);
+    `shape_chi2` is the chi-square by which the best triangle beats the best box with a depth for
+    each night (:meth:`BlsDetector._shape_test`; None when the shape test was not run).
     """
 
     box: Box
@@ -756,6 +871,24 @@ class Candidate:
     shape: float | None = None
     sine_ratio: float | None = None
     snr_clean: float = math.nan
+    shape_chi2: float | None = None
+
+
+@dataclass(frozen=True)
+class _ShapeFit:
+    """What :meth:`BlsDetector._shape_gains` fitted to the box's event nights.
+
+    The ``g`` are chi-square gains in flux units (``sigma**2`` times the chi-square): of the best
+    box and the best triangle with one amplitude for all the nights, and with an amplitude for
+    each night. `scatter` is the rms residual of the best box with an amplitude and a level for
+    each night (0 when the nights hold no more samples than parameters).
+    """
+
+    g_box: float
+    g_triangle: float
+    g_box_night: float
+    g_triangle_night: float
+    scatter: float
 
 
 def frequency_grid(
@@ -1078,6 +1211,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
+        shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
         flare_fraction: float = 0.03,
         flare_snr_threshold: float = 7.2,
@@ -1117,6 +1251,8 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
+        if shape_chi2 is not None and not shape_chi2 > 0:
+            raise ValueError(f"shape_chi2 must be > 0 or None, got {shape_chi2}")
         if guard_night_ratio is not None and not guard_night_ratio > 0:
             raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
         if not 0 < flare_fraction <= 1:
@@ -1147,6 +1283,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
+        self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
         self.flare_fraction = flare_fraction
         self.flare_snr_threshold = flare_snr_threshold
@@ -1293,29 +1430,41 @@ class BlsDetector:
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
         return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
 
-    def _shape_excess(
-        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
-    ) -> float:
-        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+    def _shape_gains(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box
+    ) -> _ShapeFit | None:
+        """The shape test's fits to the box's event nights, or None for no verdict.
 
         An eclipse is V-shaped, a transit has a flat bottom, and a box fit to a V sits on its core
         (the grid stops at 6 h, a binary's eclipse can last 13 h). The samples of the nights that
         hold an event are put at their offset from the nearest event centre (`x`). Two families of
-        templates are fitted to the dip ``1 - flux`` with a free depth and a free level for every
-        night (the nights were divided by their own medians, which an event distorts): boxes of
-        a geometric ladder of widths from the shortest to the longest duration, and triangles
+        templates are fitted to the dip ``1 - flux`` with a free level for every night (the nights
+        were divided by their own medians, which an event distorts): boxes of a geometric ladder
+        of widths from the shortest to the longest duration, and triangles
         (``max(0, 1 - 2|x| / w)``, base ``w``) from the shortest duration to
         ``_SHAPE_TRIANGLE_SPAN`` times the longest, never wider than the period. Both are tried at
         centres within ``_SHAPE_SHIFT_H`` of the box in steps of ``_SHAPE_SHIFT_STEP`` of their
-        width, so that a V is not preferred only because it forgives a centre the phase bins
-        (15 minutes) and the period grid placed badly: a 0.8 h transit fit with a centre a
-        quarter hour off read as a V. With ``g`` the largest chi-square gain
-        (``sigma**2`` times it, in flux units) of each family the result is ``(g_triangle -
-        g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) / S/N``, which
-        does not grow with the signal. A box-shaped dip makes the box win and the result negative
-        (the least squares gain of a triangle on a box is at most 0.89 of the box's); a V makes it
-        positive. Zero when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples or no
-        dip fits either family.
+        width, each night at the centre where it fits best, so that a V is not preferred only
+        because it forgives a centre the phase bins (15 minutes) and the period grid placed badly:
+        a 0.8 h transit fit with a centre a quarter hour off read as a V.
+
+        The chi-square gain of a family is ``sigma**2`` times the largest over its widths (in flux
+        units) of either
+
+        * ``g``: one amplitude for all the nights (a transit repeats; the gain is ``(sum of
+          num)**2 / sum of den``; a night whose every centre has a non-positive score, which
+          brightens where the dip should be, takes the first centre's numerator, at most 0, and
+          norm: the ``pick = 0`` quirk, kept, see the module docstring), or
+        * ``g_night``: an amplitude for each night (``sum of num**2 / den`` over the nights with
+          a positive score; the others add nothing): the events of an eclipsing binary are not
+          all the same slice of the same eclipse (the box at half its period alternates primary
+          and secondary, and a night at the edge holds a steep wing), and one depth then fits the
+          V worse than the box.
+
+        The residual scatter of the best box with an amplitude for each night is returned with the
+        gains: the amplitude for each night can absorb noise that is not white, and a gain
+        measured against the star's MAD scale (the white core of the noise) would then read as
+        shape. None when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples.
         """
         period = box.period_s
         cycle = np.rint((t - box.epoch_s) / period)
@@ -1323,7 +1472,7 @@ class BlsDetector:
         events = np.unique(night[np.abs(x) <= box.duration_s / 2.0])
         nights = np.isin(night, events)
         if int(nights.sum()) < _SHAPE_MIN_SAMPLES:
-            return 0.0
+            return None
         x = x[nights]
         dip = 1.0 - flux[nights]
         k = np.unique(night[nights], return_inverse=True)[1]
@@ -1336,9 +1485,9 @@ class BlsDetector:
 
         reach = _SHAPE_SHIFT_H * HOUR_S
 
-        def best_gain(widths: np.ndarray, triangle: bool) -> float:
-            """Largest chi-square gain over the widths, each night centred where it fits best."""
-            best = 0.0
+        def best_gains(widths: np.ndarray, triangle: bool) -> tuple[float, float]:
+            """Largest chi-square gain over the widths, one amplitude and one for each night."""
+            best = best_night = 0.0
             for w in widths:
                 num = []
                 den = []
@@ -1354,18 +1503,77 @@ class BlsDetector:
                 )
                 pick = score.argmax(axis=0)
                 cols = np.arange(len(pick))
-                total, norm = float(num_a[pick, cols].sum()), float(den_a[pick, cols].sum())
+                num_k, den_k = num_a[pick, cols], den_a[pick, cols]
+                # one amplitude for all the nights. A night with no positive score takes the
+                # first centre's numerator (at most 0), the `pick = 0` quirk kept on purpose
+                total, norm = float(num_k.sum()), float(den_k.sum())
                 if total > 0 and norm > 0:
                     best = max(best, total * total / norm)
-            return best
+                # an amplitude for each night: a night with no positive score adds nothing
+                live = score[pick, cols] > 0
+                gain_k = np.where(live, num_k, 0.0) ** 2 / np.where(live, den_k, 1.0)
+                best_night = max(best_night, float(gain_k.sum()))
+            return best, best_night
 
         lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
         wide = np.geomspace(lo, _SHAPE_TRIANGLE_SPAN * hi, _SHAPE_TRIANGLE_STEPS)
-        g_box = best_gain(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
-        g_triangle = best_gain(wide[wide <= period], triangle=True)
+        g_box, g_box_night = best_gains(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
+        g_tri, g_tri_night = best_gains(wide[wide <= period], triangle=True)
+        spread = float(np.sum((dip - (np.bincount(k, weights=dip) / count)[k]) ** 2))
+        dof = len(dip) - 2 * len(count)
+        scatter = math.sqrt(max(spread - g_box_night, 0.0) / dof) if dof > 0 else 0.0
+        return _ShapeFit(g_box, g_tri, g_box_night, g_tri_night, scatter)
+
+    @staticmethod
+    def _shape_ratio(g_box: float, g_triangle: float, sigma: float) -> float:
+        """``(g_triangle - g_box) / (sigma * sqrt(g_box))``: 0 when no box fits a dip."""
         if not g_box > 0:
             return 0.0
         return (g_triangle - g_box) / (sigma * math.sqrt(g_box))
+
+    def _shape_excess(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> float:
+        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+
+        The fits of :meth:`_shape_gains` with one amplitude for all the nights. With ``g`` the
+        largest chi-square gain (``sigma**2`` times it, in flux units) of each family the result
+        is ``(g_triangle - g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) /
+        S/N``, which does not grow with the signal. A box-shaped dip makes the box win and the
+        result negative (the least squares gain of a triangle on a box is at most 0.89 of the
+        box's); a V makes it positive. Zero when the box's nights hold fewer than
+        ``_SHAPE_MIN_SAMPLES`` samples or no dip fits either family. ``single_transit`` reads it
+        as a one-event box (one night, where the two amplitudes of the fits are the same).
+        """
+        fit = self._shape_gains(t, flux, night, box)
+        if fit is None:
+            return 0.0
+        return self._shape_ratio(fit.g_box, fit.g_triangle, sigma)
+
+    def _shape_test(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> tuple[float, float]:
+        """``(statistic, chi-square advantage)`` of the shape gate (both 0 if no verdict).
+
+        The statistic is the larger of :meth:`_shape_excess` (one amplitude for all the nights)
+        and the same ratio with an amplitude for each night. The advantage is the chi-square
+        by which the best triangle beats the best box with an amplitude for each night,
+        ``(g_triangle_night - g_box_night) / sigma**2``; unlike the statistic it is not divided
+        by the S/N. Both of the readings with an amplitude for each night use the larger of
+        `sigma` and the box's residual scatter on these nights as the noise.
+        """
+        fit = self._shape_gains(t, flux, night, box)
+        if fit is None:
+            return 0.0, 0.0
+        noise = max(sigma, fit.scatter)
+        shape = max(
+            self._shape_ratio(fit.g_box, fit.g_triangle, sigma),
+            self._shape_ratio(fit.g_box_night, fit.g_triangle_night, noise),
+        )
+        advantage = (
+            (fit.g_triangle_night - fit.g_box_night) / noise**2 if fit.g_box_night > 0 else 0.0
+        )
+        return shape, advantage
 
     def _dip_mask(self, t: np.ndarray, flux: np.ndarray, box: Box, sigma: float) -> tuple[Box, ...]:
         """Windows (boxes at the best period) that cover the box's dip and its secondary.
@@ -1698,6 +1906,7 @@ class BlsDetector:
             excess: float | None = None,
             shape: float | None = None,
             sine_ratio: float | None = None,
+            shape_chi2: float | None = None,
         ) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
@@ -1716,6 +1925,7 @@ class BlsDetector:
                 shape=shape,
                 sine_ratio=sine_ratio,
                 snr_clean=snr_clean,
+                shape_chi2=shape_chi2,
             )
 
         local_bar = self.snr_threshold
@@ -1739,13 +1949,15 @@ class BlsDetector:
                 pulsating = ratio >= self.guard_night_ratio
             if pulsating:
                 return reject("pulsation guard", r, sine_ratio=ratio)
-        shape = None
+        shape = advantage = None
         if self.shape_threshold is not None:
-            shape = self._shape_excess(t, flux, night, sigma, box)
-            if shape >= self.shape_threshold:
-                return reject("shape", r, shape)
+            shape, advantage = self._shape_test(t, flux, night, sigma, box)
+            if shape >= self.shape_threshold or (
+                self.shape_chi2 is not None and advantage >= self.shape_chi2
+            ):
+                return reject("shape", r, shape, shape_chi2=advantage)
         if not snr_clean >= self.snr_threshold:  # also a box whose every event follows a flare
-            return reject("flare tails", r, shape, ratio)
+            return reject("flare tails", r, shape, ratio, advantage)
         return Candidate(
             box,
             sigma,
@@ -1759,6 +1971,7 @@ class BlsDetector:
             shape=shape,
             sine_ratio=ratio,
             snr_clean=snr_clean,
+            shape_chi2=advantage,
         )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
