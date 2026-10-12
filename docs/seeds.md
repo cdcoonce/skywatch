@@ -19,10 +19,10 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 91-100 | 20 | planets | development | PR #42's review; used |
 | 101-104 | 20 | planet-free | development | PR #42's review; used |
 | 111-114 | 20 | planets | development | PR #42's review (pulsator search); used |
-| 131-136 | 20 | planets | **held-out, reserved for #43** | not yet scored |
-| 141-144 | 20 | planet-free | **held-out, reserved for #43** | not yet scored |
+| 131-136 | 20 | planets | development | held-out for #43 (PR #47), scored once; used |
+| 141-144 | 20 | planet-free | development | held-out for #43 (PR #47), scored once; used |
 | 151-156 | 20 | planets | **held-out, reserved for #44** | not yet scored |
-| 160-199 | any | either | design range for #43 | |
+| 160-199 | any | either | design range for #43 (not used by PR #47) | |
 | 201-206 | 20 | planets | **held-out, reserved for #41** | not yet scored |
 | 210-217 | 20 | planets | development | #45 design (the shape test's threshold was set on these and the development seeds); used |
 | 218-219 | 20 | planet-free | development | #45 design; used |
@@ -31,7 +31,10 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 241-246 | 20 | planets | development | review of PR #46 (never-seen check of the shape test); used |
 | 251-254 | 20 | planet-free | development | review of PR #46 (never-seen check of the shape test); used |
 
-Next unused range: 260 and up.
+| 261-266 | 20 | planets | **reserved for PR #47's review** (never-seen check) | |
+| 271-274 | 20 | planet-free | **reserved for PR #47's review** (never-seen check) | |
+
+Next unused range: 280 and up.
 
 Also read for #45 (the statistic of every box `single_transit` reported, to set the shape threshold; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights; planet-free 41-43 at 3 nights), 11-14, 21-26, 31-50, 61-66, 71-76, 91-100 (planets) and the planet-free 41-44 and 51-58 at 20 nights.
 
