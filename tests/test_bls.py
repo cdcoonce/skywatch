@@ -1939,8 +1939,13 @@ def test_flare_windows_span_each_flare_sized_run_and_the_decay_after_it():
     kept[NIGHT_N + 50 : NIGHT_N + 70] = False  # 20 in the second night
     w = flare_windows(t, night, kept, 10, 3600.0)
     assert w.shape == (2, 2)
-    assert tuple(w[0]) == (t[100], t[109] + 3600.0)
-    assert tuple(w[1]) == (t[NIGHT_N + 50], t[NIGHT_N + 69] + 3600.0)
+    # each window ends `window_s` after the run's last sample and starts within the run, after the
+    # last sample before it (the samples of a run are out of the search's arrays, so where inside
+    # the run the window starts is not observable)
+    assert w[0][1] == t[109] + 3600.0 and t[99] < w[0][0] <= t[109]
+    assert w[1][1] == t[NIGHT_N + 69] + 3600.0 and t[NIGHT_N + 49] < w[1][0] <= t[NIGHT_N + 69]
+    covered = in_windows(t, w)
+    assert covered[109:170].all() and not covered[99] and not covered[170:NIGHT_N].any()
     assert flare_windows(t, night, kept, 9, 3600.0).shape == (3, 2)
     assert flare_windows(t, night, np.ones(len(t), dtype=bool), 10, 3600.0).shape == (0, 2)
     # a run is a run within one night: five masked samples at the end of a night and five at the
@@ -1984,7 +1989,6 @@ def test_a_cosmic_ray_rarely_and_a_small_flare_nearly_always_opens_a_window():
     assert 0.02 < share(spike) < 0.08
     assert share(np.where(k >= 0, 0.03 * np.exp(-np.maximum(k, 0) / 4.0), 0.0)) > 0.85
     assert share(np.where(k >= 0, 0.03 * np.exp(-np.maximum(k, 0) / 10.0), 0.0)) == 1.0
-    assert BlsDetector().flare_min_run == 10
 
 
 @pytest.mark.parametrize("seed", [49, 66])
@@ -2064,6 +2068,112 @@ def test_the_clean_snr_is_held_to_the_ordinary_bar_not_a_higher_or_lower_one(
     assert (cand.rejected is None) is accepted
     assert cand.rejected in (None, "flare tails")
     assert BlsDetector().snr_threshold == 7.0
+
+
+def test_the_reference_a_flare_may_lift_is_left_out_as_well_as_the_box():
+    # a 30 minute dip in every night begins 260 minutes after the flare's masked run ends: no
+    # sample of the box is inside a window. The windows cover 3 hours of the reference before it,
+    # and with that left out the contrast has less weight and no flare residue (local S/N 7.4,
+    # clean 6.8). A gate that left out the samples of the box that lie in a window, and nothing
+    # else, would leave this one untouched
+    cv = dip_after_flare(260, depth=0.0021)
+    det = BlsDetector()
+    c = det._clean(cv, C)
+    kept = np.isin(c.t, det._prepare(c, None)[0])
+    windows = flare_windows(c.t, c.night_of, kept, 10, 3 * 3600.0)
+    cand = det.search(cv, C)
+    assert abs(cand.box.period_s / DAY - 1.0) < 0.01
+    assert len(windows) == 12 and in_windows(c.t, windows).sum() > 12 * 150
+    assert not (in_windows(c.t, windows) & in_box(c.t, cand.box)).any()
+    assert cand.snr_local > 7.2 and cand.snr_clean < 7.0 and cand.snr_clean < cand.snr_local - 0.3
+    assert cand.rejected == "flare tails"
+    off = BlsDetector(flare_window_h=None).search(cv, C)
+    assert off.rejected is None and off.snr_clean == off.snr_local == cand.snr_local
+
+
+@pytest.mark.parametrize("seed,first_gate", [(140, "local snr"), (223, "min_events")])
+def test_the_box_of_the_second_pass_meets_the_flare_tail_gate_too(seed, first_gate):
+    # no planet. The best box is refused for another reason, the record is searched once more
+    # without its windows, and the second box sits between the tails of flares (local S/N 7.3 and
+    # 8.3, clean 5.3 and 2.2). With the tail gate off the second box is reported
+    cv = flare_only(seed)
+    det = BlsDetector(second_pass=True)
+    c = det._clean(cv, C)
+    first = det._search(c, None, C, plan_mask=True)
+    assert first.rejected == first_gate and len(first.mask) > 0
+    second = det._search(c, None, C, masked=first.mask)
+    assert second.rejected == "flare tails"
+    assert second.snr_local > 7.2 and second.snr_clean < 7.0
+    assert det.detect({0: cv}, C) == []
+    assert len(BlsDetector(second_pass=True, flare_window_h=None).detect({0: cv}, C)) >= 2
+
+
+def clipped_plateaus(plateau, seed=3, n_nights=12):
+    """A planet (P 1.0 d, a 30 minute event at sample 100 of every night, depth 1.2 percent) and a
+    plateau of `plateau` samples at +10 percent at sample 60 of every night, which the one-sided
+    clip masks with two samples of tail on either side (`plateau` + 4, and now and then a few more
+    by chance). The plateau is not a flare and the box is inside the 3 hours after it"""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = box_profile(t, DAY, 100 * C + 900, 1800.0, 0.012)
+    for k in range(n_nights):
+        prof[k * NIGHT_N + 60 : k * NIGHT_N + 60 + plateau] += 0.1
+    return curve(0, t, prof, 0.005, rng)
+
+
+def test_a_masked_run_of_eight_opens_no_window_and_one_of_twelve_does():
+    # the same event, 20 to 30 minutes after a masked run. Runs of 8 or 9 samples (a cosmic ray
+    # that the clip followed a little way, a hot pixel) leave the contrast alone; runs of 12 to 14
+    # leave nothing of an event inside the 3 hours that follow. A run length of 5 refuses the first,
+    # one of 20 accepts the second
+    short, long_ = clipped_plateaus(4), clipped_plateaus(8)
+    det = BlsDetector()
+    assert set(masked_runs(det, short)) <= {8, 9} and set(masked_runs(det, long_)) <= {12, 13, 14}
+    cand = det.search(short, C)
+    assert cand.rejected is None and cand.snr_clean == cand.snr_local > 30
+    assert len(det.detect({0: short}, C)) == 12
+    cand = det.search(long_, C)
+    assert cand.rejected == "flare tails" and cand.snr_local > 30 and math.isnan(cand.snr_clean)
+    assert det.detect({0: long_}, C) == []
+    assert BlsDetector(flare_window_h=None).search(long_, C).rejected is None
+
+
+def test_runs_do_not_merge_across_the_end_of_a_night():
+    # 6 to 8 masked samples at the end of every night and as many at the start of the next, where
+    # the two are adjacent in the record: 12 to 16 in a row. They are two short runs, and a 30
+    # minute event 40 minutes into a night, which the "run" of the night before would reach, is
+    # not left out
+    rng = np.random.default_rng(3)
+    t = night_times(12)
+    prof = box_profile(t, DAY, 40 * C + 900, 1800.0, 0.012)
+    for k in range(12):
+        if k > 0:
+            prof[k * NIGHT_N : k * NIGHT_N + 4] += 0.1
+        if k < 11:
+            prof[(k + 1) * NIGHT_N - 4 : (k + 1) * NIGHT_N] += 0.1
+    cv = curve(0, t, prof, 0.005, rng)
+    det = BlsDetector()
+    assert set(masked_runs(det, cv)) <= {6, 7, 8}
+    cand = det.search(cv, C)
+    assert cand.rejected is None and cand.snr_clean == cand.snr_local > 30
+    assert len(det.detect({0: cv}, C)) == 12
+
+
+def test_the_flare_bar_still_refuses_what_the_tail_gate_passes():
+    # 30 hot pixels (a flare star by the 3 percent rule) and a box of local S/N 7.11 whose events
+    # no window touches: the tail gate has nothing to take away from it (clean 7.11), and the
+    # flare bar of 7.2 is what refuses it, as it does with the gate off. At 7.0 it is accepted.
+    # (Seed 96 star 10 of the held-out runs is this star: local 7.13, clean 7.93)
+    n, flagged, depth, _, _ = FLARE_CASES["just over the share, local S/N 7.1"]
+    cv = spiked(depth, n, flagged=flagged)
+    det = BlsDetector()
+    assert masked_share(det, cv) >= 0.03
+    cand = det.search(cv, C)
+    assert cand.rejected == "local snr" and 7.05 < cand.snr_local < 7.19
+    assert cand.snr_clean >= 7.0
+    assert det.detect({0: cv}, C) == []
+    assert BlsDetector(flare_snr_threshold=7.0).search(cv, C).rejected is None
+    assert BlsDetector(flare_window_h=None).search(cv, C).rejected == "local snr"
 
 
 @pytest.mark.parametrize(
