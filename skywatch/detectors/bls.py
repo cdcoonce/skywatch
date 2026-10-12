@@ -117,11 +117,12 @@ fit, in three steps, and only for a star whose best box was rejected by the puls
 1. **Fit.** The best sinusoid in the guard band (1-30 cycles/day) with a free intercept for
    every night (:meth:`BlsDetector._pulsation_trend`): the six strongest peaks of the Fourier
    power are placed by least squares (:func:`_refine_frequency`) and the largest chi-square
-   gain wins. Two things the guard's own spectrum does not do: the power is divided by the share
-   of a sinusoid the nights' intercepts leave (``1 - sinc(f T)**2``, a night of 8 h takes 62
-   percent of a 0.9 day sinusoid), and the noise is the scatter of within-night first
-   differences, which a slow pulsation does not inflate. The sinusoid is used only if its power
-   is at least ``trend_min_ratio`` (3) times the guard's false-alarm level.
+   gain wins (the Fourier power only ranks the peaks: the nights' intercepts take most of a
+   sinusoid near a night's length, 62 percent of a 0.9 day one, so the strongest peak can be
+   an alias one cycle/day away and the least-squares fit of the six is what places it). The
+   noise is the scatter of within-night first differences, which a slow pulsation does not
+   inflate, not the guard's. The sinusoid is used only if its power is at least
+   ``trend_min_ratio`` (3) times the guard's false-alarm level.
 2. **Subtract and search.** Subtract it, divide the nights by their median again, and search.
 3. **Refit around the box.** When that search finds a box at the S/N gate, fit the sinusoid
    again with the box and the window 1.5 times as wide left out, and search once more. At a
@@ -266,7 +267,6 @@ _ALIAS_TOLERANCE = 0.02  # a re-search period within this fraction of P, P/2 or 
 _DIP_MIN_BINS = 8  # the dip fold has at least this many phase bins, whatever the period
 _DIP_CORE_MIN_BINS = 0.5  # half-width floor (in bins) of the box core in the dip fold
 _RENORMALISE_MIN_SAMPLES = 5  # a night of fewer samples is not divided by its median again
-_TREND_MIN_SHARE = 0.05  # floor of the share of a sinusoid the nights' intercepts leave
 _TREND_SLOW_F_MIN = 0.1  # cycles/day: the slowest sinusoid tried when asking if one is slower
 _TREND_SLOW_STEP = 0.01  # ... and the step between the frequencies tried
 _TREND_PEAKS = 6  # Fourier peaks placed by least squares, the best of which is the sinusoid
@@ -823,7 +823,6 @@ class BlsDetector:
         x: np.ndarray,
         sigma: float,
         cadence_s: int,
-        night: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray, float, float] | None:
         """(frequencies in cycles/day, normalised Fourier power, false-alarm level, bin step s).
 
@@ -836,12 +835,6 @@ class BlsDetector:
         over n samples has power ``n A**2 / (4 sigma**2)`` and gains ``2 * power`` in
         chi-square. `t` and `x` hold only the samples that take part (the others are simply
         absent). None when the band holds no frequency.
-
-        With `night` (the night of each sample, `x` already demeaned by night) the power is that
-        of a sinusoid fitted with a free intercept per night: the nights absorb the share
-        ``sinc(f T)**2`` of a sinusoid's variance (``T`` the night's length), which is most of
-        it for a period near a night's length, so the power is divided by ``1 - sum_k n_k
-        sinc(f T_k)**2 / n``. The null distribution stays exponential with unit mean.
         """
         dt = float(max(cadence_s, 300))
         n_bins = int(np.floor((t[-1] - t[0]) / dt)) + 1
@@ -855,14 +848,6 @@ class BlsDetector:
         if not band.any():
             return None
         power = np.abs(spec[band]) ** 2 / (len(t) * sigma**2)
-        if night is not None:
-            f_band = f_per_d[band]
-            free = np.zeros(len(f_band))
-            for k in np.unique(night):
-                tk = t[night == k]
-                span_d = (float(tk[-1] - tk[0]) + dt) / DAY_S
-                free += len(tk) * np.sinc(f_band * span_d) ** 2
-            power = power / np.maximum(1.0 - free / len(t), _TREND_MIN_SHARE)
         independent = max(1.0, (f_hi - self.guard_f_min_per_d) * (t[-1] - t[0]) / DAY_S)
         assert self.guard_fap is not None
         return f_per_d[band], power, math.log(independent / self.guard_fap), DAY_S / (n_fft * dt)
@@ -1023,7 +1008,7 @@ class BlsDetector:
         """The star's pulsation at the samples of `a`, and ``(cycles/day, amplitude, ratio)``.
 
         The best sinusoid in the guard band with a free intercept for every night: the six
-        strongest peaks of the corrected Fourier power (:meth:`_band_power`) are each placed to
+        strongest peaks of the Fourier power (:meth:`_band_power`) are each placed to
         a fraction of a zero-padded bin by :func:`_refine_frequency`, amplitude and phase are
         fitted by least squares, and the largest chi-square gain wins. The sinusoid counts only
         when its power (``gain / (2 sigma**2)``, ``sigma`` the white-noise scatter) is at least
@@ -1043,14 +1028,14 @@ class BlsDetector:
         td = (a.t - float(a.t[0])) / DAY_S
         k = np.unique(a.night[keep], return_inverse=True)[1]
         x = _demean_by_night(a.flux[keep] - 1.0, k)
-        spectrum = self._band_power(a.t[keep], x, sigma, cadence_s, a.night[keep])
+        spectrum = self._band_power(a.t[keep], x, sigma, cadence_s)
         if spectrum is None:
             return None
         f_band, power, level, df = spectrum
-        # The corrected power ranks the peaks but is only approximate (it ignores the cross term
-        # between a frequency and its mirror, and the gaps inside nights), and a sinusoid and
-        # its alias one cycle/day away are close in it; the few strongest peaks are placed by
-        # least squares and the one with the largest chi-square gain wins.
+        # The power only ranks the peaks: it is approximate (it ignores the nights' intercepts,
+        # the cross term between a frequency and its mirror, and the gaps inside nights), and a
+        # sinusoid and its alias one cycle/day away are close in it; the few strongest peaks are
+        # placed by least squares and the one with the largest chi-square gain wins.
         best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
         for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, float(td[-1]))):
             f = _refine_frequency(td[keep], x, k, float(f_band[i]), df)

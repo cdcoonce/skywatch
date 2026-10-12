@@ -1288,9 +1288,12 @@ def test_a_slower_sinusoid_than_the_band_is_told_from_one_inside_it():
         k = np.unique(a.night, return_inverse=True)[1]
         x = bls._demean_by_night(a.flux - 1.0, k)
         # the gain of the best in-band sinusoid, as the detrending finds it
-        spec = det._band_power(a.t, x, det._white_sigma(a.flux, a.night), C, a.night)
-        f = bls._refine_frequency(td, x, k, float(spec[0][int(spec[1].argmax())]), spec[3])
-        gain = bls._sine_fit(td, x, k, f)[2]
+        f_band, power, _, df = det._band_power(a.t, x, det._white_sigma(a.flux, a.night), C)
+        peaks = bls._top_peaks(f_band, power, bls._TREND_PEAKS, 1.0 / float(td[-1]))
+        gain = max(
+            bls._sine_fit(td, x, k, bls._refine_frequency(td, x, k, float(f_band[i]), df))[2]
+            for i in peaks
+        )
         assert det._slower_sinusoid_wins(td, x, k, gain) is slower
 
 
@@ -1327,8 +1330,8 @@ def test_the_candidate_records_the_sinusoid_that_was_subtracted(caplog):
 
 def test_the_sinusoid_is_found_at_its_frequency_with_its_amplitude():
     # 0.9 d is 1.11 cycles/day: the Fourier peak of a record of 8 h nights is not at its
-    # frequency (the nights' own intercepts take most of it), the corrected power and the
-    # least-squares refinement are
+    # frequency (the nights' own intercepts take most of it); the least-squares refinement of
+    # the six strongest peaks is
     det = BlsDetector()
     for period_d, amp in [(0.9, 0.015), (5 / 24, 0.004), (0.4, 0.002)]:
         _, cv = pulsator(3, period_d=period_d, amp=amp, transit=False)
@@ -1337,18 +1340,6 @@ def test_the_sinusoid_is_found_at_its_frequency_with_its_amplitude():
         assert f == pytest.approx(1 / period_d, abs=0.002)
         assert got == pytest.approx(amp, rel=0.1)
         assert ratio > 3.0
-
-
-def test_the_night_correction_moves_the_peak_to_the_right_alias():
-    det = BlsDetector()
-    _, cv = pulsator(3, period_d=0.9, transit=False)
-    a = _arrays(det, cv)
-    x = bls._demean_by_night(a.flux - 1.0, np.unique(a.night, return_inverse=True)[1])
-    sigma = det._white_sigma(a.flux, a.night)
-    f, raw, _, _ = det._band_power(a.t, x, sigma, C)
-    f, fixed, _, _ = det._band_power(a.t, x, sigma, C, a.night)
-    assert f[int(fixed.argmax())] == pytest.approx(1 / 0.9, abs=0.01)
-    assert abs(f[int(raw.argmax())] - 1 / 0.9) > 0.5  # the uncorrected peak is an alias
 
 
 def test_noise_has_no_sinusoid_and_a_weak_one_needs_the_ratio():
