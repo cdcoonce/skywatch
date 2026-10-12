@@ -2049,6 +2049,24 @@ def test_the_window_is_three_hours_long(gap_min, accepted, other_h):
 
 
 @pytest.mark.parametrize(
+    "depth,accepted,clean",
+    [(0.0059, False, (6.6, 6.95)), (0.0062, True, (7.05, 7.2))],
+)
+def test_the_clean_snr_is_held_to_the_ordinary_bar_not_a_higher_or_lower_one(
+    depth, accepted, clean
+):
+    # the same dip as above, 150 minutes after the run ends: half of every event lies in the window.
+    # The local S/N is 18 or 19, far above any bar, and what is left of it reads 6.8 or 7.1: a bar
+    # of 7.2 (the flare bar) refuses the second, one of 6.5 accepts the first
+    cv = dip_after_flare(150, depth=depth)
+    cand = BlsDetector().search(cv, C)
+    assert clean[0] < cand.snr_clean < clean[1] and cand.snr_local > 17
+    assert (cand.rejected is None) is accepted
+    assert cand.rejected in (None, "flare tails")
+    assert BlsDetector().snr_threshold == 7.0
+
+
+@pytest.mark.parametrize(
     "kw", [{"flare_window_h": 0}, {"flare_window_h": -1}, {"flare_min_run": 0}]
 )
 def test_the_flare_parameters_are_validated(kw):
