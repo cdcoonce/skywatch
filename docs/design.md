@@ -230,9 +230,22 @@ Planned detectors, in order:
    3 false positives and 1 eclipse mistaken for a transit, which is why it is off.
    The first pass alone scored 30 transit true positives, 6 false positives, 13
    eclipses reported as transits and no pulsator reported as a transit on those
-   seeds, and 5 of the 14 strong planets there sit on pulsating hosts and are
-   rejected by the pulsation guard. The grid, statistic, guard and second pass are
-   in the `skywatch/detectors/bls.py` docstring.
+   seeds, and 5 of the 14 strong planets there sit on pulsating hosts and were
+   rejected by the pulsation guard. `detrend_pulsation` (**on by default**) searches
+   such a star again with its pulsation subtracted: the best sinusoid in 1-30
+   cycles/day with a free intercept per night, subtracted, a search, then the
+   sinusoid refitted with that box's samples left out and one more search (a
+   subtract-then-search whose refit is the joint fit's sinusoid at the box found);
+   the result faces every gate, with S/N and local S/N at 9, and a star that is
+   rejected again keeps its original rejection. Measured on held-out seeds 21-26
+   (scored once, after every threshold was fixed on 24 development runs): transit
+   true positives 30 to 46, false positives 6 to 6, eclipses reported as transits
+   13 to 13, no pulsator reported as a transit, 1.26 times the CPU time; of the five
+   planets on pulsating hosts three now have every event bounded, one has one of two
+   events bounded and one (seed 23 star 139: S/N 9.7 but local S/N 7.4, under the
+   bar of 9) is still lost. One sinusoid per star, and a sinusoid slower than the
+   guard band is left to the guard. The grid, statistic, guard, detrending and
+   second pass are in the `skywatch/detectors/bls.py` docstring.
 5. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring

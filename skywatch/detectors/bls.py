@@ -154,7 +154,15 @@ refit): 7 more transit true positives (all events of three strong planets on pul
 31 star 32, seed 39 star 194, seed 46 star 25, and one event of a candidate on seed 44 star 44),
 no transit true positive lost, no change in false positives or in eclipses reported as transits,
 one more pulsation reported as a transit (seed 44, the candidate's other event). 300 synthetic
-pure pulsators (0.1-2 percent, 1-12 h, noise 0.3-0.8 percent, 20 nights) gave no detection.
+pure pulsators (0.1-2 percent, 1-12 h, noise 0.3-0.8 percent, 20 nights) gave no detection. Held-
+out, scored once after every threshold was fixed (seeds 21-26, 200 stars, 20 nights; they were not
+used for any choice): transit true positives 30 to 46, false positives 6 to 6, eclipses reported
+as transits 13 to 13, pulsations reported as transits 0 to 0, 1.26 times the CPU time (1.24 times
+the wall clock). The five strong planets on pulsating hosts that the guard lost: three now have
+every event bounded (seed 21 star 85, seed 22 star 6, seed 24 star 37), seed 21 star 83 has one of
+its two events bounded, and seed 23 star 139 is still lost (its detrended box, at 3.177 d the
+planet's 12.731 d over four, has S/N 9.7 but local S/N 7.4, below ``trend_snr_threshold``).
+
 Limits: one sinusoid per star (a multi-mode pulsator is not removed); sinusoids slower than 1
 cycle/day are not touched (a planet on such a host stays rejected); the sinusoid is a global one,
 so an amplitude that changes over the record is only partly removed; ``trend_snr_threshold`` costs
