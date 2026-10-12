@@ -4,6 +4,9 @@
 
 A synthetic sky survey where detectors compete to tell science from glitches.
 
+**Live page:** [cdcoonce.github.io/skywatch](https://cdcoonce.github.io/skywatch/), the views beside the scoreboard,
+generated from the stored runs by `skywatch site` and served from `docs/`.
+
 ## What it is
 
 skywatch simulates a small telescope array watching a field of stars night after night. Each star
@@ -79,8 +82,15 @@ planets that transit once, like
 held-out runs the three per-night detectors bound none of 261 transits; the
 two transit searches bound 53.
 
-Open: hosting (the page is built; publishing it is the owner's call) and #36,
-eclipsing binaries reported as transits.
+[0009](docs/log/0009-two-leaks-closed-and-a-ledger-for-the-seeds.md) closes
+two of `bls`'s leaks on unseen seeds: a shape test (a transit is flat-bottomed,
+an eclipse is a V) took eclipses reported as transits from 13 to 0 on the
+held-out seeds, and a night-level sine test took pulsators reported as
+transits from 81 to 3 on the development runs, with no transit lost.
+[docs/seeds.md](docs/seeds.md) records which survey seeds are held out.
+
+The page is live on GitHub Pages from `docs/` (2026-10-12). Open: issues #41,
+#43, #44 and #45.
 
 ## Develop
 
