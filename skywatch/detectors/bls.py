@@ -145,7 +145,8 @@ gates, chosen on those runs and nothing else:
   seventh (seed 38 star 119: 9.3 h, 0.15 percent). On the 93 development candidates on a star with
   a planet it reads at most 0.75 (seed 33 star 118, whose detections match a cloud and a flare, not
   the planet), 0.73 for the highest where the detection is the planet (seed 38 star 168, a 0.509 d
-  planet with 20 events) and 0.57 or less for every other. The eighth pulsator (seed 13 star 130)
+  planet with 20 events; a second real planet reads 0.73 on a seed used before, seed 23 star 114,
+  1.39 d, 5.6 h, 6 events) and 0.57 or less for every other. The eighth pulsator (seed 13 star 130)
   came through the detrending and is not a pulsation effect: its box holds 9 samples with a 9.9
   percent depth in two windows of 10 and 8 minutes, beside a cosmic ray and just before a flare
   onset; it is left (2 pulsation-labelled detections).
@@ -160,7 +161,8 @@ gates, chosen on those runs and nothing else:
   of the development and design seeds to 5 or fewer: at 7.1 seed 44 is still at 10 (star 199's
   local S/N is 7.107), from 7.15 to 7.19 at 3 (star 126, 7.195), at 7.2 at 0. The same bar applied to every star
   would have lost a development transit true positive (seed 61 star 56, local S/N 7.04); on flare
-  stars the lowest local S/N of a transit true positive is 7.28 (seed 12 star 32), a margin of 0.08.
+  stars the lowest local S/N of a transit true positive is 7.28 (seed 12 star 32), 0.08 above the
+  bar. The bar is not in a gap of the false claims, though: see Limits.
 
 Measured. Development (seeds 7 and 42 at 3 and 20 nights, 11-14, 31-50 and 61-66 at 20 nights; 33
 runs), ``main`` to the branch: transit true positives 271 to 271 (270 bounded and 1 touched, both
@@ -409,14 +411,28 @@ Limits
 * Two single events of different planets six days apart look like one period.
 * Output spans are half-open: ``t_end = t_last + cadence_s``.
 * Flare stars still make claims above the flare bar: on the held-out planet-free seed 82 two
-  flare stars gave 6 detections (local S/N 7.5 and 9.1). The bar is 0.08 above the lowest
-  transit true positive on a flare star (7.28), so it cannot be raised much without losing planets
-  (see Planet-free stars). The 3 percent cut is a share of masked samples, not a class: a flare
-  star with fewer flares in its record is held to 7.0.
-* The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and 0.08 on the
-  planet side of the bar (0.73 for a 0.509 d, 3 h planet; a planted 3 h planet at 0.51 d reads 0.54).
-  A short-period, deep planet is the one that approaches it; a pulsator weaker than the S/N bar
-  never reaches the guard at all.
+  flare stars gave 6 detections (local S/N 7.5 and 9.1). The bar sits inside the distribution of
+  the false claims, not in a gap of it: on the 84 runs measured, 11 flare-star claims read 7.0 to
+  7.19 and are rejected and 7 read 7.2 to 7.4 and survive, and the development planet-free seed 44
+  meets the rule only because star 126 reads 7.195, 0.005 under the bar. The bar is also 0.08
+  above the lowest transit true positive on a flare star (7.28), so it cannot be raised much
+  without losing planets (see Planet-free stars). A bar does not solve flare stars; tracked in
+  issue #43. The 3 percent cut is a share of masked samples, not a class: a flare star with fewer
+  flares in its record is held to 7.0.
+* The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and less than
+  it looks on the planet side: the bar is not a floor under the planets. Two real planets read
+  0.73 (seed 38 star 168; seed 23 star 114) and the planet hosts of never-seen seeds at most 0.52.
+  A Monte Carlo of the simulator's planet recipe at periods of 0.5 to 1.5 d (320 draws, 20
+  nights) lost 1 of 279 planets that ``main`` accepts: P 0.562 d, 4.84 h, ratio 0.847; another
+  accepted planet read 0.797 (P 0.75 d, 4.5 h). That is roughly 1 planet in 5000 of the
+  population. The ratio depends on how the period sits against the night (a planted 3 h planet at
+  0.51 d reads 0.54 at one epoch; a planted 0.6 d, 3.5 h planet of 1.2 percent in 0.5 percent
+  noise reads 0.826 and is refused, the same at 4 h reads 0.74 and is accepted); a short-period
+  planet with a long box is the one that approaches the bar.
+  A pulsator weaker than the S/N bar never reaches the guard at all.
+* Fast pulsators (15 to 20 cycles/day) that the detrending subtracts leave a box of 2 events
+  after the subtraction in 2 of 2 cases measured (seed 13 star 130; seed 112 star 62, ratio 0.10):
+  tracked in issue #44.
 """
 
 from __future__ import annotations

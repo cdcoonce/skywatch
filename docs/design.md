@@ -284,12 +284,18 @@ Planned detectors, in order:
    cycles/day, a free level for every night) over the box's gain with a free level for every night
    (`snr_local * sigma` squared), rejected at 0.81, the most a sinusoid can keep of a box train; the
    seven pulsators accepted at the first pass read 0.97 to 1.40 (the old box-versus-sine test 0.53
-   to 0.99), planet hosts at most 0.75 (0.73 where the detection is the planet). (2) A star with 3
+   to 0.99), planet hosts at most 0.75 (0.73 for the two real planets that read highest, seed 38
+   star 168 and seed 23 star 114; never-seen planet hosts at most 0.52; the bar is not a floor, a
+   Monte Carlo of the simulator's planet recipe at P 0.5 to 1.5 d lost 1 of 279 accepted planets,
+   P 0.562 d, 4.84 h, ratio 0.847, roughly 1 in 5000 planets). (2) A star with 3
    percent or more of its samples masked as flares must reach a local S/N of 7.2: flare tails are
    red noise the scatter does not contain, 32 of the 41 flare-star claims are on such stars and no
    candidate of another class is; 7.2 is the lowest on a 0.1 grid that puts every 20-night
    planet-free run of the development and design seeds at 5 or fewer, and the lowest local S/N of a
-   transit true positive on a flare star is 7.28. Development, `main` to the branch (33 runs):
+   transit true positive on a flare star is 7.28. The flare bar sits inside the distribution of false
+   claims, not in a gap of it (11 claims at 7.0 to 7.19 rejected, 7 at 7.2 to 7.4 survive; pf-seed44
+   meets the rule because star 126 reads 7.195), so flare stars are not solved by a bar (issue #43;
+   fast pulsators the detrending leaves a 2-event box on: issue #44). Development, `main` to the branch (33 runs):
    transit true positives 271 to 271, false positives 74 to 58, eclipses reported as transits 8 to
    8, pulsations reported as transits 81 to 3 (29 to 0 on seeds 61-66), planet-free 20-night runs
    0, 4, 2, 10 to 0, 4, 2, 0. Held-out, scored once (seeds 71-76): transit true positives 33 to 33,
