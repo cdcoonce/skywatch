@@ -241,10 +241,13 @@ Planned detectors, in order:
    (scored once, after every threshold was fixed on 24 development runs): transit
    true positives 30 to 46, false positives 6 to 6, eclipses reported as transits
    13 to 13, no pulsator reported as a transit, 1.26 times the CPU time; of the five
-   planets on pulsating hosts three now have every event bounded, one has one of two
-   events bounded and one (seed 23 star 139: S/N 9.7 but local S/N 7.4, under the
-   bar of 9) is still lost. One sinusoid per star, and a sinusoid slower than the
-   guard band is left to the guard. The grid, statistic, guard, detrending and
+   planets on pulsating hosts three now have every event bounded or touched (one of
+   them 9 bounded and 1 touched of 10), one has one of two events bounded and one
+   (seed 23 star 139: S/N 9.7 but local S/N 7.4, under the bar of 9) is still lost.
+   One sinusoid per star, and a sinusoid slower than the guard band is left to the
+   guard. A pulsator with one real transit can borrow a 1 h noise dip as the second
+   event `min_events` asks for (dev seed 44 star 44; about 1 in 120 such stars on 240
+   synthetic cases, and nothing on `main`). The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
@@ -273,8 +276,12 @@ Planned detectors, in order:
    sinusoidal and flare hosts (held-out seed 22 star 81, seed 25 stars 39 and 52), and a dip
    that fills most of a night leaves no box with 30 samples outside it (seed 25 star 121:
    56 observed samples, 44 inside the label). Guard (b) tests `bls`'s rejection reason
-   (`!= "pulsation guard"`), so if `bls` later detrends pulsating hosts, a host it accepts
-   is no longer masked and re-searched here. The statistic, threshold, guards and limits are
+   (`!= "pulsation guard"`), and `bls` now detrends pulsating hosts: with both merged, four
+   stars flip from guard-rejected to accepted inside this detector's `bls` searches and guard
+   (b) drops them instead of masking them; the detections are identical span for span on the
+   4 development and 6 held-out runs, the planet-free all-detection counts are unchanged
+   (4, 0, 1, 2), and this detector's CPU is about 2.2 times higher on a 20-night run (seed 26:
+   15.8 s to 35.0 s). The statistic, threshold, guards and limits are
    in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
