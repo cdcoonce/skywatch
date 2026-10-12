@@ -293,11 +293,27 @@ Planned detectors, in order:
    that is not white raises the bar. Nothing the old reading rejected is let through. Development
    (71 planet runs), branch against `main`: transit true positives 448 to 448, false positives 50
    to 50, eclipses reported as transits 41 to 10 (all 10 on 3-night runs, from five binaries at
-   S/N 8.1 to 12.8 with 2 or 3 event nights: the shape cannot be read there), pulsations 4 to 4,
+   S/N 8.1 to 12.8 with 2 or 3 event nights: the shape cannot be read there; their chi-square is
+   at most 7.9 on development, but the never-seen 3-night runs leak one at 13.5, and the highest
+   planet is 9.1 on development and 8.5 never seen, so the bar of 14 has a gap open both ways, and
+   a bar of 10 would have caught the 13.5 but was not taken, as that would tune on seeds no longer
+   held out), pulsations 4 to 4,
    flares 7 to 7; planet-free 41-44 and 41-43 unchanged except seed 42's 3-night run, 2 to 0.
-   Held-out 201-206, scored once: 40 to 40, 7 to 7, 0 to 0, 0 to 0, 3 to 3; no binary reached the
-   gate on them, so they show no cost and cannot show the gain. Never-seen 300-311: 135 to 135,
-   15 to 14, eclipses 2 to 0. The `pick = 0` quirk of the one-amplitude fit (a night that
+   Held-out 201-206, scored twice (first with the variant in which a brightening night adds
+   nothing, the `pick = 0` fix, which was then reverted; again with the final code; `shape_chi2` =
+   14 and the noise floor were in 9141d90 before both scorings and did not change after): 40 to 40,
+   7 to 7, 0 to 0, 0 to 0, 3 to 3 both times; no binary reached the gate on them, so they show no
+   cost and cannot show the gain. Never-seen 300-311, also scored twice (the variant, which decided
+   the `pick = 0` question, and the final code): 135 to 135, 15 to 14, eclipses 2 to 0. Never seen,
+   reviewed afterwards: 320-331 (20 nights, 12 runs) and 340-369 (3 nights, 30 runs), 42 runs in
+   all, the branch is byte-identical to `main` (transit true positives 173 = 173, false positives
+   13 = 13, eclipses reported as transits 6 = 6): no gain and no cost. No binary reached the gate
+   on 320-331 (41 stars did, 39 planet hosts at most 8.5 in chi-square and 2 flare stars); 15
+   binaries did on the 3-night runs and three leak in both versions: seed 349 star 32 (chi-square
+   3.8), seed 360 star 51 (6.2) and seed 361 star 78 (13.5, under the bar of 14 by 0.5); the other
+   12 are rejected by `main`'s reading already. So the benefit is measured on development (seed
+   288 star 48, 20 detections; seed 64 star 195, 5) and on one never-seen binary (seed 309 star
+   57): the binaries this change rescues are rare. The `pick = 0` quirk of the one-amplitude fit (a night that
    brightens where the dip should be subtracts the first centre's score) was measured and kept:
    making it add nothing moved 14 of 223 statistics on development without crossing 1.5, and on
    the never-seen seeds took a planet from 0.82 to 1.503. `single_transit` is unchanged
