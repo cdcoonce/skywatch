@@ -542,7 +542,7 @@ def test_default_parameters():
     assert (d.guard_f_min_per_d, d.guard_f_max_per_d) == (1.0, 30.0)
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
     assert d.second_pass is False  # opt-in: held-out seeds gain false positives, no transits
-    assert d.shape_threshold == 1.5
+    assert d.shape_threshold == 1.5 and d.shape_chi2 == 14.0
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -1628,6 +1628,8 @@ def test_the_shape_statistic_gives_no_verdict_on_a_handful_of_samples():
     flux = 1.0 - 0.05 * np.clip(1.0 - np.abs(t - 0.14 * DAY) / 5400.0, 0.0, None)
     assert len(t) < 10
     assert det._shape_excess(t, flux, np.zeros(len(t), dtype=np.int64), 0.005, box) == 0.0
+    assert det._shape_test(t, flux, np.zeros(len(t), dtype=np.int64), 0.005, box) == (0.0, 0.0)
+    assert det._shape_gains(t, flux, np.zeros(len(t), dtype=np.int64), box) is None
     t = np.concatenate([t, t + 60.0 * 40])  # the same V sampled twice as densely: now a verdict
     flux = np.concatenate([flux, flux])
     assert det._shape_excess(t, flux, np.zeros(len(t), dtype=np.int64), 0.005, box) != 0.0
@@ -1653,7 +1655,7 @@ def test_the_shape_threshold_is_validated_and_off_with_none():
 def test_a_threshold_above_the_statistic_lets_the_eclipse_through():
     _, cv = eb_leak("one-sided")
     cand = BlsDetector().search(cv, C)
-    kept = BlsDetector(shape_threshold=cand.shape + 1.0).search(cv, C)
+    kept = BlsDetector(shape_threshold=cand.shape + 1.0, shape_chi2=None).search(cv, C)
     assert kept.rejected is None and kept.shape == pytest.approx(cand.shape)
 
 
@@ -1694,7 +1696,7 @@ def test_a_statistic_equal_to_the_threshold_rejects():
     # the gate is `shape >= threshold`: a threshold set to the candidate's own statistic rejects it
     _, cv = eb_leak("one-sided")
     cand = BlsDetector().search(cv, C)
-    at = BlsDetector(shape_threshold=cand.shape).search(cv, C)
+    at = BlsDetector(shape_threshold=cand.shape, shape_chi2=None).search(cv, C)
     assert at.rejected == "shape" and at.shape == cand.shape
 
 
@@ -1718,17 +1720,34 @@ def test_a_triangle_wider_than_the_period_is_not_a_template():
 
 @pytest.mark.parametrize("seed", [0, 1])
 @pytest.mark.parametrize("dur_h", [1.4, 3.0])
-def test_a_brightening_on_some_event_nights_does_not_make_a_planet_a_v(dur_h, seed):
-    # the fits take positive amplitudes only: a night that shows a brightening where the others
-    # show the dip is left out, not fitted with a negative depth (which read this planet, with
-    # every other event night mirrored about 1, as a V: +6.7, +4.3 and +2.1 against -5 to -7.5)
+def test_a_brightening_on_some_event_nights_adds_nothing_to_the_fits(dur_h, seed):
+    # The fits take positive amplitudes only, and a night that shows a brightening where the others
+    # show the dip adds nothing: not a negative depth (which read this planet, with every other
+    # event night mirrored about 1, as a V: +6.7, +4.3 and +2.1), and not the score of whichever
+    # centre is listed first (the `pick = 0` quirk, which subtracted from the gain). So the four
+    # gains with those nights mirrored are the gains with those nights absent.
     det = BlsDetector()
     t = night_times(20)
     cv = curve(0, t, ramped(t, 2.3, 0.14, dur_h, 0.015), 0.005, np.random.default_rng(seed))
     cand = det.search(cv, C)
     a = _arrays(det, cv)
-    flux = np.where(a.night % 2 == 1, 2.0 - a.flux, a.flux)
-    assert det._shape_excess(a.t, flux, a.night, cand.sigma, cand.box) < -1.5
+    mirrored = np.where(a.night % 2 == 1, 2.0 - a.flux, a.flux)
+    even = a.night % 2 == 0
+    with_nights = det._shape_gains(a.t, mirrored, a.night, cand.box)
+    without = det._shape_gains(a.t[even], mirrored[even], a.night[even], cand.box)
+    for got, want in zip(
+        (
+            with_nights.g_box,
+            with_nights.g_triangle,
+            with_nights.g_box_night,
+            with_nights.g_triangle_night,
+        ),
+        (without.g_box, without.g_triangle, without.g_box_night, without.g_triangle_night),
+        strict=True,
+    ):
+        assert got == pytest.approx(want, rel=1e-9)
+    shape, advantage = det._shape_test(a.t, mirrored, a.night, cand.sigma, cand.box)
+    assert shape < det.shape_threshold and advantage < det.shape_chi2
 
 
 @pytest.mark.parametrize("offset_h", [0.8, 1.0, 1.2])
@@ -1746,6 +1765,106 @@ def test_the_centring_window_is_half_an_hour_not_two(offset_h):
     cand = BlsDetector().search(cv, C)
     assert cand.rejected == "shape" and cand.shape > 2.0
     assert detect({0: cv}) == []
+
+
+# -- eclipses the joint reading misses (#41): a depth for each night, and the chi-square a V wins by --
+
+# seed42-200s-3n star 0: P 1.123 d, a 2.38 h eclipse, 50 and 14 percent deep, 3 nights. The box (at
+# half the period) lands on a whole secondary on night 0 and on the last hour of a primary on
+# night 2 (the primary's centre is before the night starts: a steep egress ramp). Alone each night
+# is a V; jointly the box needs one depth (0.087 and 0.107) and the triangle cannot (0.133 and 0.72).
+EB_UNLIKE = ((1.1229, 0.8445, 2.3807, 0.4985, 0.1447), 0.0184)
+# A V that wins by 24 in chi-square (about 5 sigma) at S/N 19 and reads 1.1 and 1.3: the chi-square
+# divided by the S/N cannot see it. A 3.55 h, 3.7 percent eclipse (a draw of seed 19 of a scan of
+# binaries as the world draws them), the box on half the period.
+EB_MODERATE = ((2.261, 0.926, 3.55, 0.037, 0.018), 0.0244)
+
+
+def eb_fixture(eb, n_nights, seed):
+    (period, epoch, dur, d1, d2), noise = eb
+    t = night_times(n_nights)
+    return curve(0, t, eclipsing(t, period, epoch, dur, d1, d2), noise, np.random.default_rng(seed))
+
+
+def test_events_that_are_unlike_slices_of_one_eclipse_are_read_with_a_depth_for_each_night():
+    cv = eb_fixture(EB_UNLIKE, 3, 3)
+    det = BlsDetector()
+    bare = BlsDetector(shape_threshold=None).search(cv, C)
+    assert bare.rejected is None and len(bare.events) == 2  # the premise: a "planet"
+    a = _arrays(det, cv)
+    assert det._shape_excess(a.t, a.flux, a.night, bare.sigma, bare.box) < 1.0  # one depth: a box
+    cand = BlsDetector(shape_chi2=None).search(cv, C)  # the ratio of the depth-per-night reading
+    assert cand.rejected == "shape" and cand.shape >= 1.5 and cand.events == []
+    assert detect({0: cv}) == []
+
+
+def test_a_v_that_the_ratio_cannot_see_is_refused_by_the_chi_square_it_wins_by():
+    cv = eb_fixture(EB_MODERATE, 20, 1019)
+    ratio_only = BlsDetector(shape_chi2=None).search(cv, C)
+    assert ratio_only.rejected is None and ratio_only.shape < 1.5  # the premise: a "planet"
+    assert len(ratio_only.events) >= 2 and ratio_only.shape_chi2 >= 14.0
+    cand = BlsDetector().search(cv, C)
+    assert cand.rejected == "shape" and cand.events == [] and cand.shape == ratio_only.shape
+    assert cand.shape_chi2 == ratio_only.shape_chi2 >= BlsDetector().shape_chi2
+    assert detect({0: cv}) == []
+
+
+def test_a_chi_square_equal_to_the_threshold_rejects():
+    cv = eb_fixture(EB_MODERATE, 20, 1019)
+    advantage = BlsDetector().search(cv, C).shape_chi2
+    # the ratio is out of reach: only the chi-square decides
+    at = BlsDetector(shape_threshold=1e9, shape_chi2=advantage).search(cv, C)
+    assert at.rejected == "shape" and at.shape_chi2 == advantage
+    above = BlsDetector(shape_threshold=1e9, shape_chi2=advantage + 0.01).search(cv, C)
+    assert above.rejected is None
+
+
+def test_the_chi_square_is_in_units_of_the_larger_of_sigma_and_the_boxs_own_scatter():
+    # Noise that is not white (a heavy tail, red noise) is more than the MAD scale says, and an
+    # amplitude for each night absorbs some of it; the box's residual scatter on the event nights
+    # is the floor. Told a sigma 3x too small, the fits still read the V's advantage at the noise
+    # the data have (the same fixture with the true sigma reads the same).
+    cv = eb_fixture(EB_MODERATE, 20, 1019)
+    det = BlsDetector()
+    cand = BlsDetector(shape_chi2=None).search(cv, C)
+    a = _arrays(det, cv)
+    fit = det._shape_gains(a.t, a.flux, a.night, cand.box)
+    assert fit.scatter == pytest.approx(cand.sigma, rel=0.05)
+    true = det._shape_test(a.t, a.flux, a.night, cand.sigma, cand.box)[1]
+    small = det._shape_test(a.t, a.flux, a.night, cand.sigma / 3.0, cand.box)[1]
+    assert small == pytest.approx(true, rel=0.1)
+
+
+def test_on_one_night_the_two_amplitudes_are_the_same_fit():
+    # what `single_transit` relies on: a one-event box has one night, so a depth for each night is
+    # the depth of the only night, and `_shape_excess` is unchanged by the second reading
+    det = BlsDetector()
+    t = night_times(1)
+    box = Box(2.0 * DAY, 0.14 * DAY, 3 * 3600.0, 0.04, 0, len(t), 0.0)
+    for flux in (
+        eclipsing(t, 2.0, 0.14, 4.0, 0.05, 0.0),
+        ramped(t, 2.0, 0.14, 3.0, 0.05),
+    ):
+        flux = flux * (1.0 + np.random.default_rng(0).normal(0.0, 0.004, len(t)))
+        fit = det._shape_gains(t, flux, np.zeros(len(t), dtype=np.int64), box)
+        assert fit.g_box == fit.g_box_night > 0 and fit.g_triangle == fit.g_triangle_night > 0
+
+
+def test_the_chi_square_threshold_is_validated_and_off_with_none():
+    assert BlsDetector().shape_chi2 == 14.0
+    assert BlsDetector(shape_chi2=None).shape_chi2 is None
+    for bad in (0, -1.0):
+        with pytest.raises(ValueError):
+            BlsDetector(shape_chi2=bad)
+    _, cv = eb_leak("one-sided")
+    assert BlsDetector(shape_threshold=None).search(cv, C).shape_chi2 is None  # the gate is off
+    assert BlsDetector().search(cv, C).shape_chi2 is not None
+
+
+def test_an_accepted_planet_records_a_negative_chi_square_advantage():
+    _, _, cv = planted()
+    cand = BlsDetector().search(cv, C)
+    assert cand.rejected is None and cand.shape_chi2 is not None and cand.shape_chi2 < 0
 
 
 # -- planet-free stars (#39): a sinusoid is told from a box with the nights' levels free -------

@@ -756,6 +756,24 @@ class Candidate:
     shape: float | None = None
     sine_ratio: float | None = None
     snr_clean: float = math.nan
+    shape_chi2: float | None = None
+
+
+@dataclass(frozen=True)
+class _ShapeFit:
+    """What :meth:`BlsDetector._shape_gains` fitted to the box's event nights.
+
+    The ``g`` are chi-square gains in flux units (``sigma**2`` times the chi-square): of the best
+    box and the best triangle with one amplitude for all the nights, and with an amplitude for
+    each night. `scatter` is the rms residual of the best box with an amplitude and a level for
+    each night (0 when the nights hold no more samples than parameters).
+    """
+
+    g_box: float
+    g_triangle: float
+    g_box_night: float
+    g_triangle_night: float
+    scatter: float
 
 
 def frequency_grid(
@@ -1078,6 +1096,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
+        shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
         flare_fraction: float = 0.03,
         flare_snr_threshold: float = 7.2,
@@ -1117,6 +1136,8 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
+        if shape_chi2 is not None and not shape_chi2 > 0:
+            raise ValueError(f"shape_chi2 must be > 0 or None, got {shape_chi2}")
         if guard_night_ratio is not None and not guard_night_ratio > 0:
             raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
         if not 0 < flare_fraction <= 1:
@@ -1147,6 +1168,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
+        self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
         self.flare_fraction = flare_fraction
         self.flare_snr_threshold = flare_snr_threshold
@@ -1293,29 +1315,39 @@ class BlsDetector:
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
         return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
 
-    def _shape_excess(
-        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
-    ) -> float:
-        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+    def _shape_gains(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box
+    ) -> _ShapeFit | None:
+        """The shape test's fits to the box's event nights, or None for no verdict.
 
         An eclipse is V-shaped, a transit has a flat bottom, and a box fit to a V sits on its core
         (the grid stops at 6 h, a binary's eclipse can last 13 h). The samples of the nights that
         hold an event are put at their offset from the nearest event centre (`x`). Two families of
-        templates are fitted to the dip ``1 - flux`` with a free depth and a free level for every
-        night (the nights were divided by their own medians, which an event distorts): boxes of
-        a geometric ladder of widths from the shortest to the longest duration, and triangles
+        templates are fitted to the dip ``1 - flux`` with a free level for every night (the nights
+        were divided by their own medians, which an event distorts): boxes of a geometric ladder
+        of widths from the shortest to the longest duration, and triangles
         (``max(0, 1 - 2|x| / w)``, base ``w``) from the shortest duration to
         ``_SHAPE_TRIANGLE_SPAN`` times the longest, never wider than the period. Both are tried at
         centres within ``_SHAPE_SHIFT_H`` of the box in steps of ``_SHAPE_SHIFT_STEP`` of their
-        width, so that a V is not preferred only because it forgives a centre the phase bins
-        (15 minutes) and the period grid placed badly: a 0.8 h transit fit with a centre a
-        quarter hour off read as a V. With ``g`` the largest chi-square gain
-        (``sigma**2`` times it, in flux units) of each family the result is ``(g_triangle -
-        g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) / S/N``, which
-        does not grow with the signal. A box-shaped dip makes the box win and the result negative
-        (the least squares gain of a triangle on a box is at most 0.89 of the box's); a V makes it
-        positive. Zero when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples or no
-        dip fits either family.
+        width, each night at the centre where it fits best, so that a V is not preferred only
+        because it forgives a centre the phase bins (15 minutes) and the period grid placed badly:
+        a 0.8 h transit fit with a centre a quarter hour off read as a V. A night whose every
+        centre has a non-positive score (it brightens where the dip should be) adds nothing.
+
+        The chi-square gain of a family is ``sigma**2`` times the largest over its widths (in flux
+        units) of either
+
+        * ``g``: one amplitude for all the nights (a transit repeats; the gain is ``(sum of
+          num)**2 / sum of den``), or
+        * ``g_night``: an amplitude for each night (``sum of num**2 / den`` over the nights with
+          a positive amplitude): the events of an eclipsing binary are not all the same slice of
+          the same eclipse (the box at half its period alternates primary and secondary, and a
+          night at the edge holds a steep wing), and one depth then fits the V worse than the box.
+
+        The residual scatter of the best box with an amplitude for each night is returned with the
+        gains: the amplitude for each night can absorb noise that is not white, and a gain
+        measured against the star's MAD scale (the white core of the noise) would then read as
+        shape. None when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples.
         """
         period = box.period_s
         cycle = np.rint((t - box.epoch_s) / period)
@@ -1323,7 +1355,7 @@ class BlsDetector:
         events = np.unique(night[np.abs(x) <= box.duration_s / 2.0])
         nights = np.isin(night, events)
         if int(nights.sum()) < _SHAPE_MIN_SAMPLES:
-            return 0.0
+            return None
         x = x[nights]
         dip = 1.0 - flux[nights]
         k = np.unique(night[nights], return_inverse=True)[1]
@@ -1336,9 +1368,9 @@ class BlsDetector:
 
         reach = _SHAPE_SHIFT_H * HOUR_S
 
-        def best_gain(widths: np.ndarray, triangle: bool) -> float:
-            """Largest chi-square gain over the widths, each night centred where it fits best."""
-            best = 0.0
+        def best_gains(widths: np.ndarray, triangle: bool) -> tuple[float, float]:
+            """Largest chi-square gain over the widths, one amplitude and one for each night."""
+            best = best_night = 0.0
             for w in widths:
                 num = []
                 den = []
@@ -1354,18 +1386,76 @@ class BlsDetector:
                 )
                 pick = score.argmax(axis=0)
                 cols = np.arange(len(pick))
-                total, norm = float(num_a[pick, cols].sum()), float(den_a[pick, cols].sum())
+                live = score[pick, cols] > 0  # a night with no positive score adds nothing
+                num_k = np.where(live, num_a[pick, cols], 0.0)
+                den_k = np.where(live, den_a[pick, cols], 0.0)
+                total, norm = float(num_k.sum()), float(den_k.sum())
                 if total > 0 and norm > 0:
                     best = max(best, total * total / norm)
-            return best
+                    best_night = max(
+                        best_night, float((num_k**2 / np.where(live, den_k, 1.0)).sum())
+                    )
+            return best, best_night
 
         lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
         wide = np.geomspace(lo, _SHAPE_TRIANGLE_SPAN * hi, _SHAPE_TRIANGLE_STEPS)
-        g_box = best_gain(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
-        g_triangle = best_gain(wide[wide <= period], triangle=True)
+        g_box, g_box_night = best_gains(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
+        g_tri, g_tri_night = best_gains(wide[wide <= period], triangle=True)
+        spread = float(np.sum((dip - (np.bincount(k, weights=dip) / count)[k]) ** 2))
+        dof = len(dip) - 2 * len(count)
+        scatter = math.sqrt(max(spread - g_box_night, 0.0) / dof) if dof > 0 else 0.0
+        return _ShapeFit(g_box, g_tri, g_box_night, g_tri_night, scatter)
+
+    @staticmethod
+    def _shape_ratio(g_box: float, g_triangle: float, sigma: float) -> float:
+        """``(g_triangle - g_box) / (sigma * sqrt(g_box))``: 0 when no box fits a dip."""
         if not g_box > 0:
             return 0.0
         return (g_triangle - g_box) / (sigma * math.sqrt(g_box))
+
+    def _shape_excess(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> float:
+        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+
+        The fits of :meth:`_shape_gains` with one amplitude for all the nights. With ``g`` the
+        largest chi-square gain (``sigma**2`` times it, in flux units) of each family the result
+        is ``(g_triangle - g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) /
+        S/N``, which does not grow with the signal. A box-shaped dip makes the box win and the
+        result negative (the least squares gain of a triangle on a box is at most 0.89 of the
+        box's); a V makes it positive. Zero when the box's nights hold fewer than
+        ``_SHAPE_MIN_SAMPLES`` samples or no dip fits either family. ``single_transit`` reads it
+        as a one-event box (one night, where the two amplitudes of the fits are the same).
+        """
+        fit = self._shape_gains(t, flux, night, box)
+        if fit is None:
+            return 0.0
+        return self._shape_ratio(fit.g_box, fit.g_triangle, sigma)
+
+    def _shape_test(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> tuple[float, float]:
+        """``(statistic, chi-square advantage)`` of the shape gate (both 0 if no verdict).
+
+        The statistic is the larger of :meth:`_shape_excess` (one amplitude for all the nights)
+        and the same ratio with an amplitude for each night. The advantage is the chi-square
+        by which the best triangle beats the best box with an amplitude for each night,
+        ``(g_triangle_night - g_box_night) / sigma**2``; unlike the statistic it is not divided
+        by the S/N. Both of the readings with an amplitude for each night use the larger of
+        `sigma` and the box's residual scatter on these nights as the noise.
+        """
+        fit = self._shape_gains(t, flux, night, box)
+        if fit is None:
+            return 0.0, 0.0
+        noise = max(sigma, fit.scatter)
+        shape = max(
+            self._shape_ratio(fit.g_box, fit.g_triangle, sigma),
+            self._shape_ratio(fit.g_box_night, fit.g_triangle_night, noise),
+        )
+        advantage = (
+            (fit.g_triangle_night - fit.g_box_night) / noise**2 if fit.g_box_night > 0 else 0.0
+        )
+        return shape, advantage
 
     def _dip_mask(self, t: np.ndarray, flux: np.ndarray, box: Box, sigma: float) -> tuple[Box, ...]:
         """Windows (boxes at the best period) that cover the box's dip and its secondary.
@@ -1698,6 +1788,7 @@ class BlsDetector:
             excess: float | None = None,
             shape: float | None = None,
             sine_ratio: float | None = None,
+            shape_chi2: float | None = None,
         ) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
@@ -1716,6 +1807,7 @@ class BlsDetector:
                 shape=shape,
                 sine_ratio=sine_ratio,
                 snr_clean=snr_clean,
+                shape_chi2=shape_chi2,
             )
 
         local_bar = self.snr_threshold
@@ -1739,13 +1831,15 @@ class BlsDetector:
                 pulsating = ratio >= self.guard_night_ratio
             if pulsating:
                 return reject("pulsation guard", r, sine_ratio=ratio)
-        shape = None
+        shape = advantage = None
         if self.shape_threshold is not None:
-            shape = self._shape_excess(t, flux, night, sigma, box)
-            if shape >= self.shape_threshold:
-                return reject("shape", r, shape)
+            shape, advantage = self._shape_test(t, flux, night, sigma, box)
+            if shape >= self.shape_threshold or (
+                self.shape_chi2 is not None and advantage >= self.shape_chi2
+            ):
+                return reject("shape", r, shape, shape_chi2=advantage)
         if not snr_clean >= self.snr_threshold:  # also a box whose every event follows a flare
-            return reject("flare tails", r, shape, ratio)
+            return reject("flare tails", r, shape, ratio, advantage)
         return Candidate(
             box,
             sigma,
@@ -1759,6 +1853,7 @@ class BlsDetector:
             shape=shape,
             sine_ratio=ratio,
             snr_clean=snr_clean,
+            shape_chi2=advantage,
         )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
