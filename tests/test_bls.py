@@ -1617,6 +1617,20 @@ def test_the_shape_statistic_is_positive_for_a_v_and_negative_for_a_box():
     assert det._shape_excess(t, flat, night, 0.005, box) < -1.5
 
 
+def test_the_shape_statistic_gives_no_verdict_on_a_handful_of_samples():
+    det = BlsDetector()
+    box = Box(2.0 * DAY, 0.14 * DAY, 3 * 3600.0, 0.05, 5, 9, 0.0)
+    t = 0.14 * DAY + np.array(
+        [-5400.0, -3600.0, -1800.0, 0.0, 1800.0, 3600.0, 5400.0, 7200.0, -7200.0]
+    )
+    flux = 1.0 - 0.05 * np.clip(1.0 - np.abs(t - 0.14 * DAY) / 5400.0, 0.0, None)
+    assert len(t) < 10
+    assert det._shape_excess(t, flux, np.zeros(len(t), dtype=np.int64), 0.005, box) == 0.0
+    t = np.concatenate([t, t + 60.0 * 40])  # the same V sampled twice as densely: now a verdict
+    flux = np.concatenate([flux, flux])
+    assert det._shape_excess(t, flux, np.zeros(len(t), dtype=np.int64), 0.005, box) != 0.0
+
+
 def test_the_shape_statistic_is_zero_without_samples_in_the_box():
     det = BlsDetector()
     t = night_times(4)
