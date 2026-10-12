@@ -183,6 +183,7 @@ class NightBox:
     n_out: int
     sigma: float
     snr: float
+    shape: float | None = None  # the shape test's statistic (None when it was not run)
 
 
 def search_night(
@@ -267,6 +268,7 @@ class SingleTransitDetector:
         contrast: bool = True,
         guards: bool = True,
         mask_pad_h: float = 0.5,
+        shape_threshold: float | None = 1.0,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -278,6 +280,8 @@ class SingleTransitDetector:
             raise ValueError(f"min_out must be >= 1, got {min_out}")
         if mask_pad_h < 0:
             raise ValueError(f"mask_pad_h must be >= 0, got {mask_pad_h}")
+        if shape_threshold is not None and not shape_threshold > 0:
+            raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         self.snr_threshold = snr_threshold
         self.durations_h = tuple(sorted(durations_h))
         self.min_in = min_in
@@ -285,6 +289,7 @@ class SingleTransitDetector:
         self.contrast = contrast
         self.guards = guards
         self.mask_pad_h = mask_pad_h
+        self.shape_threshold = shape_threshold
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -361,24 +366,52 @@ class SingleTransitDetector:
         rejected, _ = self._bls._pulsating(t, flux, sigma, cadence_s, box)
         return rejected
 
-    def _star(
+    # -- shape test ------------------------------------------------------------------------
+
+    def _shape(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, b: NightBox, cadence_s: int
+    ) -> float:
+        """The `bls` shape statistic of one night's box, read as a one-event box.
+
+        A triangle against a box fitted to the night's dip, both with a free level
+        (:meth:`BlsDetector._shape_excess`): positive for a V, negative for a flat bottom, zero
+        when the night holds too few samples for a verdict. `sigma` is the night's scatter
+        outside the box (the star-wide scatter ``bls`` passes is not defined here).
+        """
+        on = night == b.night
+        box = Box(
+            period_s=_ONE_EVENT_PERIOD_S,
+            epoch_s=(b.t_start + b.t_end) / 2.0,
+            duration_s=float(b.t_end - b.t_start + cadence_s),
+            depth=b.depth,
+            n_in=b.n_in,
+            n_total=int(on.sum()),
+            power=0.0,
+        )
+        return self._bls._shape_excess(
+            t[on], flux[on], np.zeros(int(on.sum()), dtype=np.int64), b.sigma, box
+        )
+
+    def _star_boxes(
         self,
         star_id: int,
         c: _Clean,
         common_mode: tuple[np.ndarray, np.ndarray] | None,
         cadence_s: int,
-    ) -> list[Detection]:
+    ) -> tuple[list[NightBox], tuple[np.ndarray, np.ndarray, np.ndarray]]:
+        """The star's reportable boxes after the guards, with the arrays they were found in."""
         t, flux, night, _ = self._bls._prepare(c, common_mode)
+        none: list[NightBox] = []
         if len(t) < self.min_in + self.min_out:
-            return []
+            return none, (t, flux, night)
         boxes = self._boxes(t, flux, night, cadence_s)
         if not boxes:
-            return []
+            return none, (t, flux, night)
         if self.guards and self._pulsating(t, flux, night, boxes, cadence_s):
             cand = self._bls._search(c, common_mode, cadence_s, plan_mask=True)
             if cand is None or cand.rejected != "pulsation guard" or not cand.mask:
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
-                return []
+                return none, (t, flux, night)
             drop = np.zeros(len(t), dtype=bool)
             # bls pads each window by one box duration per side; a box here is at least
             # `mask_pad_h` wide, so a narrower leftover is not a candidate
@@ -398,10 +431,27 @@ class SingleTransitDetector:
             boxes = self._boxes(t, flux, night, cadence_s) if len(t) >= self.min_in else []
             if not boxes or self._pulsating(t, flux, night, boxes, cadence_s):
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
-                return []
+                return none, (t, flux, night)
             log.info(
                 "single_transit star %s: eclipses masked (%d windows)", star_id, len(cand.mask)
             )
+        if self.shape_threshold is not None:
+            boxes = [replace(b, shape=self._shape(t, flux, night, b, cadence_s)) for b in boxes]
+        return boxes, (t, flux, night)
+
+    def _star(
+        self,
+        star_id: int,
+        c: _Clean,
+        common_mode: tuple[np.ndarray, np.ndarray] | None,
+        cadence_s: int,
+    ) -> list[Detection]:
+        boxes, _ = self._star_boxes(star_id, c, common_mode, cadence_s)
+        if self.shape_threshold is not None and any(
+            b.shape is not None and b.shape >= self.shape_threshold for b in boxes
+        ):
+            log.info("single_transit star %s: V-shaped event, read as an eclipse", star_id)
+            return []
         out = []
         for k, b in enumerate(boxes):
             out.append(
