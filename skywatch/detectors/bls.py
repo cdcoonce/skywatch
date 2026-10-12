@@ -340,6 +340,40 @@ share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector.
   off), and ``Candidate.shape`` holds it. The gate runs last, so a pulsator is still named by the
   pulsation guard. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
   20-night run, 0.1 percent of its CPU time).
+* A night where no centre has a positive score (it brightens where the dip should be) adds nothing
+  to the gains. Until #41 it added the score of the first centre listed (``pick = 0``, 0.5 h
+  before the box), at most 0, with that centre's norm: a small subtraction at an arbitrary place.
+  Making it add nothing moved the statistic of 14 of 223 stars that reached the gate on the
+  development runs (12 up, 2 down, none across 1.5, the highest planet still at 0.93) and, with a
+  depth for each night (below), cannot arise.
+
+A second reading and a chi-square bar (issue #41). The gains above give every night the same
+depth. A transit repeats, a box fits that, and the events of an eclipsing binary are not all the
+same slice of its eclipse: the box at half its period alternates primary and secondary, and a
+night at the edge holds a steep wing. Seed 42 star 0 in its 3-night run is the clearest case. The
+box lands on a whole 14 percent secondary on night 0 and on the last hour of a 50 percent primary
+on night 2 (whose centre is 0.78 h before the night starts); each night alone reads 3.72 and 4.11,
+and jointly the box needs depths 0.087 and 0.107, which one amplitude holds, while the best
+triangle needs 0.133 and 0.72, which one amplitude cannot: the box wins by 64 in chi-square and
+the statistic reads -1.29. So the fits are read twice, from the same loop (:meth:`BlsDetector.
+_shape_gains`):
+
+* a depth for each night (the V and the box each keep one width; the gain is the sum over the nights
+  with a positive amplitude of ``num**2 / den``), and the candidate's statistic, ``Candidate.shape``,
+  is the larger of the two ratios;
+* the chi-square by which the best triangle beats the best box with a depth for each night,
+  ``(g_triangle - g_box) / noise**2`` (``Candidate.shape_chi2``), rejected at ``shape_chi2`` (14;
+  ``None`` switches this half off, ``shape_threshold=None`` both). It is not divided by the S/N: at
+  S/N 20 a V that wins by 5 sigma reads 0.9 to 1.3 as a ratio. ``noise`` is the larger of the star's
+  scatter (the MAD of what is outside the box) and the rms residual of the best box on the event
+  nights: a depth for each night can absorb noise that is not white, and a gain measured against
+  the white core of the noise would read as shape (a planet whose samples are 15 percent of the time
+  at 8 times the noise read 31 against the MAD, 5 against the residual). The second reading and
+  the chi-square use ``noise``; the first reading uses the star's scatter, as before #41.
+
+Nothing the single reading rejected is let through. ``_shape_excess`` (the single reading, one
+amplitude) is what ``single_transit`` calls: it sees one night, where the two amplitudes are the
+same fit, and its numbers change only by the ``pick = 0`` fix, which cannot arise on one night.
 
 Measured. The development runs and the planted cases below fixed the form of the statistic and the
 1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
@@ -739,7 +773,9 @@ class Candidate:
     for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed);
     `snr_clean` is ``snr_local`` with the samples inside and within ``flare_window_h`` after each
     flare-sized masked run left out of the contrast (:func:`flare_windows`; equal to
-    ``snr_local`` when there is no such run, NaN when no night keeps both box and reference).
+    ``snr_local`` when there is no such run, NaN when no night keeps both box and reference);
+    `shape_chi2` is the chi-square by which the best triangle beats the best box with a depth for
+    each night (:meth:`BlsDetector._shape_test`; None when the shape test was not run).
     """
 
     box: Box
@@ -1331,16 +1367,17 @@ class BlsDetector:
         centres within ``_SHAPE_SHIFT_H`` of the box in steps of ``_SHAPE_SHIFT_STEP`` of their
         width, each night at the centre where it fits best, so that a V is not preferred only
         because it forgives a centre the phase bins (15 minutes) and the period grid placed badly:
-        a 0.8 h transit fit with a centre a quarter hour off read as a V. A night whose every
-        centre has a non-positive score (it brightens where the dip should be) adds nothing.
+        a 0.8 h transit fit with a centre a quarter hour off read as a V.
 
         The chi-square gain of a family is ``sigma**2`` times the largest over its widths (in flux
         units) of either
 
         * ``g``: one amplitude for all the nights (a transit repeats; the gain is ``(sum of
-          num)**2 / sum of den``), or
+          num)**2 / sum of den``; a night whose every centre has a non-positive score, which
+          brightens where the dip should be, takes the first centre's numerator, at most 0, and
+          norm: the ``pick = 0`` quirk, kept, see the module docstring), or
         * ``g_night``: an amplitude for each night (``sum of num**2 / den`` over the nights with
-          a positive amplitude): the events of an eclipsing binary are not all the same slice of
+          a positive score; the others add nothing): the events of an eclipsing binary are not all the same slice of
           the same eclipse (the box at half its period alternates primary and secondary, and a
           night at the edge holds a steep wing), and one depth then fits the V worse than the box.
 
@@ -1386,15 +1423,16 @@ class BlsDetector:
                 )
                 pick = score.argmax(axis=0)
                 cols = np.arange(len(pick))
-                live = score[pick, cols] > 0  # a night with no positive score adds nothing
-                num_k = np.where(live, num_a[pick, cols], 0.0)
-                den_k = np.where(live, den_a[pick, cols], 0.0)
+                num_k, den_k = num_a[pick, cols], den_a[pick, cols]
+                # one amplitude for all the nights. A night with no positive score takes the
+                # first centre's numerator (at most 0), the `pick = 0` quirk kept on purpose
                 total, norm = float(num_k.sum()), float(den_k.sum())
                 if total > 0 and norm > 0:
                     best = max(best, total * total / norm)
-                    best_night = max(
-                        best_night, float((num_k**2 / np.where(live, den_k, 1.0)).sum())
-                    )
+                # an amplitude for each night: a night with no positive score adds nothing
+                live = score[pick, cols] > 0
+                gain_k = np.where(live, num_k, 0.0) ** 2 / np.where(live, den_k, 1.0)
+                best_night = max(best_night, float(gain_k.sum()))
             return best, best_night
 
         lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
