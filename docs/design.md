@@ -249,6 +249,30 @@ Planned detectors, in order:
    event `min_events` asks for (dev seed 44 star 44; about 1 in 120 such stars on 240
    synthetic cases, and nothing on `main`). The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
+
+   The last gate is a shape test (issue #36). `main` reported 40 eclipse detections as
+   transits on the 27 development runs (8 of 428 binaries, 5 of them with every reported event
+   the same eclipse, so an odd-even or half-phase test had nothing to compare); the pulsation
+   guard was far from rejecting them (twice the sine power over the box's chi-square 0.09 to
+   0.38, residual power over the false-alarm level 0.37 to 0.90, against 1). Nights holding a
+   box event are fitted with the best box and the best triangle (a V; a free level per night,
+   each night centred within 0.5 h), and the candidate is rejected when `(g_triangle - g_box) /
+   (sigma sqrt(g_box))`, about the chi-square advantage per unit of S/N, reaches
+   `shape_threshold` = 1.5 (`Candidate.shape`, `rejected == "shape"`). Chosen on the
+   development runs and planted cases (172 planted planets reaching the gate: highest 1.04;
+   66 development planets: highest 0.93). Development, branch against `main`: transit true
+   positives 202 to 202, false positives 56 to 56, eclipses reported as transits 40 to 3 (the
+   3-night runs). Held-out seeds 21-26, scored once (the seeds on which #36 found the leak):
+   transit true positives 46 to 46, false positives 6 to 6, eclipses reported as transits 13
+   to 0, no pulsator reported as a transit; `single_transit` unchanged on 10 runs. Never-seen
+   seeds 61-66 (reviewed after the numbers above were fixed): true positives 69 to 69, false
+   positives 18 to 18, eclipses reported as transits 26 to 5; the planet hosts read at most 0.12,
+   and the remaining leak is seed 64 star 195, a 7.04 h eclipse in 8 h nights, statistic 0.70.
+   A V that fills the nights is not told from a box (seed 7's 3-night binary, a 12.7 h eclipse);
+   seed 42's 3-night binary has a 2.4 h eclipse that does not fill them: its two event nights
+   read 3.72 and 4.11 fitted alone and -1.29 jointly, cause not established. The margins are thin
+   on the binary side (eclipses at 1.7 and 1.8, and 0.70 on the unseen seeds; a planet at 0.93 on
+   development, 0.12 on the unseen seeds).
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
    preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every

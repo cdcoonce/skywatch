@@ -85,6 +85,7 @@ The best box per star is a candidate when all of these hold, tested in this orde
 * At least ``min_events`` nights each show the dip at ``support_snr`` (2.0) on their own, so
   one bad night cannot make a candidate.
 * The pulsation guard passes (below).
+* The shape guard passes (below).
 
 Pulsation guard
 ---------------
@@ -105,6 +106,90 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   second eclipse. The false-alarm level is ``ln(M / guard_fap)``, ``M`` the number of
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
+
+Shape guard
+-----------
+An eclipsing binary seen on few nights passes the pulsation guard, and a box fit to its V sits on
+its core. At ``main`` (before this gate), 27 development runs (the stored seed 7 and 42 runs at 3
+and 20 nights, seeds 11-14 and 31-50 at 20 nights; issue #36) reported 40 detections of eclipses as
+transits, on 8 of the 428 binaries in them. The pulsation guard was nowhere near rejecting them:
+twice the best sine's power over the box's chi-square was 0.09 to 0.38 (it rejects at 1) and the
+residual's power over the false-alarm level 0.37 to 0.90 (it rejects at 1). The box was 1 to 3 h
+wide on eclipses of 1.5 to 13.5 h. On 5 of the 8 every reported event was the same eclipse (the core
+of the other was never inside a predicted window; only its wings reached a night), so an odd-even
+depth test or a half-phase secondary search had nothing to compare there: a per-night odd-even
+contrast at ``|z| >= 3`` would have removed 2 of the 8 stars (20 of the 40 detections). What all 8
+share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector._shape_excess`):
+
+* The samples of the nights that hold a box event are put at their offset ``x`` from the nearest
+  event centre, and the dip ``1 - flux`` is fitted with two families of templates, each with a free
+  depth and a free level for every night: boxes (15 widths in a geometric ladder from the shortest
+  to the longest of ``durations_h``) and triangles (``max(0, 1 - 2|x| / w)``, 23 widths from the
+  shortest duration to 4 times the longest, none wider than the period).
+* Each night takes its own centre within 0.5 h of the box, in steps of a tenth of the template's
+  width, for both families. The phase bins are 15 minutes wide and the period grid's step lets the
+  last events sit up to a third of the shortest duration (10 minutes) off, which a 0.8 h flat dip
+  cannot forgive: with one centre for all nights planted 0.8 h transits read as a V at 1.4 and 2.4,
+  against the threshold of 1.5.
+* With ``g_box`` and ``g_triangle`` the largest chi-square gains of the two families (in flux units,
+  ``amplitude**2 * template.template``), the statistic is ``(g_triangle - g_box) / (sigma *
+  sqrt(g_box))``: about ``(chi2 of the triangle - chi2 of the box) / S/N``, so it does not grow with
+  the signal. A box-shaped dip makes it negative, a V positive. The candidate is rejected
+  (``rejected == "shape"``) when it reaches ``shape_threshold`` (1.5; ``None`` switches the gate
+  off), and ``Candidate.shape`` holds it. The gate runs last, so a pulsator is still named by the
+  pulsation guard. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
+  20-night run, 0.1 percent of its CPU time).
+
+Measured. The development runs and the planted cases below fixed the form of the statistic and the
+1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
+development runs, six of the eight binaries read 7.5, 6.6, 4.2, 3.7, 1.8 and 1.7 and the two 3-night
+ones 0.13 (seed 7 star 143: a 12.7 h eclipse that fills the 8 h nights) and -1.29 (seed 42 star 0: a
+2.4 h eclipse, 50 and 15 percent deep, that does not fill them; its two event nights read 3.72 and 4.11
+when each is fitted alone, so it is the joint fit that loses it, one depth and one width for both
+nights, and why is not established); of the other 101 stars the highest are 1.29 (a
+flare star's false positive), 1.12 (a pulsating star reported as a transit, 20 events), 0.97 and
+0.96 (false positives) and 0.93 (a planet: the highest of the 66 planets, the next 0.46), and the 9
+candidates found by detrending a pulsation read -4.6 to -0.4. The branch against ``main`` on those
+27 runs: transit true positives 202 to 202, false positives (all kinds) 56 to 56, eclipses reported
+as transits 40 to 3 (the three are on the 3-night runs), pulsations reported as transits 52 to 52.
+Planted, 20 nights: of 300 planets drawn as the world draws them (ramps of 10 percent, 0.5 to 6 h,
+depth 0.5 to 3 percent, noise 0.3 to 2 percent) 172 reach the gate and the highest statistic is 1.04
+(three at 0.5 or more); of 600 binaries drawn as the world draws them only 3 reach it, at 0.62 (a 13
+h eclipse at S/N 19 that fills the nights), 3.6 and 4.5. Held-out, scored once (seeds 21-26, 200
+stars, 20 nights; they are the seeds on which #36 found the leak, so they are held out from every
+threshold but not from the choice of the problem): transit true positives 46 to 46, false positives
+6 to 6, eclipses reported as transits 13 to 0 (four binaries, nothing else changed), pulsations
+reported as transits 0 to 0. ``single_transit``, which reads ``Candidate.rejected``, reports the
+same detections span for span and score for score on 4 development runs (seeds 7 and 42, 3 and
+20 nights) and the 6 held-out ones.
+
+Never-seen seeds 61-66 (200 stars, 20 nights; reviewed after the numbers above were fixed): transit
+true positives 69 to 69, false positives 18 to 18, eclipses reported as transits 26 to 5, pulsations
+reported as transits 29 to 29 (planet-free sinusoidal stars, which the gate does not touch). Of the 36
+stars either version reports, the planet hosts read at most 0.12 (23 of them), the flare stars -0.79
+to -3.09, and the four binaries 5.51, 5.09, 3.43 and 0.70. The remaining leak is seed 64 star 195, a
+7.04 h eclipse in 8 h nights (88 percent of a night; 5 events, S/N 19.2, statistic 0.70). The planets
+sit far from the gate on these seeds; the thin margin is on the binary side.
+
+``scripts/bls_shape_audit.py`` prints the statistic of every star a run would report.
+
+The centring window (``_SHAPE_SHIFT_H``, 0.5 h) is pinned on both sides by behaviour: at 0 h planets
+with ramps read 1.95 and 2.75 (development seeds 40 and 33), and with a 2 h window a 2 h transit
+beside a shallow V that reads 2.3 to 2.9 at 0.5 h reads 0.3 to 0.9 (both in ``tests/test_bls.py``).
+The 0.5 h itself is a choice with a stated rationale (the phase bins and the period grid), not a
+measured optimum: on 11 audited runs a 2 h window kept every binary above 1.5 and every planet below
+0.54. The triangle's cap at the period binds only for periods of 0.5 to 1 d (4 x 6 h = 24 h) and
+changes the statistic of a pure V train by under 3 percent (P 0.7 d: 13.97 against 14.36); a
+tuned test pins it, no planted planet reaches it.
+
+Limits of the gate: a V that fills most of every night is not told from a box (seed 7's 3-night
+binary above, and the unseen 7 h eclipse in 8 h nights), and seed 42's 3-night binary, whose eclipse
+does not fill the nights, is lost for a reason not established; the margin is thin at both ends (the
+eclipses at 1.7 and 1.8 and a planet at 0.93, against 1.5; a planted "both eclipses seen" binary
+reads 1.6 and 1.9); an eclipse wider than the nights has little curvature left to read. A shape-
+rejected star plans the second pass's mask like any other rejection and its re-search refuses the
+first period and its halves and double like a pulsation rejection (``second_pass`` was not measured
+with the gate).
 
 Pulsating hosts
 ---------------
@@ -177,10 +262,10 @@ without the real transit; on ``main`` these stars give nothing).
 Second pass
 -----------
 ``second_pass`` (**off by default**) searches a star once more when its best box is rejected by
-any gate except the S/N gate (local S/N, events, support, pulsation guard); a box too weak for
-the S/N gate means no other box on the star is strong either. Without it a star's strongest box
-decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
-(seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
+any gate except the S/N gate (local S/N, events, support, pulsation guard, shape guard); a box too
+weak for the S/N gate means no other box on the star is strong either. Without it a star's
+strongest box decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet
+of S/N 39 (seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
 
 Measured, and why it is opt-in. On the stored 20-night runs the second pass recovers seed 7
 star 138 (a planet on an eclipsing binary, both transits bounded; the reported period is the
@@ -189,7 +274,8 @@ one false positive on seed 42 (star 94, a flare star); the 3-night rows are unch
 held-out seeds 21-26 (200 stars, 20 nights) it added no true transit, 3 false positives and
 1 eclipse mistaken for a transit, at 1.22 times the single-pass time, so it is off. The first
 pass alone, on the same six seeds, scored 30 transit true positives, 6 false positives, 13
-eclipses reported as transits and no pulsator reported as a transit; 5 of the 14 strong
+eclipses reported as transits and no pulsator reported as a transit (before the pulsation
+detrending and the shape guard); 5 of the 14 strong
 planets there sit on pulsating hosts and are rejected by the pulsation guard, which the
 re-search does not recover (its mask has nothing to take out of a sinusoid).
 
@@ -216,9 +302,9 @@ downwards in phase). The mask is:
 The masked samples count as not observed: they leave the search, the statistics, the guard and
 the event list, and each night is divided by the median of what is left. The result is a
 candidate in its own right and must pass every gate; when the first box was rejected by the
-pulsation guard it is also refused (``rejected == "alias"``) if its period is the first
-period or half or twice it to 2 percent, where the residue of a binary or a pulsator repeats
-(the period of a box refused for lack of events is arbitrary and no alias is applied). One
+pulsation guard or the shape guard it is also refused (``rejected == "alias"``) if its period is
+the first period or half or twice it to 2 percent, where the residue of a binary or a pulsator
+repeats (the period of a box refused for lack of events is arbitrary and no alias is applied). One
 re-search at most: a rejected second candidate ends the star. The outcome is logged at INFO
 (``bls star 138: re-search found P 1.145 d, S/N 38.6 (local 29.3): accepted``).
 
@@ -276,6 +362,12 @@ _TREND_SLOW_F_MIN = 0.1  # cycles/day: the slowest sinusoid tried when asking if
 _TREND_SLOW_STEP = 0.01  # ... and the step between the frequencies tried
 _TREND_PEAKS = 6  # Fourier peaks placed by least squares, the best of which is the sinusoid
 _TREND_REFINE_STEPS = 14  # golden-section steps that place a pulsation's frequency
+_SHAPE_BOX_STEPS = 15  # box widths tried by the shape test: a geometric ladder of this many
+_SHAPE_TRIANGLE_STEPS = 23  # ... and triangle widths, from the shortest box to 4x the longest
+_SHAPE_TRIANGLE_SPAN = 4.0
+_SHAPE_SHIFT_H = 0.5  # both shapes are centred within this many hours of the box ...
+_SHAPE_SHIFT_STEP = 0.1  # ... in steps of this fraction of their width
+_SHAPE_MIN_SAMPLES = 10  # fewer samples on the box's nights than this: no verdict
 _CHUNK_ELEMENTS = 1_000_000  # periods per chunk = this // n samples (keeps arrays cache-sized)
 
 
@@ -368,14 +460,15 @@ class Candidate:
     """A star's best box and what became of it.
 
     `rejected` is None for a reportable candidate, else the first gate that failed:
-    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"`` or ``"pulsation guard"``
-    (``"alias"`` for a re-search that found the first box's period again).
+    ``"snr"``, ``"local snr"``, ``"min_events"``, ``"support"``, ``"pulsation guard"`` or
+    ``"shape"`` (``"alias"`` for a re-search that found the first box's period again).
     `events` are the predicted in-night windows ``(t_start, t_end, night)`` (empty once
     rejected); `excess` is the guard's strongest residual-sinusoid power (None if not
     computed); `alternative` is ``(period_s, power / best power)`` of the strongest
     unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
     only for a rejection other than ``"snr"``); `trend` is ``(cycles/day, amplitude)`` of the
-    sinusoid that was subtracted before this box was found (None when none was).
+    sinusoid that was subtracted before this box was found (None when none was); `shape` is
+    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run).
     """
 
     box: Box
@@ -389,6 +482,7 @@ class Candidate:
     supported_nights: int = 0
     mask: tuple[Box, ...] = ()
     trend: tuple[float, float] | None = None
+    shape: float | None = None
 
 
 def frequency_grid(
@@ -710,6 +804,7 @@ class BlsDetector:
         detrend_pulsation: bool = True,
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
+        shape_threshold: float | None = 1.5,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -742,6 +837,8 @@ class BlsDetector:
             raise ValueError(f"trend_min_ratio must be >= 1, got {trend_min_ratio}")
         if not trend_snr_threshold > 0:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
+        if shape_threshold is not None and not shape_threshold > 0:
+            raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -761,6 +858,7 @@ class BlsDetector:
         self.detrend_pulsation = detrend_pulsation
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
+        self.shape_threshold = shape_threshold
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -901,6 +999,80 @@ class BlsDetector:
         box_chi2 = box.depth**2 * n_in * (n - n_in) / (n * sigma**2)
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
         return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
+
+    def _shape_excess(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, sigma: float, box: Box
+    ) -> float:
+        """How much better a triangle fits the box's events than any box does (0 if no verdict).
+
+        An eclipse is V-shaped, a transit has a flat bottom, and a box fit to a V sits on its core
+        (the grid stops at 6 h, a binary's eclipse can last 13 h). The samples of the nights that
+        hold an event are put at their offset from the nearest event centre (`x`). Two families of
+        templates are fitted to the dip ``1 - flux`` with a free depth and a free level for every
+        night (the nights were divided by their own medians, which an event distorts): boxes of
+        a geometric ladder of widths from the shortest to the longest duration, and triangles
+        (``max(0, 1 - 2|x| / w)``, base ``w``) from the shortest duration to
+        ``_SHAPE_TRIANGLE_SPAN`` times the longest, never wider than the period. Both are tried at
+        centres within ``_SHAPE_SHIFT_H`` of the box in steps of ``_SHAPE_SHIFT_STEP`` of their
+        width, so that a V is not preferred only because it forgives a centre the phase bins
+        (15 minutes) and the period grid placed badly: a 0.8 h transit fit with a centre a
+        quarter hour off read as a V. With ``g`` the largest chi-square gain
+        (``sigma**2`` times it, in flux units) of each family the result is ``(g_triangle -
+        g_box) / (sigma * sqrt(g_box))``: about ``(chi2_triangle - chi2_box) / S/N``, which
+        does not grow with the signal. A box-shaped dip makes the box win and the result negative
+        (the least squares gain of a triangle on a box is at most 0.89 of the box's); a V makes it
+        positive. Zero when the box's nights hold fewer than ``_SHAPE_MIN_SAMPLES`` samples or no
+        dip fits either family.
+        """
+        period = box.period_s
+        cycle = np.rint((t - box.epoch_s) / period)
+        x = (t - box.epoch_s) - cycle * period
+        events = np.unique(night[np.abs(x) <= box.duration_s / 2.0])
+        nights = np.isin(night, events)
+        if int(nights.sum()) < _SHAPE_MIN_SAMPLES:
+            return 0.0
+        x = x[nights]
+        dip = 1.0 - flux[nights]
+        k = np.unique(night[nights], return_inverse=True)[1]
+        count = np.bincount(k).astype(np.float64)
+
+        def terms(template: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            """Per night: ``centred template @ dip`` and ``centred template @ centred template``."""
+            centred = template - (np.bincount(k, weights=template) / count)[k]
+            return np.bincount(k, weights=centred * dip), np.bincount(k, weights=centred**2)
+
+        reach = _SHAPE_SHIFT_H * HOUR_S
+
+        def best_gain(widths: np.ndarray, triangle: bool) -> float:
+            """Largest chi-square gain over the widths, each night centred where it fits best."""
+            best = 0.0
+            for w in widths:
+                num = []
+                den = []
+                for c in np.arange(-reach, reach + 1e-6, min(reach, _SHAPE_SHIFT_STEP * w)):
+                    d = np.abs(x - c)
+                    template = np.clip(1.0 - 2.0 * d / w, 0.0, None) if triangle else d <= w / 2.0
+                    n_c, d_c = terms(template.astype(np.float64))
+                    num.append(n_c)
+                    den.append(d_c)
+                num_a, den_a = np.array(num), np.array(den)
+                score = np.where(
+                    (den_a > 0) & (num_a > 0), num_a / np.sqrt(np.maximum(den_a, 1e-300)), 0.0
+                )
+                pick = score.argmax(axis=0)
+                cols = np.arange(len(pick))
+                total, norm = float(num_a[pick, cols].sum()), float(den_a[pick, cols].sum())
+                if total > 0 and norm > 0:
+                    best = max(best, total * total / norm)
+            return best
+
+        lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
+        wide = np.geomspace(lo, _SHAPE_TRIANGLE_SPAN * hi, _SHAPE_TRIANGLE_STEPS)
+        g_box = best_gain(np.geomspace(lo, hi, _SHAPE_BOX_STEPS), triangle=False)
+        g_triangle = best_gain(wide[wide <= period], triangle=True)
+        if not g_box > 0:
+            return 0.0
+        return (g_triangle - g_box) / (sigma * math.sqrt(g_box))
 
     def _dip_mask(self, t: np.ndarray, flux: np.ndarray, box: Box, sigma: float) -> tuple[Box, ...]:
         """Windows (boxes at the best period) that cover the box's dip and its secondary.
@@ -1155,11 +1327,13 @@ class BlsDetector:
         )
         supported = int((z_k >= self.support_snr).sum())
 
-        def reject(why: str, excess: float | None = None) -> Candidate:
+        def reject(why: str, excess: float | None = None, shape: float | None = None) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
                 mask = self._dip_mask(t, star_flux, box, sigma)
-            return Candidate(box, sigma, snr, [], why, excess, alt, snr_local, supported, mask)
+            return Candidate(
+                box, sigma, snr, [], why, excess, alt, snr_local, supported, mask, shape=shape
+            )
 
         if snr < self.snr_threshold:
             return reject("snr")
@@ -1175,7 +1349,12 @@ class BlsDetector:
             pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box)
             if pulsating:
                 return reject("pulsation guard", r)
-        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported)
+        shape = None
+        if self.shape_threshold is not None:
+            shape = self._shape_excess(t, flux, night, sigma, box)
+            if shape >= self.shape_threshold:
+                return reject("shape", r, shape)
+        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported, shape=shape)
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
         """Search one light curve on its own (no common-mode correction); None if unusable."""
@@ -1262,7 +1441,7 @@ class BlsDetector:
         if second is None:
             log.info("bls star %s: re-search found no box", star_id)
             return None
-        periodic = first.rejected == "pulsation guard"
+        periodic = first.rejected in ("pulsation guard", "shape")
         if (
             periodic
             and second.rejected is None
