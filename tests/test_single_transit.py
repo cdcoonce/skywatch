@@ -6,6 +6,7 @@ import pytest
 
 import skywatch.detectors.single_transit as st
 from skywatch.detectors import REGISTRY, Detector, load_all
+from skywatch.detectors.bls import BlsDetector
 from skywatch.detectors.single_transit import SingleTransitDetector, search_night
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
@@ -447,26 +448,21 @@ def test_the_statistic_is_computed_only_when_the_test_is_on():
 
 
 def test_the_test_reads_the_night_of_the_box_only(monkeypatch):
-    # a V beside the box on another night must not change the box's own statistic
-    seen = []
-    real = SingleTransitDetector._shape
+    # the statistic is a single-night fit: the star's other nights (here a V on night 2 beside
+    # the box on night 7) must not enter it, or the free level would be one for the whole star
+    sizes = []
+    real = BlsDetector._shape_excess
 
-    def spy(self, t, flux, night, b, cadence_s):
-        seen.append(b.night)
-        return real(self, t, flux, night, b, cadence_s)
+    def spy(self, t, flux, night, sigma, box):
+        sizes.append((len(t), len(np.unique(night)), len(np.unique(t // DAY))))
+        return real(self, t, flux, night, sigma, box)
 
-    monkeypatch.setattr(SingleTransitDetector, "_shape", spy)
-    rng = np.random.default_rng(3)
+    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
     t = night_times(10)
     prof = v_profile(t, 2, 4.0, 3.0, 0.03) * dip_profile(t, 7, 2.5, 3.0, 0.015)
-    alone = shapes(
-        curve(0, t, dip_profile(t, 7, 2.5, 3.0, 0.015), 0.005, np.random.default_rng(3)),
-        guards=False,
-    )
-    both = shapes(curve(0, t, prof, 0.005, rng), guards=False)
-    assert len(both) == 2 and len(alone) == 1
-    assert both[1] == pytest.approx(alone[0], abs=0.6)
-    assert 2 in seen and 7 in seen
+    both = shapes(curve(0, t, prof, 0.005, np.random.default_rng(3)), guards=False)
+    assert len(both) == 2
+    assert sizes == [(NIGHT_N, 1, 1)] * 2
 
 
 # -- determinism, order, speed ---------------------------------------------------------------
