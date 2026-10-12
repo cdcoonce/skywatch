@@ -441,7 +441,7 @@ import logging
 import math
 import warnings
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -495,7 +495,8 @@ class _Arrays:
     level: np.ndarray
     t_obs: np.ndarray
     night_obs: np.ndarray
-    flare_fraction: float = 0.0  # share of the star's clean samples masked as positive outliers
+    flare_windows: np.ndarray = field(default_factory=lambda: np.zeros((0, 2)))
+    # [start, end] (s) of the spans after each flare-sized masked run (see :func:`flare_windows`)
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -521,6 +522,39 @@ def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np
     run = np.cumsum(np.diff(np.concatenate(([False], cand))) & cand)
     has_seed = np.bincount(run[cand], weights=seed[cand]) > 0
     return cand & has_seed[run]
+
+
+def flare_windows(
+    t: np.ndarray, night: np.ndarray, kept: np.ndarray, min_run: int, window_s: float
+) -> np.ndarray:
+    """``(m, 2)`` array of ``[start, end]`` (seconds): the span of each flare-sized masked run.
+
+    `t` and `night` are the star's clean samples and `kept` says which of them survived the
+    one-sided clip of :func:`positive_outliers`. A *flare-sized* run is `min_run` or more
+    consecutive masked samples within a night (a cosmic ray masks 5, see ``flare_min_run``). The
+    span runs from the first masked sample to `window_s` after the last, where the flare's decay
+    left what the clip's tail growth stops at (a running mean within about half a sigma of the
+    night) and the rest of the exponential is still above the noise for a few more e-foldings.
+    """
+    out = []
+    for k in np.unique(night):
+        idx = np.flatnonzero(night == k)
+        masked = ~kept[idx]
+        if not masked.any():
+            continue
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], masked.astype(np.int8), [0]))))
+        for a, b in zip(edges[::2], edges[1::2], strict=True):
+            if b - a >= min_run:
+                out.append((float(t[idx[a]]), float(t[idx[b - 1]]) + window_s))
+    return np.array(out, dtype=np.float64).reshape(-1, 2)
+
+
+def in_windows(t: np.ndarray, windows: np.ndarray) -> np.ndarray:
+    """Boolean mask of the samples of `t` inside any ``[start, end]`` of `windows`."""
+    hit = np.zeros(len(t), dtype=bool)
+    for start, end in windows:
+        hit |= (t >= start) & (t <= end)
+    return hit
 
 
 def _night_medians(flux: np.ndarray, night_of: np.ndarray) -> np.ndarray:
@@ -591,6 +625,7 @@ class Candidate:
     trend: tuple[float, float] | None = None
     shape: float | None = None
     sine_ratio: float | None = None
+    snr_clean: float = math.nan
 
 
 def frequency_grid(
@@ -914,8 +949,8 @@ class BlsDetector:
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
         guard_night_ratio: float | None = 0.81,
-        flare_fraction: float = 0.03,
-        flare_snr_threshold: float = 7.2,
+        flare_window_h: float | None = 3.0,
+        flare_min_run: int = 10,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -952,10 +987,10 @@ class BlsDetector:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if guard_night_ratio is not None and not guard_night_ratio > 0:
             raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
-        if not 0 < flare_fraction <= 1:
-            raise ValueError(f"flare_fraction must be in (0, 1], got {flare_fraction}")
-        if not flare_snr_threshold > 0:
-            raise ValueError(f"flare_snr_threshold must be > 0, got {flare_snr_threshold}")
+        if flare_window_h is not None and not flare_window_h > 0:
+            raise ValueError(f"flare_window_h must be > 0 or None, got {flare_window_h}")
+        if flare_min_run < 1:
+            raise ValueError(f"flare_min_run must be >= 1, got {flare_min_run}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -977,8 +1012,8 @@ class BlsDetector:
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
         self.guard_night_ratio = guard_night_ratio
-        self.flare_fraction = flare_fraction
-        self.flare_snr_threshold = flare_snr_threshold
+        self.flare_window_h = flare_window_h
+        self.flare_min_run = flare_min_run
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -1269,7 +1304,11 @@ class BlsDetector:
         star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
         """
         t, flux, night, level = self._prepare(c, common_mode)
-        flare_fraction = 1.0 - len(t) / len(c.t)
+        windows = np.zeros((0, 2))
+        if self.flare_window_h is not None:
+            windows = flare_windows(
+                c.t, c.night_of, np.isin(c.t, t), self.flare_min_run, self.flare_window_h * HOUR_S
+            )
         t_obs, night_obs = c.t, c.night_of
         if masked:
             drop = np.zeros(len(t), dtype=bool)
@@ -1280,7 +1319,7 @@ class BlsDetector:
             t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
-        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, flare_fraction)
+        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, windows)
         cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
         if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
             return cand
@@ -1506,6 +1545,14 @@ class BlsDetector:
             float(depth_k @ weight_k / (sigma * math.sqrt(w_sum))) if w_sum > 0 else math.nan
         )
         supported = int((z_k >= self.support_snr).sum())
+        snr_clean = snr_local
+        after = in_windows(t, a.flare_windows)
+        if after.any():  # the same box with the samples a flare may still lift left out
+            depth_c, weight_c = night_contrasts(t[~after], flux[~after], night[~after], box)
+            w_c = float(weight_c.sum())
+            snr_clean = (
+                float(depth_c @ weight_c / (sigma * math.sqrt(w_c))) if w_c > 0 else math.nan
+            )
 
         def reject(
             why: str,
@@ -1529,14 +1576,12 @@ class BlsDetector:
                 mask,
                 shape=shape,
                 sine_ratio=sine_ratio,
+                snr_clean=snr_clean,
             )
 
-        local_bar = self.snr_threshold
-        if a.flare_fraction >= self.flare_fraction:  # a flare star: its tails make red noise
-            local_bar = max(local_bar, self.flare_snr_threshold)
         if snr < self.snr_threshold:
             return reject("snr")
-        if not snr_local >= local_bar:  # also an undefined local S/N (no night has both)
+        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
             return reject("local snr")
         events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:
@@ -1557,6 +1602,8 @@ class BlsDetector:
             shape = self._shape_excess(t, flux, night, sigma, box)
             if shape >= self.shape_threshold:
                 return reject("shape", r, shape)
+        if not snr_clean >= self.snr_threshold:  # also a box whose every event follows a flare
+            return reject("flare tails", r, shape, ratio)
         return Candidate(
             box,
             sigma,
@@ -1569,6 +1616,7 @@ class BlsDetector:
             supported,
             shape=shape,
             sine_ratio=ratio,
+            snr_clean=snr_clean,
         )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
