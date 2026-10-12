@@ -12,8 +12,8 @@ The same as :class:`skywatch.detectors.bls.BlsDetector`, by import: samples with
 bit 0 set are dropped, each night is divided by its median, the field's per-time median is
 divided out (a tracking drift or cloud wing the flag does not cover is a "dip" on every star)
 and each night is renormalised, then positive outliers are masked one-sidedly with their flare
-tails. Masked samples are still *observed*: they count when the reported span is cut, so a
-flare on a transit does not move it.
+tails. The reported span runs from the first to the last prepared sample the box covers (a
+masked flare sample inside the box is inside the span, since the box is contiguous).
 
 Search
 ------
@@ -310,7 +310,6 @@ class SingleTransitDetector:
         cadence_s: int,
     ) -> list[Detection]:
         t, flux, night, _ = self._bls._prepare(c, common_mode)
-        t_obs = c.t
         if len(t) < self.min_in + self.min_out:
             return []
         boxes = self._boxes(t, flux, night, cadence_s)
@@ -322,7 +321,6 @@ class SingleTransitDetector:
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
                 return []
             drop = np.zeros(len(t), dtype=bool)
-            drop_obs = np.zeros(len(t_obs), dtype=bool)
             # bls pads each window by one box duration per side; a box here is at least
             # `mask_pad_h` wide, so a narrower leftover is not a candidate
             mask = tuple(
@@ -336,9 +334,7 @@ class SingleTransitDetector:
             )
             for m in mask:
                 drop |= in_box(t, m)
-                drop_obs |= in_box(t_obs, m)
             t, flux, night = t[~drop], flux[~drop], night[~drop]
-            t_obs = t_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
             boxes = self._boxes(t, flux, night, cadence_s) if len(t) >= self.min_in else []
             if not boxes or self._pulsating(t, flux, night, boxes, cadence_s):
@@ -349,14 +345,13 @@ class SingleTransitDetector:
             )
         out = []
         for k, b in enumerate(boxes):
-            seen = t_obs[(t_obs >= b.t_start) & (t_obs <= b.t_end)]
             out.append(
                 Detection(
                     detector=self.name,
                     det_id=f"{self.name}-s{star_id}-{k}",
                     star_id=star_id,
-                    t_start=int(seen[0]),
-                    t_end=int(seen[-1]) + cadence_s,
+                    t_start=b.t_start,
+                    t_end=b.t_end + cadence_s,
                     score=b.snr,
                     kind_guess="transit",
                 )
