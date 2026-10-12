@@ -4,7 +4,8 @@ Most planets a survey catches transit once, and a transit at the edge of a night
 one side only, so neither a periodic search (``bls`` needs two events) nor a detector that
 compares a dip with its surroundings on both sides can see it. This detector searches each
 night of each star on its own for the one box-shaped dip that best explains it and reports it
-when its S/N reaches ``snr_threshold`` (``kind_guess="transit"``, ``score`` = the S/N).
+when its S/N reaches ``snr_threshold`` (``kind_guess="transit"``, ``score`` = the S/N), unless
+the dip is V-shaped, which is an eclipse (see Shape test).
 
 Preprocessing
 -------------
@@ -94,6 +95,71 @@ box, because the second needs a full periodic search.
 
 ``guards=False`` switches both off.
 
+Shape test
+----------
+A box fit to a V-shaped eclipse is a transit claim on a binary: with the guards in place
+``single_transit`` still reported 12 eclipses as transits on the held-out seeds 21-26 (seed26
+alone 7) and, on the planet-free 3-night runs 41-43, 5 of its 7 detections were on eclipses.
+Every box that survives the guards is therefore put through the shape test of ``bls`` (#36,
+:meth:`BlsDetector._shape_excess`) read as a one-event box: the box's night alone, the box's
+centre and covered span as the event, ``sigma`` the night's scatter outside the box (``bls``
+passes a star-wide one). The dip ``1 - flux`` is fitted with boxes (15 widths, 0.5 to 6 h) and
+triangles (``max(0, 1 - 2|x| / w)``, 23 widths, 0.5 to 24 h), each with a free depth and a free
+level and a centre within 0.5 h of the box; with ``g_box`` and ``g_triangle`` the largest
+chi-square gains the statistic is ``(g_triangle - g_box) / (sigma * sqrt(g_box))``: negative for
+a flat bottom, positive for a V, zero when the night holds fewer than 10 samples. The rule:
+
+* A star with any reported box whose statistic reaches ``shape_threshold`` (1.0; ``None``
+  switches the test off) is not reported at all. A V on one night makes the star an eclipsing
+  binary, and its other nights are eclipse residue: the wing of an eclipse at a night's edge
+  is a short ramp that no single-night test can tell from a transit's step (below).
+* The test runs last, after both guards, so a pulsator is still dropped by the guard; it adds
+  one ``_shape_excess`` call per reported box (about 10 ms) and no measurable CPU time to a
+  20-night run (seed26: 35.9 s at ``main``, 36.2 s here).
+
+``scripts/single_transit_shape_audit.py`` prints the statistic of every box a run would report.
+
+Threshold, and what it was set on. 1.0 is a margin above the planets, not a fit. The pool is
+every box the detector reports (without the test) on 80 development runs (the stored runs, the
+seeds of docs/seeds.md that earlier changes designed on, and #45's design seeds 210-219: 200
+stars, 20 nights, plus the 3-night runs of seeds 7, 42 and the planet-free 41-43): 142 boxes on
+a planet's transit (90 at S/N 10 or more), 119 on an eclipse (115 distinct: a planet and a
+planet-free run of one seed share their binaries), 2 on a pulsation, 33 on other labels, 6 on
+nothing. The planets' statistic has median -0.64 and a top of 0.73, 0.72, 0.66, 0.60 and 0.59;
+the eclipses' has 10th, 25th, 50th, 75th and 90th percentiles of 0.12, 0.53, 1.29, 2.16 and
+3.47. The test on each night alone at 1.0 removes 73 of the 119 eclipse boxes and no planet; the
+star rule removes 89 and one planet (seed212-200s-20n star 96, S/N 8.3, a planet on an eclipsing
+binary whose eclipse night reads 2.19). 0.8 would remove 91 and leave the planets 0.07 of margin;
+1.5 (the ``bls`` value, which sees several nights) only 62. The statistic is ``bls``'s function
+on one night instead of several: there the planets read at most 0.93 (development) and 0.12
+(unseen seeds), here 0.73, so the threshold is lower and the margin about as wide.
+
+Edge-truncated boxes (a transit cut by the night's start or end; five of the nine single-event
+development targets, 78 of the 142 planet boxes in the pool) are not treated differently:
+the test is the same, and so is the threshold. What it costs: none of the 78 planet boxes
+touching a night's first or last sample is refused (their statistic is -5.3 to 0.72). What it
+buys is less: of the 111 eclipse boxes that touch an edge the night alone refuses 66, against 7
+of 8 away from one, because the visible half of a V is a ramp down to the edge and a transit cut by the
+edge is a step, and with 20 to 60 samples at 1 to 4 percent the ramp is not long enough to be
+told from the step (a 1.6 h V centred 0.4 h past a night's end reads 0.4 to 2.4 across noise
+seeds; ``tests/test_single_transit.py`` pins one that reads 0.49 and stays). A half V of
+several hours at S/N 20 or more is refused. The residue is therefore the eclipses seen only
+as a short wing, on stars with no other V night.
+
+Measured, development (the 27 runs of #45's table: seeds 7 and 42 at 3 and 20 nights, 21-26,
+the planet-free 41-44 and 41-43 at 3 nights, design 210-219), ``main`` to this: eclipse->transit
+44 to 7, transit true positives 32 to 31 (the planet above), single-event planets at S/N 10 or
+more bounded 20 to 20, false positives 1 to 1, pulsation->transit 2 to 2; no single-event
+development target lost (five of the nine are found at both; the other four are missed at
+both). On the planet-free 20-night runs 41-44 all detections go 4, 0, 1, 2 to 3, 0, 0, 2; on
+the 3-night ones 3, 1, 3 to 1, 1, 1. Held-out, scored once (seeds 221-226 at 200 stars and 20
+nights, planet-free 231-234; chosen before the test and the threshold existed): eclipse->transit
+11 to 6, transit true positives 14 to 14, single-event planets at S/N 10 or more bounded 11
+of 14 to 11 of 14, false positives 1 to 1, all detections on the planet-free runs 8 to 2. The
+held-out planets' highest statistic is 0.82 (seed224 star 101), nearer the threshold than any
+development planet; the six eclipse boxes that stay on the planet runs read 0.90, 0.96, 0.84,
+0.35, 0.20 and -0.11.
+
 Limits
 ------
 * A second strong event stays in the residual of the guard: a star with two single events of
@@ -103,8 +169,8 @@ Limits
 * A planet whose transit overlaps or abuts the masked eclipses of its binary host is lost with
   them (seed7-200s-20n star 99: the planet's transit starts 20 minutes after an eclipse ends and
   the mask, 21 h of every 44 h cycle, covers it). Other eclipse residue gets through: the
-  eclipse->transit confusion on the held-out 20-night runs is 0 to 7 per run at the default
-  (12 over six runs), not zero.
+  eclipse->transit confusion on the held-out 20-night runs 21-26 was 0 to 7 per run at the
+  default before the shape test (12 over six runs) and is 0, 0, 3, 0, 0, 0 with it: not zero.
 * A star the guards reject is lost with its planet when the star is a sinusoidal or flare
   variable: held-out seed22 star 81 and seed25 stars 39 and 52 are found at S/N 9.5 to 15.6
   with ``guards=False`` and dropped with them on. A planet-only host whose guard ratio
@@ -140,8 +206,8 @@ the detections of this module are identical, span for span and score for score, 
 and 42 at 3 and 20 nights, 21-26, 71-76, the planet-free runs 41-44 and 51-58, and five development
 runs with a planet-free pulsator).
 The module also uses ``BlsDetector._clean``,
-``_common_mode``, ``_prepare``, ``_pulsating``, ``_search`` and the fields of ``Box`` and
-``Candidate.mask``; a rename in ``bls`` breaks it.
+``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
+of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it.
 """
 
 from __future__ import annotations
