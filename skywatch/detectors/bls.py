@@ -165,7 +165,8 @@ gates, chosen on those runs and nothing else:
   local S/N is 7.107), from 7.15 to 7.19 at 3 (star 126, 7.195), at 7.2 at 0. The same bar applied to every star
   would have lost a development transit true positive (seed 61 star 56, local S/N 7.04); on flare
   stars the lowest local S/N of a transit true positive is 7.28 (seed 12 star 32), 0.08 above the
-  bar. The bar is not in a gap of the false claims, though: see Limits.
+  bar. The bar is not in a gap of the false claims, though: see Flare tails, which is what holds the
+  rest.
 
 Measured. Development (seeds 7 and 42 at 3 and 20 nights, 11-14, 31-50 and 61-66 at 20 nights; 33
 runs), ``main`` to the branch: transit true positives 271 to 271 (270 bounded and 1 touched, both
@@ -180,8 +181,9 @@ eclipses reported as transits 5 to 5, pulsations reported as transits 12 to 0 (o
 star 181, ratio 1.46), detections 62 to 50. Planet hosts there read at most 0.57. **The
 planet-free bar is not met on the held-out planet-free runs** (seeds 81-84, 20 nights): detections
 0, 6, 0, 0 at ``main`` and on the branch. pf-seed82 gives 6: two flare stars, star 136 with 4 events at
-local S/N 7.5 and star 184 with 2 at 9.1, both above the flare bar. It was not re-tuned; a flare bar
-above 7.5 would have removed star 136 and cost seed 12 star 32 on the development runs. Seeds 21-26
+local S/N 7.5 and star 184 with 2 at 9.1, both above the flare bar. It was not re-tuned (a flare bar
+above 7.5 would have removed star 136 and cost seed 12 star 32 on the development runs); issue #43
+and the Flare tails gate below met it. Seeds 21-26
 (used once before) and 7 and 42: ``bls`` detections identical to ``main``, span for span. ``single_transit``,
 which reads ``Candidate.rejected``, reports the same detections span for span and score for score on
 33 runs (the 4 of seeds 7 and 42, seeds 21-26, 71-76, the planet-free runs 41-44 and 51-58, and the
@@ -190,6 +192,95 @@ the same (about 92 s on seed 26 at ``main`` and on the branch).
 
 ``scripts/bls_planet_free_audit.py`` prints the ratio, the flare share and the verdict of every
 star a run would report.
+
+Flare tails
+-----------
+Flare stars were what the planet-free rule still failed on (issue #43): the bar of 7.2 could not
+separate flare residue from small planets because the two overlap in S/N. What a claim on a flare
+star sits on was measured on the development runs (the 9 claims on flare stars on the planet-free
+runs, 36 on the others and the 10 true positives on flare hosts; the table is in the issue's comment):
+
+* **The box is a stretch free of flare residue; the residue is in the rest of the event nights.**
+  With the injected flare tails at the kept samples (truth, as a measurement), the mean residue in
+  the box is 0.01 sigma and in the other samples of the event nights 0.35 sigma (the median of those
+  is 0.01 sigma): a minority of samples, the tails the clip's growth stops short of (a running mean
+  within a standard error of the night; the exponential goes on below that), lifts the mean the
+  contrast is taken against. The residue's own S/N in the box is 77 percent of its local S/N in the
+  middle of the 45 claims (38 to 108 percent), 3 percent for the true positives (0 to 74). 42 percent
+  of it is the leftover tail of a flare whose peak the clip seeded, the rest flares it never seeded
+  (under 4 sigma, or a peak in a gap).
+* **The box does not sit on a decay.** 31 of 45 boxes have a smaller share of their samples within
+  1 h after a clipped sample than the rest of the star, 18 of 45 within 3 h, so a veto on boxes that
+  start within some hours after a flare does not describe them. **Nor is it asymmetric:** the level
+  just before and just after the box differ by 0.10 sigma in the middle of the claims (-0.04 for true
+  positives), the two halves of the box by 0.05 (0.03), and the shape statistic is negative in 39 of
+  45 (a flat-bottomed dip, as a transit is).
+
+The gate (``flare_window_h`` = 3 hours, ``flare_min_run`` = 10; ``flare_window_h=None`` switches it
+off) leaves out of the contrast the samples a flare may still lift. A *flare-sized run* is 10 or more
+consecutive samples masked as positive outliers within a night (:func:`flare_windows`); its window
+runs from its first masked sample to 3 hours after its last, and ``Candidate.snr_clean`` is the local
+S/N of the same box with every sample in a window left out of both sides of the contrast
+(``snr_local`` when there is no window; NaN when no night keeps both box and reference, which is
+refused). The box is rejected as ``"flare tails"`` when ``snr_clean`` is under ``snr_threshold``
+(7.0: not the flare bar). It runs last, after the pulsation and shape guards, so a pulsator or a
+binary is still named by its own and ``single_transit`` (which reads whether a rejection is the
+pulsation guard) sees no change. It removes claims and adds none, and a star with no flare-sized run
+is untouched (``snr_clean == snr_local``).
+
+The constants. *10 samples*: the clip masks a cosmic ray's 5 samples and, when noise keeps the
+running mean above its threshold, more: 4.5 to 6 percent of 400 simulated spikes reach 10 (10 to 12
+percent reach 8, 1.5 to 2 percent reach 12), whereas a 6 sigma flare with a 4 minute decay reaches 10 in 92
+percent of 400 and one with a 10 minute decay in all of them. *3 hours*: 6 e-foldings of the longest
+decay the world makes (30 minutes), where an exponential is under 0.25 percent of its peak. Excluding
+instead the true window, ``k`` times each flare's true decay after its true onset (an oracle, a
+measurement), leaves 8, 3, 1 and 0 of the 45 claims at S/N 7 or more for ``k`` = 2, 3, 4 and 6, and
+costs 2, 2, 4 and 3 of the 10 true positives; with the detector's kind of windows (runs of 6 or
+more samples, a fixed span, estimated after the fact) 16, 11, 9, 7 and 7 of the 45 survive at 1, 2,
+3, 4 and 5 hours. The 3 hours is the principled
+number, not the minimum of that count.
+
+Measured, ``main`` to the branch (constants fixed on the development runs; the held-out seeds were
+simulated and scored once, afterwards). Development, the 64 stored runs (seeds 7 and 42 at 3 and 20
+nights; 11-14, 21-26, 31-50, 61-66 and 71-76; planet-free 41-44, 51-58 and 81-84 at 20 nights and
+41-43 at 3): transit true positives 350 to 347 (344 bounded and 3 touched), false positives (all
+kinds) 81 to 50, eclipses reported as transits 15 to 15, pulsations reported as transits 3 to 3,
+flares reported as transits 32 to 6, detections 546 to 442; claims on flare stars 55 stars to 17
+(159 detections to 59). More development runs (91-100 and 111-114, planet-free 101-104, used by
+PR #42's review; 18 runs): true positives 187 to 187, false positives 21 to 15, eclipses 18 to 18,
+pulsations 2 to 2, flares 5 to 0, detections 248 to 230. Planet-free 20-night runs, detections per
+run: seeds 41-44 0, 4, 2, 0 to 0, 0, 2, 0; 51-58 2, 2, 0, 0, 2, 2, 3, 5 to 0, 0, 0, 0, 0, 2, 0, 2;
+81-84 0, 6, 0, 0 to 0, 2, 0, 0; 101-104 0, 2, 3, 3 to 0, 0, 0, 3 (the 3-night runs, 0, 2, 0, are
+unchanged). Held-out, scored once (seeds 131-136 at 200 stars and 20 nights; planet-free 141-144):
+transit true positives 29 to 29, false positives 7 to 3, eclipses reported as transits 0 to 0,
+pulsations reported as transits 0 to 0, flares reported as transits 5 to 0, detections 48 to 35;
+planet-free detections 2, 0, 0, 0 to 0, 0, 0, 0. **Three development true positives are lost**, all
+three because their events follow a flare: seed 12 star 32 and seed 62 star 38 (the box is a flare
+star's: P 6.680 d, five times the planet's 1.336 d, one of its two events on one of the planet's six;
+and P 7.500 d against a planet with one event, which one of its two events overlaps; residue S/N 5.4
+of local 7.3 and 4.5 of 7.8; an oracle that removes the flares loses both too) and seed 61 star 56 (a
+constant star, local S/N 7.04, whose events lie after a flare and a hot pixel). The other 8
+true-positive flare hosts keep every grade (seed 12 star 37, seed 32 star 103, seed 40 star 166, seed
+42 star 24, seed 47 star 93, seed 64 star 172, seed 73 star 131, seed 75 star 51), and the sets of true
+positives of the 14 more development and the 6 held-out planet runs are unchanged. ``single_transit`` reports the same
+detections span for span and score for score on 27 runs (seeds 7 and 42 at 3 and 20 nights, 11, 12,
+21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 43, 51, 52, 55-58, 82 and 104); the time
+of ``bls`` on a 20-night run is the same (109.2 s against 109.5 s on seed 26, 111.9 against 112.1 on
+seed 93, user CPU).
+
+**The flare bar is not redundant.** With ``flare_snr_threshold`` at 7.0 the 64 stored runs are
+unchanged, but seed 96 star 10 (flare share 9.7 percent, local S/N 7.13, clean S/N 7.93) is claimed
+again, so the bar stays beside the gate.
+
+Tried and left: leaving the tails out of the *search* (tail growth to half a standard error, to a 15
+sample mean, a mask of the run's length after it) removed about half of the flare claims and added
+others elsewhere; a matched filter for a step with an exponential decay (subtracted, or masked) took
+the planet-free runs to zero and fired on 40 percent of the nights of a constant star and on the
+egress of transits, losing 12 to 15 development true positives; the night-shuffled null of the
+best box (is the claim above what the star's own nights give at random phase) is as high for real
+planets as for flare residue, since a transit is a dip in every night wherever it is put.
+
+``scripts/bls_planet_free_audit.py`` prints the clean S/N beside the ratio and the flare share.
 
 Shape guard
 -----------
@@ -413,15 +504,17 @@ Limits
   level (the out-of-box renormalisation repairs the depth, not the search).
 * Two single events of different planets six days apart look like one period.
 * Output spans are half-open: ``t_end = t_last + cadence_s``.
-* Flare stars still make claims above the flare bar: on the held-out planet-free seed 82 two
-  flare stars gave 6 detections (local S/N 7.5 and 9.1). The bar sits inside the distribution of
-  the false claims, not in a gap of it: on the 84 runs measured, 11 flare-star claims read 7.0 to
-  7.19 and are rejected and 7 read 7.2 to 7.4 and survive, and the development planet-free seed 44
-  meets the rule only because star 126 reads 7.195, 0.005 under the bar. The bar is also 0.08
-  above the lowest transit true positive on a flare star (7.28), so it cannot be raised much
-  without losing planets (see Planet-free stars). A bar does not solve flare stars; tracked in
-  issue #43. The 3 percent cut is a share of masked samples, not a class: a flare star with fewer
-  flares in its record is held to 7.0.
+* Flare stars still make claims: 17 stars of the 55 that claimed on the 64 stored development runs
+  (8 of them true positives, the other 9 with 2 to 5 events at clean S/N 7.3 to 10.9, two of them
+  on planet-free runs, seeds 58 and 82). They are flares the clip never seeded (an oracle that excludes 6 e-foldings
+  of every true flare leaves none), and the gate sees only flare-sized runs: pf-seed82 star 184
+  (0.5 h box, 2 events, local S/N 9.1, clean 8.5) has residue S/N 7.0 of which 0.1 is a seeded flare.
+  The bar of 7.2 is kept for the one star the gate does not hold (see Flare tails). The gate costs
+  a planet whose events follow a flare by less than 3 hours (3 of 537 development true
+  positives);
+  on a star with a flare every night the clean S/N is about 60 percent of the local one (a planted
+  planet: 22 against 37); a cosmic ray whose run reaches 10 samples (5 percent) opens a window, and
+  so does a hot pixel's plateau; the window is a fixed 3 hours and not scaled to each flare.
 * The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and less than
   it looks on the planet side: the bar is not a floor under the planets. Two real planets read
   0.73 (seed 38 star 168; seed 23 star 114) and the planet hosts of never-seen seeds at most 0.52.

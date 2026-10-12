@@ -139,6 +139,12 @@ named ``"local snr"``); guard (b) reads only whether the reason is ``"pulsation 
 the detections of this module are identical, span for span and score for score, on 33 runs (seeds 7
 and 42 at 3 and 20 nights, 21-26, 71-76, the planet-free runs 41-44 and 51-58, and five development
 runs with a planet-free pulsator).
+Issue #43 adds a last gate to ``bls``, ``"flare tails"`` (it runs after the pulsation guard, so a
+pulsation rejection is never replaced by it), and a candidate that was accepted is now rejected for
+it on some flare stars; guard (b) reads only whether the reason is ``"pulsation guard"``, as before.
+Measured: identical detections, span for span and score for score, on 27 runs (seeds 7 and 42 at 3
+and 20 nights, 11, 12, 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 43, 51, 52, 55-58, 82
+and 104).
 The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search`` and the fields of ``Box`` and
 ``Candidate.mask``; a rename in ``bls`` breaks it.
