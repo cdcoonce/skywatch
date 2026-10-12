@@ -328,13 +328,36 @@ Planned detectors, in order:
    81-84 0, 6, 0, 0 to 0, 2, 0, 0; 101-104 0, 2, 3, 3 to 0, 0, 0, 3. Held-out, scored once (seeds
    131-136, planet-free 141-144): true positives 29 to 29, false positives 7 to 3, eclipses 0 to 0,
    pulsations 0 to 0, flares 5 to 0, detections 48 to 35; planet-free 2, 0, 0, 0 to 0, 0, 0, 0. Three
-   development true positives are lost, all of them events that follow a flare (seed 12 star 32 and
-   seed 62 star 38, flare stars whose box overlaps one planet event and is mostly residue; seed 61
-   star 56, a constant star at local S/N 7.04); the other 8 flare-host planets keep every grade.
+   development true positives are lost: seed 12 star 32 and seed 62 star 38 to flare windows over
+   the box (flare stars whose box overlaps one planet event and is mostly residue), and seed 61
+   star 56 (a constant star at local S/N 7.04) to a window opened by an 11-sample cosmic-ray run,
+   not a flare. All three, and never-seen seed 261 star 29 (lost to a cosmic-ray run removing 152
+   reference samples), are overlap credit at periods unrelated to the planet's (the box's period
+   is 5.00, 0.515, 1.69 and 0.239 times the planet's), not planets found; the other 8 flare-host
+   planets keep every grade.
    The flare bar of 7.2 stays: without it seed 96 star 10 (local S/N 7.13, clean 7.93) is claimed
    again. 9 of the 45 flare claims remain, flares the clip never seeded (an oracle that excludes 6
    e-foldings of every true flare leaves none). `single_transit` is identical span for span on 27
    runs; the time of `bls` is unchanged.
+
+   What opens a window. On five never-seen planet runs (1,000 stars) there are 2,142 flare-sized
+   runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent only a
+   cosmic ray; 800 of the 1,000 stars carry a window. The gate therefore detects a clip run, not a
+   flare, and taxes lost reference samples on marginal boxes (a box under local S/N 7.5 or so, on a
+   night with a window, can fall under 7.0 on weight alone). A decay-shaped run definition is issue
+   #48.
+
+   Never seen (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
+   the constants were fixed; the review of PR #47), `main` to the branch:
+
+   | runs | transit tp | fp (all kinds) | flare->transit | detections | per run |
+   |---|---|---|---|---|---|
+   | planets 261-266 | 78 to 77 | 5 to 1 | 0 to 0 | 87 to 80 | 14, 3, 30, 15, 7, 18 to 10, 0, 30, 15, 7, 18 |
+   | planet-free 271-274 | 0 to 0 | 7 to 2 | 8 to 4 | 25 to 12 | 11, 6, 6, 2 to 5, 3, 2, 2 |
+
+   Eclipses reported as transits (3 to 3) and pulsations (1 to 1) are unchanged. The planet-free
+   rule (at most 5 detections a run) is met, 271 exactly at the limit (star 13, a flare star at
+   local S/N 9.43, clean 9.04).
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
    preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every

@@ -254,12 +254,17 @@ run: seeds 41-44 0, 4, 2, 0 to 0, 0, 2, 0; 51-58 2, 2, 0, 0, 2, 2, 3, 5 to 0, 0,
 unchanged). Held-out, scored once (seeds 131-136 at 200 stars and 20 nights; planet-free 141-144):
 transit true positives 29 to 29, false positives 7 to 3, eclipses reported as transits 0 to 0,
 pulsations reported as transits 0 to 0, flares reported as transits 5 to 0, detections 48 to 35;
-planet-free detections 2, 0, 0, 0 to 0, 0, 0, 0. **Three development true positives are lost**, all
-three because their events follow a flare: seed 12 star 32 and seed 62 star 38 (the box is a flare
+planet-free detections 2, 0, 0, 0 to 0, 0, 0, 0. **Three development true positives are lost**:
+seed 12 star 32 and seed 62 star 38 lose to flare windows over the box (the box is a flare
 star's: P 6.680 d, five times the planet's 1.336 d, one of its two events on one of the planet's six;
 and P 7.500 d against a planet with one event, which one of its two events overlaps; residue S/N 5.4
-of local 7.3 and 4.5 of 7.8; an oracle that removes the flares loses both too) and seed 61 star 56 (a
-constant star, local S/N 7.04, whose events lie after a flare and a hot pixel). The other 8
+of local 7.3 and 4.5 of 7.8; an oracle that removes the flares loses both too: 116 of the 180
+in-box samples of 12/32 and 148 of 542 of 62/38 are in a window), and seed 61 star 56 (a constant
+star, local S/N 7.04) loses to a window opened by an 11-sample cosmic-ray run (night 5; a hot pixel
+and a flare on night 13), not to a flare. All three, and the never-seen seed 261 star 29 (below,
+lost to a cosmic-ray run that removes 152 reference samples), are overlap credit at periods
+unrelated to the planet's, not planets found: the box's period is 5.00, 0.515, 1.69 and 0.239 times
+the planet's. The other 8
 true-positive flare hosts keep every grade (seed 12 star 37, seed 32 star 103, seed 40 star 166, seed
 42 star 24, seed 47 star 93, seed 64 star 172, seed 73 star 131, seed 75 star 51), and the sets of true
 positives of the 14 more development and the 6 held-out planet runs are unchanged. ``single_transit`` reports the same
@@ -267,6 +272,27 @@ detections span for span and score for score on 27 runs (seeds 7 and 42 at 3 and
 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 43, 51, 52, 55-58, 82 and 104); the time
 of ``bls`` on a 20-night run is the same (109.2 s against 109.5 s on seed 26, 111.9 against 112.1 on
 seed 93, user CPU).
+
+**Never seen** (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
+every constant was fixed; review of PR #47), ``main`` to the branch: transit true positives 78 to
+77, false positives 5 to 1; planet-free detections 25 to 12, false positives 7 to 2, flares
+reported as transits 8 to 4 (eclipses reported as transits 3 to 3 and pulsations 1 to 1 are
+unchanged); detections per planet-free run 11, 6, 6, 2 to 5, 3, 2, 2 (at most 5 is met, 271
+exactly at the limit; what survives there is a flare star, star 13, local S/N 9.43, clean 9.04).
+The one true positive lost is seed 261 star 29: a constant star, a 4.529 d box on the planet's
+single event (0.239 times its period), local S/N 7.04. No in-box sample is in a window and the
+nightly contrasts barely move (0.0099 to 0.0098), but the 3 hours after one cosmic-ray run on the
+event night remove 152 reference samples (that night's weight 104 to 71) and the clean S/N is 5.88.
+
+**What opens a window.** On the five never-seen planet runs (1,000 stars) there are 2,142
+flare-sized runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent
+only a cosmic ray; 800 of the 1,000 stars carry at least one window. A hot pixel is a flat plateau
+that masks any number of samples from 10 up, and a cosmic ray reaches 10 by chance in 4.5 to 6
+percent, so ten consecutive clipped samples detect a clip run, not a flare. The gate therefore
+taxes lost reference samples on marginal boxes: a box with a local S/N under about 7.5 on a night
+with a window can fall under 7.0 on weight alone, with no flare residue under it, and that is
+most stars, not only flare stars. A run definition with a decay shape (a monotone fall of the
+masked run) would separate a flare from a plateau; it is issue #48.
 
 **The flare bar is not redundant.** With ``flare_snr_threshold`` at 7.0 the 64 stored runs are
 unchanged, but seed 96 star 10 (flare share 9.7 percent, local S/N 7.13, clean S/N 7.93) is claimed
@@ -513,8 +539,11 @@ Limits
   a planet whose events follow a flare by less than 3 hours (3 of 537 development true
   positives);
   on a star with a flare every night the clean S/N is about 60 percent of the local one (a planted
-  planet: 22 against 37); a cosmic ray whose run reaches 10 samples (5 percent) opens a window, and
-  so does a hot pixel's plateau; the window is a fixed 3 hours and not scaled to each flare.
+  planet: 22 against 37); most windows are not flares' (a hot pixel's plateau opens one, and a
+  cosmic ray whose run reaches 10 samples, 5 percent of them; see What opens a window), so a
+  marginal box on a night with a window can fall under 7.0 on the weight of the reference it
+  loses, with no flare residue (issue #48); the window is a fixed 3 hours and not scaled to
+  each flare.
 * The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and less than
   it looks on the planet side: the bar is not a floor under the planets. Two real planets read
   0.73 (seed 38 star 168; seed 23 star 114) and the planet hosts of never-seen seeds at most 0.52.
