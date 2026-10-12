@@ -31,18 +31,42 @@ instead of 17.7). The S/N is the matched-filter S/N of the contrast, ``depth * s
 / (n_in + n_out)) / sigma``. The issue's ``depth * sqrt(n_in) / sigma`` assumes the reference
 level is known; it is the ``contrast=False`` option and agrees with the default for a box that
 is small against its night. It is not the default because the level is estimated from the
-same night: on four planet-free 20-night runs it gives 14 to 40 false alarms at S/N 7 and 0 to 6
-at 10 where the contrast form gives none at either. The best box per night is reported when its S/N reaches the threshold; its :class:`Detection` spans the
-observed samples the box covers (half-open: ``t_end = t_last + cadence_s``).
+same night: on the four planet-free 20-night runs it gives 14, 32, 40 and 39 detections that
+overlap no truth label (the scorer's fp) at S/N 7 and 0, 6, 1 and 5 at 10, and 102, 98, 118
+and 112 detections in all at 7 and 16, 23, 11 and 20 in all at 10, where the contrast form
+gives no such fp at either and 8, 2, 1 and 2 detections in all at 7 (at most 5 per run at 8
+and 9). So the issue's form cannot meet the planet-free rule below at any threshold from 7 to
+10; this is the one place the statistic departs from the issue. The best box per night is
+reported when its S/N reaches the threshold; its :class:`Detection` spans the covered
+samples of the box (half-open: ``t_end = t_last + cadence_s``).
 
 Threshold
 ---------
-``snr_threshold = 6``: the lowest level at which the false-alarm count, a detection that overlaps
-no truth label of any kind (the scorer's fp), is at most 5 on each of four planet-free 200-star
-20-night runs (``planet_rate=0``, seeds 41 to 44): 0, 0, 0 and 0 at 6; 3, 3, 1 and 6 at 5; 0 on
-every run at 7 to 10. Detections on those runs that sit on a real eclipse, flare, cloud or
-pulsation are not false alarms in that sense but are not transits either: at 6 they number 10, 2,
-1 and 3, and the eclipse and pulsation ones are the guards' residue.
+``snr_threshold = 8``, by the rule the issue gives: the lowest level with at most 5 false alarms
+on each of four planet-free 200-star 20-night runs (``planet_rate=0``, seeds 41 to 44). On a
+planet-free run every ``single_transit`` detection is a false claim of a transit, so a false
+alarm is any detection, not only one that overlaps no truth label (the scorer's fp, which is 0
+on every one of these runs from 6 to 10 and 3, 3, 1 and 6 at 5). Every detection on those runs:
+10, 2, 1 and 3 at 6; 8, 2, 1 and 2 at 7; 4, 0, 1 and 2 at 8; 3, 0, 1 and 2 at 9. At 7 seed 41
+alone fails (8), and what it holds is the guards' residue (3 eclipses bounded, 1 eclipse
+touched, 2 clouds, a flare, a pulsation), not noise. Reading the rule as the scorer's fp alone
+would have chosen 6; that is not what the issue says.
+
+What 8 costs (measured; 6 gave more recall and more confusion):
+
+* Development (the stored runs seed7 and seed42, 3 and 20 nights): of the six single-event
+  labels at S/N 10 or more, 4 are bounded; the issue asks for 5. That bar is **not met**. The
+  misses are star 99 of seed7-200s-20n, a planet on an eclipsing binary against an eclipse the
+  mask removes (see Limits), and star 196 of seed42-200s-20n, whose detector S/N is 6.63
+  against a true stacked 14.3: it is bounded only at 6 (through guard (b)'s mask, and only
+  between 6 and 6.63) and lost at 7 to 9. 5 of 6 held at 6 only. fp 0 on all four runs;
+  eclipse->transit 2 (seed7, 3 and 20 nights) and 0 (seed42); pulsation->transit 1 (seed42, 3
+  nights; the issue allows 5).
+* Held-out seeds 21 to 26 (20 nights, never used to choose anything): of the 13 single-event
+  labels at S/N 10 or more, 9 are bounded at every threshold from 6 to 9 (69 percent, against
+  67 percent on the development set at 8); fp 0; eclipse->transit 0, 0, 3, 2, 0 and 7 per run
+  (12 in all; at 6 it is 0, 1, 4, 2, 3 and 11); pulsation->transit 0.
+* The 0.5 h mask padding (``mask_pad_h``) was tuned on the development set.
 
 Guards
 ------
@@ -79,10 +103,27 @@ Limits
 * A planet whose transit overlaps or abuts the masked eclipses of its binary host is lost with
   them (seed7-200s-20n star 99: the planet's transit starts 20 minutes after an eclipse ends and
   the mask, 21 h of every 44 h cycle, covers it). Other eclipse residue gets through: the
-  eclipse->transit confusion is a few per 20-night run, not zero.
+  eclipse->transit confusion on the held-out 20-night runs is 0 to 7 per run at the default
+  (12 over six runs), not zero.
+* A star the guards reject is lost with its planet when the star is a sinusoidal or flare
+  variable: held-out seed22 star 81 and seed25 stars 39 and 52 are found at S/N 9.5 to 15.6
+  with ``guards=False`` and dropped with them on. A planet-only host whose guard ratio
+  (see Guards) crosses 1 is the same loss.
 * Only the best box per night is reported: two dips in one night are one detection.
 * A dip that fills most of a night leaves little reference (``min_out`` 30) and a night
-  median taken inside the dip; the S/N is then the lower, contrast, one.
+  median taken inside the dip; the S/N is then the lower, contrast, one. When the night holds
+  too few samples for any box to leave ``min_out`` outside it, the night is not searched:
+  held-out seed25 star 121 (a constant host, true stacked S/N 15.2) has 56 observed samples on
+  its night, 44 inside the label, so no box has ``n_out >= 30`` and the dip is missed.
+
+Coupling with ``bls``
+---------------------
+Guard (b) tests ``cand.rejected != "pulsation guard"``: a star whose periodic search is not
+rejected as a pulsator is not masked and re-searched, it is dropped. If ``bls`` later detrends
+pulsating hosts (so that ``_search`` returns a reportable candidate for them), a host it accepts
+is no longer masked and re-searched here. The module also uses ``BlsDetector._clean``,
+``_common_mode``, ``_prepare``, ``_pulsating``, ``_search`` and the fields of ``Box`` and
+``Candidate.mask``; a rename in ``bls`` breaks it.
 """
 
 from __future__ import annotations
