@@ -1,11 +1,30 @@
 {
-  "runs": ["runs/seed7-200s-3n", "runs/seed42-200s-3n"],
+  "runs": [
+    "runs/seed7-200s-3n",
+    "runs/seed42-200s-3n",
+    "runs/seed7-200s-20n",
+    "runs/seed42-200s-20n"
+  ],
   "views": [
     {
       "run": "runs/seed7-200s-3n",
       "pick": true,
       "file": "img/seed7-pick.png",
       "caption": "Seed 7, star 33, night 1: a held tracking drift, a cosmic ray, a hot pixel and an end-of-night flare on one curve. Only the field detector names the drift."
+    },
+    {
+      "run": "runs/seed7-200s-20n",
+      "star": 185,
+      "night": 6,
+      "file": "img/seed7-bls-star185-night6.png",
+      "caption": "Seed 7 over 20 nights, star 185, night 6: a 1.4% dip over five and a half hours on a star whose noise is 1.7% per sample. No per-night detector sees it; bls finds it by folding the star's whole record and bounds it on each of its three nights."
+    },
+    {
+      "run": "runs/seed7-200s-20n",
+      "star": 93,
+      "night": 9,
+      "file": "img/seed7-single-star93-night9.png",
+      "caption": "Seed 7 over 20 nights, star 93, night 9: a planet that transits once in the whole survey, already under way when the night starts. single_transit bounds it as a box truncated by the night edge; a periodic search cannot, because there is no second event."
     },
     {
       "run": "runs/seed42-200s-3n",

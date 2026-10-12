@@ -69,7 +69,18 @@ five hours that no per-night detector sees:
 
 ![seed 7, star 185, night 6](docs/img/seed7-bls-star185-night6.png)
 
-Open: hosting (the page is built; publishing it is the owner's call) and #32.
+[0008](docs/log/0008-the-held-out-seeds-and-what-they-changed.md) adds
+held-out seeds (21 to 26, never used to set anything) and what they changed:
+the second pass for `bls` ships off because it gained nothing there; `bls` now
+removes a host star's pulsation before searching, which took held-out transit
+finds from 30 to 46 with no new false alarms; and `single_transit` finds
+planets that transit once, like
+[seed 7, star 93, night 9](docs/img/seed7-single-star93-night9.png). On the
+held-out runs the three per-night detectors bound none of 261 transits; the
+two transit searches bound 53.
+
+Open: hosting (the page is built; publishing it is the owner's call) and #36,
+eclipsing binaries reported as transits.
 
 ## Develop
 
