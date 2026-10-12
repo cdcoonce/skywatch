@@ -340,12 +340,15 @@ share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector.
   off), and ``Candidate.shape`` holds it. The gate runs last, so a pulsator is still named by the
   pulsation guard. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
   20-night run, 0.1 percent of its CPU time).
-* A night where no centre has a positive score (it brightens where the dip should be) adds nothing
-  to the gains. Until #41 it added the score of the first centre listed (``pick = 0``, 0.5 h
-  before the box), at most 0, with that centre's norm: a small subtraction at an arbitrary place.
-  Making it add nothing moved the statistic of 14 of 223 stars that reached the gate on the
-  development runs (12 up, 2 down, none across 1.5, the highest planet still at 0.93) and, with a
-  depth for each night (below), cannot arise.
+* A night where no centre has a positive score (it brightens where the dip should be) takes the
+  first centre's numerator (at most 0) and norm in the gain with one amplitude (``pick = 0``): a
+  small subtraction at an arbitrary place. Issue #41 asked whether to make it add nothing. That
+  moved the statistic of 14 of the 223 stars that reached the gate on 78 development runs (12 up,
+  2 down; none across 1.5, the highest planet still at 0.93; the 3-night binary of seed 295 from
+  2.00 to 3.02), and on the 12 never-seen seeds 300-311 it took a planet (seed 304 star 110: 3
+  events, S/N 9.7, the box at a third of its period) from 0.82 to 1.503, over the gate: 2 true
+  positives and a false positive lost, nothing gained. So it is kept, and pinned by a test. With
+  a depth for each night (below) the question does not arise: such a night adds nothing.
 
 A second reading and a chi-square bar (issue #41). The gains above give every night the same
 depth. A transit repeats, a box fits that, and the events of an eclipsing binary are not all the
@@ -371,17 +374,19 @@ _shape_gains`):
   at 8 times the noise read 31 against the MAD, 5 against the residual). The second reading and
   the chi-square use ``noise``; the first reading uses the star's scatter, as before #41.
 
-Nothing the single reading rejected is let through. ``_shape_excess`` (the single reading, one
-amplitude) is what ``single_transit`` calls: it sees one night, where the two amplitudes are the
-same fit, and its numbers change only by the ``pick = 0`` fix, which cannot arise on one night.
+Nothing the one-amplitude reading rejected is let through. ``_shape_excess`` (that reading) returns
+what it returned before #41, to the last bit (223 stars that reached the gate on the development
+runs), and is what ``single_transit`` calls: it sees one night, where the two amplitudes are the
+same fit. ``single_transit`` reports the same detections, byte for byte, on 78 development runs (7
+of them planet-free) and the 6 held-out ones.
 
 Measured. The development runs and the planted cases below fixed the form of the statistic and the
 1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
 development runs, six of the eight binaries read 7.5, 6.6, 4.2, 3.7, 1.8 and 1.7 and the two 3-night
 ones 0.13 (seed 7 star 143: a 12.7 h eclipse that fills the 8 h nights) and -1.29 (seed 42 star 0: a
 2.4 h eclipse, 50 and 15 percent deep, that does not fill them; its two event nights read 3.72 and 4.11
-when each is fitted alone, so it is the joint fit that loses it, one depth and one width for both
-nights, and why is not established); of the other 101 stars the highest are 1.29 (a
+when each is fitted alone, so it is the joint fit that loses it: one depth for both nights, see
+issue #41 below); of the other 101 stars the highest are 1.29 (a
 flare star's false positive), 1.12 (a pulsating star reported as a transit, 20 events), 0.97 and
 0.96 (false positives) and 0.93 (a planet: the highest of the 66 planets, the next 0.46), and the 9
 candidates found by detrending a pulsation read -4.6 to -0.4. The branch against ``main`` on those
@@ -417,14 +422,62 @@ measured optimum: on 11 audited runs a 2 h window kept every binary above 1.5 an
 changes the statistic of a pure V train by under 3 percent (P 0.7 d: 13.97 against 14.36); a
 tuned test pins it, no planted planet reaches it.
 
+Eclipses the joint reading missed (issue #41). The shape gate of #40 left 9 of the 38 binaries that
+reach it on 78 development runs (the runs above, seeds 280-291 at 20 nights and 280-299 at 3
+nights, designed on; 20 binaries on the 20-night runs, 18 on the 3-night runs; the table is
+``scripts/bls_wide_eclipse_audit.py --markdown``) with a statistic under 1.5. Eclipse
+length is not what leaked: only 1 of the 9 has an eclipse longer than the night (seed 7's 12.7 h
+in 8 h nights), and 3 of the 4 binaries with eclipses of a night or more were rejected. The nine,
+by eclipse length and run length: under half a night, 20 nights, 1 of 7 (seed 288 star 48: a 1.7 h,
+2 percent deep train at S/N 21.9, 20 events, 0.96); under half a night, 3 nights, 5 of 16; half
+to one night, 20 nights, 2 of 10 (seed 64 star 195, 0.70, and seed 285 star 166, 1.33); a night or
+more, 3 nights, 1 of 1. Two things hid them. (1) One depth for all nights. The box sits at half
+the eclipse's period on 22 of the 38, so its events alternate primary and secondary, and a night
+at the edge holds a steep wing: seed 42's 3-night binary above reads 3.72 and 4.11 alone and -1.29
+jointly because the box needs depths 0.087 and 0.107 (one amplitude holds them) and the triangle
+0.133 and 0.72 (one cannot): the box wins by 64 in chi-square; with a depth for each night the
+triangle wins by 185. (2) The ratio is the chi-square advantage divided by the S/N: seed 64 star
+195 (S/N 19.2) is a V that wins by 23.9 in chi-square, about 5 sigma, and reads 0.70 (1.26 with a
+depth for each night); seed 288 star 48 wins by 18.7 and reads 0.96. After the change 33 of the 38
+are rejected; the 5 that still leak are all on 3-night runs at S/N 8.1 to 12.8 with 2 or 3 event
+nights, with a chi-square advantage of at most 7.9 (seed 7 star 143, seed 288 star 48, seed 290
+star 172, seed 294 star 115, seed 296 star 73). Four were rescued: two by the ratio with a depth
+for each night (seed 42 star 0 at 4.56; seed 285 star 166 at 1.96) and two by the chi-square alone
+(seed 64 star 195 at 23.9 and seed 288 star 48 at 18.7). Chosen on those runs: the highest
+chi-square advantage of the 140 planet hosts that reach the gate is 9.1 (then 7.4, 4.8, 3.8; the
+statistic at most 0.93) and of the 44 other stars 10.0 (a flare star, 1.41); the bar of 14 is 1.5
+times the highest planet and 0.75 of the lowest binary it rescues.
+Planted, 40 000 planets drawn as the world draws them (ramps of 10 percent, 0.5 to 6 h, depth 0.5
+to 3 percent, noise 0.3 to 2 percent, 2 to 13 event nights, the box on the nearest ladder width,
+each event up to 10 minutes off) at S/N 7 or more (39 682): a chi-square advantage above 14 in
+11 (0.03 percent), above 16 in 6, a depth-per-night ratio above 1.2 in 3 and above 1.5 in none.
+Branch against ``main`` on the 71 planet development runs (all detections of ``bls``): transit
+true positives 448 to 448, false positives (all kinds) 50 to 50, eclipses reported as transits
+41 to 10 (all 10 on 3-night runs), pulsations reported as transits 4 to
+4, flares reported as transits 7 to 7, detections 576 to 545; on the 7 planet-free runs (41-44 at
+20 nights, 41-43 at 3 nights) 0, 0, 2, 0 and 0, 2, 0 detections to 0, 0, 2, 0 and 0, 0, 0 (the
+one that goes is seed 42 star 0's). Held-out, scored once (seeds 201-206, 200 stars, 20 nights;
+re-scored once after the ``pick = 0`` decision above, which was taken on the never-seen seeds
+300-311 and changed nothing on these): transit true positives 40 to 40, false positives 7 to 7,
+eclipses reported as transits 0 to 0, pulsations 0 to 0, flares 3 to 3. No binary reached the
+shape gate on those six runs (19 stars did: the planet hosts at most -0.12, the others at most
+0.25; chi-square at most 1.6), so the held-out seeds show no cost and cannot show the gain. Never
+seen (seeds 300-311, 200 stars, 20 nights, scored once by the builder): true positives 135 to
+135, false positives 15 to 14, eclipses reported as transits 2 to 0 (seed 309 star 57, a 3.5 h
+eclipse, depths 0.37 and 0.13, joint statistic 0.00, 3.14 with a depth for each night, chi-square
+76.8), pulsations 2 to 2, flares 1 to 1. The cost of the gate is not measurably changed (the same
+fits, read twice: 22 against 25 ms of CPU for each of 19 candidates, on a loaded host).
+
 Limits of the gate: a V that fills most of every night is not told from a box (seed 7's 3-night
-binary above, and the unseen 7 h eclipse in 8 h nights), and seed 42's 3-night binary, whose eclipse
-does not fill the nights, is lost for a reason not established; the margin is thin at both ends (the
-eclipses at 1.7 and 1.8 and a planet at 0.93, against 1.5; a planted "both eclipses seen" binary
-reads 1.6 and 1.9); an eclipse wider than the nights has little curvature left to read. A shape-
-rejected star plans the second pass's mask like any other rejection and its re-search refuses the
-first period and its halves and double like a pulsation rejection (``second_pass`` was not measured
-with the gate).
+binary above), and a V at S/N under 13 on two or three nights is not either (the five above); the
+margin is thin at the binary end (18.7, 18.8 and 23.9 in chi-square against 14; the eclipses at 1.7
+and 1.8 as ratios, against 1.5) and wide at the planet end (9.1 against 14, 0.93 against 1.5), with
+the caveat that the chi-square is in units of the larger of the star's MAD scatter and the box's
+residual scatter, so noise that is red or heavy-tailed raises the bar rather than the statistic; an
+eclipse wider than the nights has little curvature in each night and is told by the nights adding
+up (seed 64 star 195, 5 nights), not by one. A shape-rejected star plans the second pass's mask
+like any other rejection and its re-search refuses the first period and its halves and double
+like a pulsation rejection (``second_pass`` was not measured with the gate).
 
 Pulsating hosts
 ---------------
@@ -1377,9 +1430,10 @@ class BlsDetector:
           brightens where the dip should be, takes the first centre's numerator, at most 0, and
           norm: the ``pick = 0`` quirk, kept, see the module docstring), or
         * ``g_night``: an amplitude for each night (``sum of num**2 / den`` over the nights with
-          a positive score; the others add nothing): the events of an eclipsing binary are not all the same slice of
-          the same eclipse (the box at half its period alternates primary and secondary, and a
-          night at the edge holds a steep wing), and one depth then fits the V worse than the box.
+          a positive score; the others add nothing): the events of an eclipsing binary are not
+          all the same slice of the same eclipse (the box at half its period alternates primary
+          and secondary, and a night at the edge holds a steep wing), and one depth then fits the
+          V worse than the box.
 
         The residual scatter of the best box with an amplitude for each night is returned with the
         gains: the amplitude for each night can absorb noise that is not white, and a gain

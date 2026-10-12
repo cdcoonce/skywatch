@@ -270,9 +270,40 @@ Planned detectors, in order:
    and the remaining leak is seed 64 star 195, a 7.04 h eclipse in 8 h nights, statistic 0.70.
    A V that fills the nights is not told from a box (seed 7's 3-night binary, a 12.7 h eclipse);
    seed 42's 3-night binary has a 2.4 h eclipse that does not fill them: its two event nights
-   read 3.72 and 4.11 fitted alone and -1.29 jointly, cause not established. The margins are thin
-   on the binary side (eclipses at 1.7 and 1.8, and 0.70 on the unseen seeds; a planet at 0.93 on
-   development, 0.12 on the unseen seeds).
+   read 3.72 and 4.11 fitted alone and -1.29 jointly (explained below, issue #41). The margins
+   are thin on the binary side (eclipses at 1.7 and 1.8, and 0.70 on the unseen seeds; a planet
+   at 0.93 on development, 0.12 on the unseen seeds).
+
+   Eclipses the joint reading missed (issue #41). Of the 38 binaries that reach the shape gate on
+   78 development runs (the runs above, plus design seeds 280-291 at 20 nights and 280-299 at 3
+   nights), 9 read under 1.5: one of them has an eclipse longer than the night (seed 7's 12.7 h in
+   8 h nights), so "wider than the night" is not what leaks (3 of the 4 binaries with eclipses of
+   a night or more are rejected). Two things hide the rest. The fit gives every event one depth,
+   and the box at half the eclipse's period (22 of the 38) alternates primary and secondary or
+   lands on a night-edge wing: seed 42's 3-night binary has a whole 14 percent secondary on
+   night 0 and the last hour of a 50 percent primary on night 2, the box needs depths 0.087 and
+   0.107 (one amplitude holds them), the triangle 0.133 and 0.72 (one cannot), so the box wins by
+   64 in chi-square. And the ratio divides the chi-square advantage by the S/N: seed 64 star 195
+   (S/N 19.2) is a V that wins by 23.9, about 5 sigma, and reads 0.70. The gate now also reads the
+   fits with a depth for each night (the statistic is the larger of the two readings) and rejects
+   when the chi-square by which the best V beats the best box with a depth for each night reaches
+   `shape_chi2` = 14 (`Candidate.shape_chi2`; the highest planet is 9.1, the lowest binary it
+   rescues 18.7, and 6 of 39 682 planted planets exceed 16). The chi-square is in units of the
+   larger of the star's scatter and the box's residual scatter on the event nights, so noise
+   that is not white raises the bar. Nothing the old reading rejected is let through. Development
+   (71 planet runs), branch against `main`: transit true positives 448 to 448, false positives 50
+   to 50, eclipses reported as transits 41 to 10 (all 10 on 3-night runs, from five binaries at
+   S/N 8.1 to 12.8 with 2 or 3 event nights: the shape cannot be read there), pulsations 4 to 4,
+   flares 7 to 7; planet-free 41-44 and 41-43 unchanged except seed 42's 3-night run, 2 to 0.
+   Held-out 201-206, scored once: 40 to 40, 7 to 7, 0 to 0, 0 to 0, 3 to 3; no binary reached the
+   gate on them, so they show no cost and cannot show the gain. Never-seen 300-311: 135 to 135,
+   15 to 14, eclipses 2 to 0. The `pick = 0` quirk of the one-amplitude fit (a night that
+   brightens where the dip should be subtracts the first centre's score) was measured and kept:
+   making it add nothing moved 14 of 223 statistics on development without crossing 1.5, and on
+   the never-seen seeds took a planet from 0.82 to 1.503. `single_transit` is unchanged
+   (detections byte-identical on 84 runs: the 78 development ones and the 6 held-out ones): it calls the one-amplitude reading on a single night.
+   The method, table and limits are in the `skywatch/detectors/bls.py` docstring and
+   `scripts/bls_wide_eclipse_audit.py`.
 
    Planet-free stars (issue #39). On a run with no planets every transit claim is false, and
    `bls` had never been held to the rule `single_transit` was set by (at most 5 detections on
