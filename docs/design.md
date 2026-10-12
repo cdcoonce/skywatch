@@ -233,7 +233,24 @@ Planned detectors, in order:
    seeds, and 5 of the 14 strong planets there sit on pulsating hosts and are
    rejected by the pulsation guard. The grid, statistic, guard and second pass are
    in the `skywatch/detectors/bls.py` docstring.
-5. Later: matched flare filter, a learned model, an LLM-judge for comparison.
+5. `single_transit` — a one-event box search for the planets that transit once (built;
+   scored on the single-event labels of the stored runs). Per star it uses `bls`'s
+   preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every
+   start sample, including boxes cut by the night's start or end, so a transit against a
+   night edge is searchable) against the same night's out-of-box samples and reports the best
+   box per night at an S/N of 6 or more, the matched-filter S/N of that contrast, one
+   `transit` detection per night. The threshold is the lowest with at most 5 detections that
+   overlap no truth label on each of four planet-free 20-night runs (0 at 6, up to 6 at 5).
+   Guards reuse `bls`'s pulsation guard: a star whose strongest box fails it as a one-event
+   box is searched with `bls`, and when that periodic best box is itself a guard rejection (a
+   pulsator or an eclipsing binary) the binary's eclipse windows are masked and the star is
+   searched again; a star still failing the guard is dropped. Measured on the stored runs:
+   5 of the 6 single-event labels at S/N 10 or more are bounded (the sixth, a planet on an
+   eclipsing binary, sits against an eclipse the mask removes), 0 false positives on all four
+   runs; a star with two strong single events, or a planet with other events beside the one
+   searched, is read as a sinusoid and dropped. The statistic, threshold, guards and limits are
+   in the `skywatch/detectors/single_transit.py` docstring.
+6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring
 
