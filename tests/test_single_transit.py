@@ -6,6 +6,7 @@ import pytest
 
 import skywatch.detectors.single_transit as st
 from skywatch.detectors import REGISTRY, Detector, load_all
+from skywatch.detectors.bls import BlsDetector
 from skywatch.detectors.single_transit import SingleTransitDetector, search_night
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
@@ -63,6 +64,8 @@ def test_registered_and_a_detector():
         {"min_in": 0},
         {"min_out": 0},
         {"mask_pad_h": -1},
+        {"shape_threshold": 0},
+        {"shape_threshold": -1.0},
     ],
 )
 def test_constructor_validation(kw):
@@ -78,6 +81,7 @@ def test_defaults_are_the_documented_ones():
     assert (d.min_in, d.min_out) == (15, 30)
     assert d.durations_h == (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
     assert (d.contrast, d.guards, d.mask_pad_h) == (True, True, 0.5)
+    assert d.shape_threshold == 1.0
 
 
 def test_empty_and_tiny_curves():
@@ -286,8 +290,11 @@ def test_a_sinusoid_gives_nothing_but_would_without_the_guard(period_d):
     t = night_times(10)
     prof = 1.0 + 0.02 * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
     cv = curve(0, t, prof, 0.005, rng)
+    # the guard alone removes it: the shape test is off, or it would hide a dead guard
+    assert detect({0: cv}, shape_threshold=None) == []
     assert detect({0: cv}) == []
-    assert detect({0: cv}, guards=False) != []
+    # ... and the shape test would refuse the rounded dips of a slow one, so it is off too
+    assert detect({0: cv}, guards=False, shape_threshold=None) != []
 
 
 EB = (2.0, 0.3, 5.0, 0.20, 0.08)  # P, epoch (d), eclipse duration (h), primary, secondary depth
@@ -304,9 +311,13 @@ def eb_with_dip(dip=None, seed=0, n_nights=20):
 
 def test_an_eclipsing_binary_gives_nothing_when_guard_b_is_on():
     _t, cv = eb_with_dip()
+    # the guard alone removes it: the shape test is off, or it would hide a dead guard
+    assert detect({0: cv}, shape_threshold=None) == []
     assert detect({0: cv}) == []
-    # the eclipses are 20 and 8 percent deep: without the guards every night reports one
-    assert len(detect({0: cv}, guards=False)) >= 10
+    # the eclipses are 20 and 8 percent deep: without the guards every night reports one ...
+    assert len(detect({0: cv}, guards=False, shape_threshold=None)) >= 10
+    # ... and the shape test refuses them without the guards: they are V-shaped
+    assert detect({0: cv}, guards=False) == []
 
 
 def test_a_planted_dip_on_an_eclipsing_binary_is_found_beside_masked_eclipses():
@@ -326,6 +337,175 @@ def test_a_star_with_two_unequal_single_events_is_not_searched():
     t = night_times(10)
     prof = dip_profile(t, 2, 2.0, 3.0, 0.015) * dip_profile(t, 7, 4.0, 2.0, 0.006)
     assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
+
+
+# -- the shape test ----------------------------------------------------------------------
+
+
+def v_profile(t, night, centre_h, width_h, depth):
+    """A V (triangle) dip, `width_h` wide at its base, centred `centre_h` after the night starts."""
+    x = t - (night * DAY + centre_h * HOUR)
+    return 1.0 - depth * np.clip(1.0 - 2.0 * np.abs(x) / (width_h * HOUR), 0.0, None)
+
+
+def trapezoid_profile(t, night, start_h, dur_h, depth, ramp=0.1):
+    """A transit with ingress and egress ramps of `ramp` of its duration, as the world draws it."""
+    lo = night * DAY + start_h * HOUR
+    r = ramp * dur_h * HOUR
+    return 1.0 - depth * np.minimum(
+        np.clip((t - lo) / r, 0, 1), np.clip((lo + dur_h * HOUR - t) / r, 0, 1)
+    )
+
+
+def one_event(prof, noise=0.005, seed=0, n_nights=10):
+    t = night_times(n_nights)
+    return curve(0, t, prof(t), noise, np.random.default_rng(seed))
+
+
+def shapes(cv, **kw):
+    """The statistic of every box the search reports for the star (shape test on, no refusal)."""
+    det = SingleTransitDetector(shape_threshold=1e9, **kw)
+    c = det._bls._clean(cv, C)
+    boxes, _ = det._star_boxes(0, c, det._bls._common_mode({0: c}), C)
+    return [b.shape for b in boxes]
+
+
+V_MID = (4, 4.0, 3.0, 0.03)  # night, centre h, base width h, depth: S/N about 30, statistic 4.7
+V_END = (4, 8.0, 4.0, 0.06)  # the same V cut in half by the night's end
+
+
+def test_a_v_shaped_event_is_found_without_the_shape_test_and_refused_with_it():
+    cv = one_event(lambda t: v_profile(t, *V_MID))
+    assert len(detect({0: cv}, shape_threshold=None)) == 1
+    assert detect({0: cv}) == []
+
+
+def test_a_v_cut_by_the_night_edge_is_refused_too():
+    # half a V is a ramp down to the edge; a half box is a step. The statistic tells them apart
+    # when the ramp is long and the signal strong
+    for centre in (8.0, 0.0):
+        cv = one_event(lambda t, c=centre: v_profile(t, 4, c, 4.0, 0.06))
+        assert len(detect({0: cv}, shape_threshold=None)) == 1
+        assert detect({0: cv}) == []
+
+
+def test_a_flat_bottomed_event_has_a_negative_statistic_and_a_v_a_positive_one():
+    (flat,) = shapes(one_event(lambda t: dip_profile(t, 4, 2.5, 3.0, 0.02)))
+    (vee,) = shapes(one_event(lambda t: v_profile(t, *V_MID)))
+    assert flat < -1.0 and vee > 3.0
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_planet_with_ramps_is_not_refused(seed):
+    cv = one_event(lambda t: trapezoid_profile(t, 4, 2.5, 3.0, 0.02), seed=seed)
+    (stat,) = shapes(cv)
+    assert stat < 0.5
+    assert len(detect({0: cv})) == 1
+
+
+def test_a_truncated_box_is_kept():
+    # a transit half past the night's end: a step down to the edge, flat where it is seen
+    cv = one_event(lambda t: dip_profile(t, 4, 6.5, 3.0, 0.02))
+    assert shapes(cv)[0] < 0.5
+    assert len(detect({0: cv})) == 1
+
+
+def test_a_short_wing_of_an_eclipse_at_the_night_end_is_kept_the_limit_of_the_test():
+    # a V of 1.6 h centred 0.4 h past the night's end leaves a 1 h ramp at 1.5 percent: the
+    # statistic is 0.49 here and 0.4 to 2.4 across seeds, so the test cannot call it
+    cv = one_event(lambda t: v_profile(t, 4, 8.4, 1.6, 0.05))
+    assert shapes(cv) == [pytest.approx(0.49, abs=0.1)]
+    assert len(detect({0: cv})) == 1
+
+
+def test_one_v_night_removes_the_star_but_not_the_other_stars():
+    # guards off: two strong events would read as a sinusoid. The box on night 7 is a transit by
+    # itself; beside a V on night 2 it is read as another eclipse of the same star
+    rng = np.random.default_rng(3)
+    t = night_times(10)
+    prof = v_profile(t, 2, 4.0, 3.0, 0.03) * dip_profile(t, 7, 2.5, 3.0, 0.015)
+    both = curve(0, t, prof, 0.005, rng)
+    lone = one_event(lambda t: dip_profile(t, 7, 2.5, 3.0, 0.015), seed=4)
+    lone = LightCurve(1, lone.t, lone.flux, lone.flux_err, lone.quality)
+    assert {d.star_id for d in detect({0: both, 1: lone}, guards=False, shape_threshold=None)} == {
+        0,
+        1,
+    }
+    assert [d.star_id for d in detect({0: both, 1: lone}, guards=False)] == [1]
+    assert [d.star_id for d in detect({1: lone}, guards=False)] == [1]
+
+
+def test_a_statistic_equal_to_the_threshold_refuses():
+    cv = one_event(lambda t: v_profile(t, *V_MID))
+    (stat,) = shapes(cv)
+    assert detect({0: cv}, shape_threshold=stat) == []
+    assert len(detect({0: cv}, shape_threshold=stat + 0.01)) == 1
+
+
+def test_the_statistic_is_computed_only_when_the_test_is_on():
+    cv = one_event(lambda t: dip_profile(t, 4, 2.5, 3.0, 0.02))
+    det = SingleTransitDetector(shape_threshold=None)
+    c = det._bls._clean(cv, C)
+    boxes, _ = det._star_boxes(0, c, det._bls._common_mode({0: c}), C)
+    assert [b.shape for b in boxes] == [None]
+    assert shapes(cv)[0] is not None
+
+
+def test_the_test_reads_the_night_of_the_box_only(monkeypatch):
+    # the statistic is a single-night fit: the star's other nights (here a V on night 2 beside
+    # the box on night 7) must not enter it, or the free level would be one for the whole star
+    sizes = []
+    real = BlsDetector._shape_excess
+
+    def spy(self, t, flux, night, sigma, box):
+        sizes.append((len(t), len(np.unique(night)), len(np.unique(t // DAY))))
+        return real(self, t, flux, night, sigma, box)
+
+    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
+    t = night_times(10)
+    prof = v_profile(t, 2, 4.0, 3.0, 0.03) * dip_profile(t, 7, 2.5, 3.0, 0.015)
+    both = shapes(curve(0, t, prof, 0.005, np.random.default_rng(3)), guards=False)
+    assert len(both) == 2
+    assert sizes == [(NIGHT_N, 1, 1)] * 2
+
+
+def wing(seed):
+    # a 1.6 h V centred 0.4 h past the night's end (the limit case above); only the noise varies
+    return one_event(lambda t: v_profile(t, 4, 8.4, 1.6, 0.05), seed=seed)
+
+
+def test_a_statistic_of_1_2_is_refused_and_one_of_0_9_is_kept():
+    # pins the effective threshold between 0.9 and 1.2, not only the default attribute
+    refused, kept = wing(14), wing(27)
+    assert shapes(refused) == [pytest.approx(1.22, abs=0.05)]
+    assert shapes(kept) == [pytest.approx(0.90, abs=0.05)]
+    assert detect({0: refused}) == []
+    assert len(detect({0: kept})) == 1
+
+
+def test_sigma_is_the_nights_scatter_outside_the_box_not_the_whole_nights(monkeypatch):
+    seen = []
+    real = BlsDetector._shape_excess
+
+    def spy(self, t, flux, night, sigma, box):
+        seen.append(sigma)
+        return real(self, t, flux, night, sigma, box)
+
+    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
+    cv = one_event(lambda t: v_profile(t, 4, 4.0, 5.0, 0.02))  # a V filling 5 h of the 8 h night
+    shapes(cv)
+    # the white noise is 0.005; the whole night's MAD (dip included) reads about 0.0075
+    assert seen == [pytest.approx(0.005, rel=0.15)]
+
+
+def test_a_weaker_v_night_still_removes_the_star():
+    # guards off (two strong events would read as a sinusoid). The V on night 2 is the weaker box
+    # (1.2 percent against 3 percent): the rule is "any box", not "the strongest box"
+    t = night_times(10)
+    prof = v_profile(t, 2, 4.0, 3.0, 0.012) * dip_profile(t, 7, 2.5, 3.0, 0.03)
+    cv = curve(0, t, prof, 0.005, np.random.default_rng(3))
+    assert len(detect({0: cv}, guards=False, shape_threshold=None)) == 2
+    assert detect({0: cv}, guards=False) == []
 
 
 # -- determinism, order, speed ---------------------------------------------------------------

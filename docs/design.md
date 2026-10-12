@@ -337,7 +337,24 @@ Planned detectors, in order:
    (b) drops them instead of masking them; the detections are identical span for span on the
    4 development and 6 held-out runs, the planet-free all-detection counts are unchanged
    (4, 0, 1, 2), and this detector's CPU is about 2.2 times higher on a 20-night run (seed 26:
-   15.8 s to 35.0 s). The statistic, threshold, guards and limits are
+   15.8 s to 35.0 s). A shape test (#45) refuses V-shaped dips: each reported box's night
+   goes through `bls`'s shape statistic (`_shape_excess`, a triangle against a box, read as a
+   one-event box with the night's own scatter), and a star with any box at 1.0 or more is not
+   reported, its other nights being read as eclipse residue. The threshold sits above the
+   planets of 80 development runs (142 planet boxes, highest 0.73) and below the median of the
+   eclipse boxes (1.29). Edge-truncated boxes get the same test and the same threshold: a
+   transit cut by the night's edge is a step and an eclipse cut by it a ramp, and the test
+   cannot call a short wing (none of the 78 planet boxes at an edge is refused; 66 of 111
+   eclipse boxes at one are refused by the night alone, 89 of 119 eclipse boxes in all by the
+   star rule). On the 27 development and design runs eclipse->transit goes 44 to 7, transit
+   true positives 32 to 31 (a planet on an eclipsing binary, S/N 8.3), single-event planets at
+   S/N 10 or more bounded 20 to 20; on the held-out seeds 221-226 (scored once) eclipse->transit
+   11 to 6, those planets 11 of 14 to 11 of 14, and on the planet-free 231-234 all detections
+   8 to 2; the highest planet statistic there is 0.82 (seed 224 star 101), a margin of 0.18
+   against 0.27 on development (`bls`: 0.57). On never-seen seeds 241-246 (planets) and
+   251-254 (planet-free), checked in the review of #46, eclipse->transit goes 9 to 1 and 6
+   to 0, no planet is lost (transit true positives 11 to 11) and the planets top at 0.05, so
+   they do not narrow the margin. The statistic, threshold, guards and limits are
    in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
