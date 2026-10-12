@@ -143,7 +143,10 @@ share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector.
 Measured. The development runs and the planted cases below fixed the form of the statistic and the
 1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
 development runs, six of the eight binaries read 7.5, 6.6, 4.2, 3.7, 1.8 and 1.7 and the two 3-night
-ones 0.13 and -1.29 (their dips fill the nights); of the other 101 stars the highest are 1.29 (a
+ones 0.13 (seed 7 star 143: a 12.7 h eclipse that fills the 8 h nights) and -1.29 (seed 42 star 0: a
+2.4 h eclipse, 50 and 15 percent deep, that does not fill them; its two event nights read 3.72 and 4.11
+when each is fitted alone, so it is the joint fit that loses it, one depth and one width for both
+nights, and why is not established); of the other 101 stars the highest are 1.29 (a
 flare star's false positive), 1.12 (a pulsating star reported as a transit, 20 events), 0.97 and
 0.96 (false positives) and 0.93 (a planet: the highest of the 66 planets, the next 0.46), and the 9
 candidates found by detrending a pulsation read -4.6 to -0.4. The branch against ``main`` on those
@@ -160,14 +163,33 @@ reported as transits 0 to 0. ``single_transit``, which reads ``Candidate.rejecte
 same detections span for span and score for score on 4 development runs (seeds 7 and 42, 3 and
 20 nights) and the 6 held-out ones.
 
+Never-seen seeds 61-66 (200 stars, 20 nights; reviewed after the numbers above were fixed): transit
+true positives 69 to 69, false positives 18 to 18, eclipses reported as transits 26 to 5, pulsations
+reported as transits 29 to 29 (planet-free sinusoidal stars, which the gate does not touch). Of the 36
+stars either version reports, the planet hosts read at most 0.12 (23 of them), the flare stars -0.79
+to -3.09, and the four binaries 5.51, 5.09, 3.43 and 0.70. The remaining leak is seed 64 star 195, a
+7.04 h eclipse in 8 h nights (88 percent of a night; 5 events, S/N 19.2, statistic 0.70). The planets
+sit far from the gate on these seeds; the thin margin is on the binary side.
+
 ``scripts/bls_shape_audit.py`` prints the statistic of every star a run would report.
 
-Limits of the gate: a V that fills most of every night is not told from a box (the two 3-night
-binaries above); the margin is thin at both ends (the eclipses at 1.7 and 1.8 and a planet at 0.93,
-against 1.5; a planted "both eclipses seen" binary reads 1.6 and 1.9); an eclipse wider than the
-nights has little curvature left to read. A shape-rejected star plans the second pass's mask like
-any other rejection and its re-search refuses the first period and its halves and double like a
-pulsation rejection (``second_pass`` was not measured with the gate).
+The centring window (``_SHAPE_SHIFT_H``, 0.5 h) is pinned on both sides by behaviour: at 0 h planets
+with ramps read 1.95 and 2.75 (development seeds 40 and 33), and with a 2 h window a 2 h transit
+beside a shallow V that reads 2.3 to 2.9 at 0.5 h reads 0.3 to 0.9 (both in ``tests/test_bls.py``).
+The 0.5 h itself is a choice with a stated rationale (the phase bins and the period grid), not a
+measured optimum: on 11 audited runs a 2 h window kept every binary above 1.5 and every planet below
+0.54. The triangle's cap at the period binds only for periods of 0.5 to 1 d (4 x 6 h = 24 h) and
+changes the statistic of a pure V train by under 3 percent (P 0.7 d: 13.97 against 14.36); a
+tuned test pins it, no planted planet reaches it.
+
+Limits of the gate: a V that fills most of every night is not told from a box (seed 7's 3-night
+binary above, and the unseen 7 h eclipse in 8 h nights), and seed 42's 3-night binary, whose eclipse
+does not fill the nights, is lost for a reason not established; the margin is thin at both ends (the
+eclipses at 1.7 and 1.8 and a planet at 0.93, against 1.5; a planted "both eclipses seen" binary
+reads 1.6 and 1.9); an eclipse wider than the nights has little curvature left to read. A shape-
+rejected star plans the second pass's mask like any other rejection and its re-search refuses the
+first period and its halves and double like a pulsation rejection (``second_pass`` was not measured
+with the gate).
 
 Pulsating hosts
 ---------------

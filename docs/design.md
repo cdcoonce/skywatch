@@ -264,9 +264,15 @@ Planned detectors, in order:
    positives 202 to 202, false positives 56 to 56, eclipses reported as transits 40 to 3 (the
    3-night runs). Held-out seeds 21-26, scored once (the seeds on which #36 found the leak):
    transit true positives 46 to 46, false positives 6 to 6, eclipses reported as transits 13
-   to 0, no pulsator reported as a transit; `single_transit` unchanged on 10 runs. A V that
-   fills the nights is not told from a box (the two 3-night binaries) and the margins are thin
-   (eclipses at 1.7 and 1.8, a planet at 0.93).
+   to 0, no pulsator reported as a transit; `single_transit` unchanged on 10 runs. Never-seen
+   seeds 61-66 (reviewed after the numbers above were fixed): true positives 69 to 69, false
+   positives 18 to 18, eclipses reported as transits 26 to 5; the planet hosts read at most 0.12,
+   and the remaining leak is seed 64 star 195, a 7.04 h eclipse in 8 h nights, statistic 0.70.
+   A V that fills the nights is not told from a box (seed 7's 3-night binary, a 12.7 h eclipse);
+   seed 42's 3-night binary has a 2.4 h eclipse that does not fill them: its two event nights
+   read 3.72 and 4.11 fitted alone and -1.29 jointly, cause not established. The margins are thin
+   on the binary side (eclipses at 1.7 and 1.8, and 0.70 on the unseen seeds; a planet at 0.93 on
+   development, 0.12 on the unseen seeds).
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
    preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every
