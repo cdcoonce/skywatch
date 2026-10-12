@@ -201,7 +201,7 @@ class SingleTransitDetector:
 
     def __init__(
         self,
-        snr_threshold: float = 6.0,
+        snr_threshold: float = 8.0,
         durations_h: tuple[float, ...] = DEFAULT_DURATIONS_H,
         min_in: int = 15,
         min_out: int = 30,
