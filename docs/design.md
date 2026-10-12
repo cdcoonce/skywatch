@@ -350,7 +350,11 @@ Planned detectors, in order:
    true positives 32 to 31 (a planet on an eclipsing binary, S/N 8.3), single-event planets at
    S/N 10 or more bounded 20 to 20; on the held-out seeds 221-226 (scored once) eclipse->transit
    11 to 6, those planets 11 of 14 to 11 of 14, and on the planet-free 231-234 all detections
-   8 to 2. The statistic, threshold, guards and limits are
+   8 to 2; the highest planet statistic there is 0.82 (seed 224 star 101), a margin of 0.18
+   against 0.27 on development (`bls`: 0.57). On never-seen seeds 241-246 (planets) and
+   251-254 (planet-free), checked in the review of #46, eclipse->transit goes 9 to 1 and 6
+   to 0, no planet is lost (transit true positives 11 to 11) and the planets top at 0.05, so
+   they do not narrow the margin. The statistic, threshold, guards and limits are
    in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 

@@ -132,7 +132,10 @@ star rule removes 89 and one planet (seed212-200s-20n star 96, S/N 8.3, a planet
 binary whose eclipse night reads 2.19). 0.8 would remove 91 and leave the planets 0.07 of margin;
 1.5 (the ``bls`` value, which sees several nights) only 62. The statistic is ``bls``'s function
 on one night instead of several: there the planets read at most 0.93 (development) and 0.12
-(unseen seeds), here 0.73, so the threshold is lower and the margin about as wide.
+(unseen seeds) against a threshold of 1.5, a margin of 0.57; here they read at most 0.73 on
+development and 0.82 on the held-out seeds (a margin of 0.27 and 0.18 against 1.0). The margin
+is narrower than ``bls``'s and is a sample maximum, not a separation. The never-seen planets of
+seeds 241-246 (11 boxes) top at 0.05, so they do not narrow it further.
 
 Edge-truncated boxes (a transit cut by the night's start or end; five of the nine single-event
 development targets, 78 of the 142 planet boxes in the pool) are not treated differently:
@@ -159,6 +162,10 @@ of 14 to 11 of 14, false positives 1 to 1, all detections on the planet-free run
 held-out planets' highest statistic is 0.82 (seed224 star 101), nearer the threshold than any
 development planet; the six eclipse boxes that stay on the planet runs read 0.90, 0.96, 0.84,
 0.35, 0.20 and -0.11.
+Never-seen seeds 241-246 (planets) and 251-254 (planet-free), checked in the review of #46:
+eclipse->transit 9 to 1 on the planet runs and 6 to 0 on the planet-free ones, planets
+lost 0 (transit true positives 11 to 11, single-event planets at S/N 10 or
+more bounded 4 of 7 to 4 of 7), false positives 0 to 0.
 
 Limits
 ------

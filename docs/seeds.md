@@ -28,8 +28,10 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 218-219 | 20 | planet-free | development | #45 design; used |
 | 221-226 | 20 | planets | development | held-out for #45 (the shape test), scored once; used |
 | 231-234 | 20 | planet-free | development | held-out for #45 (the shape test), scored once; used |
+| 241-246 | 20 | planets | development | review of PR #46 (never-seen check of the shape test); used |
+| 251-254 | 20 | planet-free | development | review of PR #46 (never-seen check of the shape test); used |
 
-Next unused range: 240 and up.
+Next unused range: 260 and up.
 
 Also read for #45 (the statistic of every box `single_transit` reported, to set the shape threshold; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights; planet-free 41-43 at 3 nights), 11-14, 21-26, 31-50, 61-66, 71-76, 91-100 (planets) and the planet-free 41-44 and 51-58 at 20 nights.
 
