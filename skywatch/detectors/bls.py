@@ -85,6 +85,7 @@ The best box per star is a candidate when all of these hold, tested in this orde
 * At least ``min_events`` nights each show the dip at ``support_snr`` (2.0) on their own, so
   one bad night cannot make a candidate.
 * The pulsation guard passes (below).
+* The shape guard passes (below).
 
 Pulsation guard
 ---------------
@@ -105,6 +106,68 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   second eclipse. The false-alarm level is ``ln(M / guard_fap)``, ``M`` the number of
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
+
+Shape guard
+-----------
+An eclipsing binary seen on few nights passes the pulsation guard, and a box fit to its V sits on
+its core. At ``main`` (before this gate), 27 development runs (the stored seed 7 and 42 runs at 3
+and 20 nights, seeds 11-14 and 31-50 at 20 nights; issue #36) reported 40 detections of eclipses as
+transits, on 8 of the 428 binaries in them. The pulsation guard was nowhere near rejecting them:
+twice the best sine's power over the box's chi-square was 0.09 to 0.38 (it rejects at 1) and the
+residual's power over the false-alarm level 0.37 to 0.90 (it rejects at 1). The box was 1 to 3 h
+wide on eclipses of 1.5 to 13.5 h. On 5 of the 8 every reported event was the same eclipse (the core
+of the other was never inside a predicted window; only its wings reached a night), so an odd-even
+depth test or a half-phase secondary search had nothing to compare there: a per-night odd-even
+contrast at ``|z| >= 3`` would have removed 2 of the 8 stars (20 of the 40 detections). What all 8
+share is a V fit by a box, so the last gate is a shape test (:meth:`BlsDetector._shape_excess`):
+
+* The samples of the nights that hold a box event are put at their offset ``x`` from the nearest
+  event centre, and the dip ``1 - flux`` is fitted with two families of templates, each with a free
+  depth and a free level for every night: boxes (15 widths in a geometric ladder from the shortest
+  to the longest of ``durations_h``) and triangles (``max(0, 1 - 2|x| / w)``, 23 widths from the
+  shortest duration to 4 times the longest, none wider than the period).
+* Each night takes its own centre within 0.5 h of the box, in steps of a tenth of the template's
+  width, for both families. The phase bins are 15 minutes wide and the period grid's step lets the
+  last events sit up to a third of the shortest duration (10 minutes) off, which a 0.8 h flat dip
+  cannot forgive: with one centre for all nights planted 0.8 h transits read as a V at 1.4 and 2.4,
+  against the threshold of 1.5.
+* With ``g_box`` and ``g_triangle`` the largest chi-square gains of the two families (in flux units,
+  ``amplitude**2 * template.template``), the statistic is ``(g_triangle - g_box) / (sigma *
+  sqrt(g_box))``: about ``(chi2 of the triangle - chi2 of the box) / S/N``, so it does not grow with
+  the signal. A box-shaped dip makes it negative, a V positive. The candidate is rejected
+  (``rejected == "shape"``) when it reaches ``shape_threshold`` (1.5; ``None`` switches the gate
+  off), and ``Candidate.shape`` holds it. The gate runs last, so a pulsator is still named by the
+  pulsation guard. It costs 8 to 17 ms for each candidate that reaches it (11 of them on one
+  20-night run, 0.1 percent of its CPU time).
+
+Measured. The development runs and the planted cases below fixed the form of the statistic and the
+1.5; the held-out seeds were simulated afterwards. Of the 109 stars ``main`` reported on the
+development runs, six of the eight binaries read 7.5, 6.6, 4.2, 3.7, 1.8 and 1.7 and the two 3-night
+ones 0.13 and -1.29 (their dips fill the nights); of the other 101 stars the highest are 1.29 (a
+flare star's false positive), 1.12 (a pulsating star reported as a transit, 20 events), 0.97 and
+0.96 (false positives) and 0.93 (a planet: the highest of the 66 planets, the next 0.46), and the 9
+candidates found by detrending a pulsation read -4.6 to -0.4. The branch against ``main`` on those
+27 runs: transit true positives 202 to 202, false positives (all kinds) 56 to 56, eclipses reported
+as transits 40 to 3 (the three are on the 3-night runs), pulsations reported as transits 52 to 52.
+Planted, 20 nights: of 300 planets drawn as the world draws them (ramps of 10 percent, 0.5 to 6 h,
+depth 0.5 to 3 percent, noise 0.3 to 2 percent) 172 reach the gate and the highest statistic is 1.04
+(three at 0.5 or more); of 600 binaries drawn as the world draws them only 3 reach it, at 0.62 (a 13
+h eclipse at S/N 19 that fills the nights), 3.6 and 4.5. Held-out, scored once (seeds 21-26, 200
+stars, 20 nights; they are the seeds on which #36 found the leak, so they are held out from every
+threshold but not from the choice of the problem): transit true positives 46 to 46, false positives
+6 to 6, eclipses reported as transits 13 to 0 (four binaries, nothing else changed), pulsations
+reported as transits 0 to 0. ``single_transit``, which reads ``Candidate.rejected``, reports the
+same detections span for span and score for score on 4 development runs (seeds 7 and 42, 3 and
+20 nights) and the 6 held-out ones.
+
+``scripts/bls_shape_audit.py`` prints the statistic of every star a run would report.
+
+Limits of the gate: a V that fills most of every night is not told from a box (the two 3-night
+binaries above); the margin is thin at both ends (the eclipses at 1.7 and 1.8 and a planet at 0.93,
+against 1.5; a planted "both eclipses seen" binary reads 1.6 and 1.9); an eclipse wider than the
+nights has little curvature left to read. A shape-rejected star plans the second pass's mask like
+any other rejection and its re-search refuses the first period and its halves and double like a
+pulsation rejection (``second_pass`` was not measured with the gate).
 
 Pulsating hosts
 ---------------
@@ -177,10 +240,10 @@ without the real transit; on ``main`` these stars give nothing).
 Second pass
 -----------
 ``second_pass`` (**off by default**) searches a star once more when its best box is rejected by
-any gate except the S/N gate (local S/N, events, support, pulsation guard); a box too weak for
-the S/N gate means no other box on the star is strong either. Without it a star's strongest box
-decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet of S/N 39
-(seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
+any gate except the S/N gate (local S/N, events, support, pulsation guard, shape guard); a box too
+weak for the S/N gate means no other box on the star is strong either. Without it a star's
+strongest box decides the star: an eclipsing binary at S/N 361 rejected by the guard hid a planet
+of S/N 39 (seed7-200s-20n star 138), and a one-night dip that wins the search hides what repeats.
 
 Measured, and why it is opt-in. On the stored 20-night runs the second pass recovers seed 7
 star 138 (a planet on an eclipsing binary, both transits bounded; the reported period is the
@@ -189,7 +252,8 @@ one false positive on seed 42 (star 94, a flare star); the 3-night rows are unch
 held-out seeds 21-26 (200 stars, 20 nights) it added no true transit, 3 false positives and
 1 eclipse mistaken for a transit, at 1.22 times the single-pass time, so it is off. The first
 pass alone, on the same six seeds, scored 30 transit true positives, 6 false positives, 13
-eclipses reported as transits and no pulsator reported as a transit; 5 of the 14 strong
+eclipses reported as transits and no pulsator reported as a transit (before the pulsation
+detrending and the shape guard); 5 of the 14 strong
 planets there sit on pulsating hosts and are rejected by the pulsation guard, which the
 re-search does not recover (its mask has nothing to take out of a sinusoid).
 
@@ -216,9 +280,9 @@ downwards in phase). The mask is:
 The masked samples count as not observed: they leave the search, the statistics, the guard and
 the event list, and each night is divided by the median of what is left. The result is a
 candidate in its own right and must pass every gate; when the first box was rejected by the
-pulsation guard it is also refused (``rejected == "alias"``) if its period is the first
-period or half or twice it to 2 percent, where the residue of a binary or a pulsator repeats
-(the period of a box refused for lack of events is arbitrary and no alias is applied). One
+pulsation guard or the shape guard it is also refused (``rejected == "alias"``) if its period is
+the first period or half or twice it to 2 percent, where the residue of a binary or a pulsator
+repeats (the period of a box refused for lack of events is arbitrary and no alias is applied). One
 re-search at most: a rejected second candidate ends the star. The outcome is logged at INFO
 (``bls star 138: re-search found P 1.145 d, S/N 38.6 (local 29.3): accepted``).
 
