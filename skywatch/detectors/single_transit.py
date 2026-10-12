@@ -133,6 +133,12 @@ development and 6 held-out runs, and the planet-free runs give the same all-dete
 pulsation subtracted, about 2.2 times the CPU time of this detector on a 20-night run (seed26:
 15.8 s to 35.0 s). It would change the output only for a pulsating host that carries a
 single-event planet and also a periodic box that clears the bar of 9, which no run contains.
+Issue #39 gave ``bls`` two more reasons to reject a box (a sinusoid that gains 0.81 of the box's
+chi-square, named ``"pulsation guard"`` like the other, and a local S/N below 7.2 on a flare star,
+named ``"local snr"``); guard (b) reads only whether the reason is ``"pulsation guard"``. Measured:
+the detections of this module are identical, span for span and score for score, on 33 runs (seeds 7
+and 42 at 3 and 20 nights, 21-26, 71-76, the planet-free runs 41-44 and 51-58, and five development
+runs with a planet-free pulsator).
 The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search`` and the fields of ``Box`` and
 ``Candidate.mask``; a rename in ``bls`` breaks it.

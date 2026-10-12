@@ -79,12 +79,15 @@ The best box per star is a candidate when all of these hold, tested in this orde
   measured as a contrast against the same night's out-of-box samples, no night level
   involved: ``sum(w_k d_k) / (sigma * sqrt(sum w_k))`` with ``d_k`` the night's
   out-minus-in mean and ``w_k = n_in n_out / (n_in + n_out)``. It equals ``snr`` when the
-  box is small against its nights and is lower otherwise.
+  box is small against its nights and is lower otherwise. A flare star (``flare_fraction`` =
+  0.03 of its clean samples or more masked as positive outliers in step 3) must reach
+  ``flare_snr_threshold`` = 7.2 instead (see Planet-free stars).
 * The predicted windows cover observed samples on at least ``min_events`` (2) distinct
   nights.
 * At least ``min_events`` nights each show the dip at ``support_snr`` (2.0) on their own, so
   one bad night cannot make a candidate.
-* The pulsation guard passes (below).
+* The pulsation guard passes (below), including the sinusoid-against-box ratio at the bar of
+  0.81.
 * The shape guard passes (below).
 
 Pulsation guard
@@ -106,6 +109,84 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   second eclipse. The false-alarm level is ``ln(M / guard_fap)``, ``M`` the number of
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
   both off.
+
+Box versus sine with the nights' levels free
+--------------------------------------------
+The box-versus-sine test above is the weaker half against a pulsator and, since the nights are
+divided by their own medians, it compares unlike things: a plain Fourier power (no night level) and
+a box chi-square, both in units of a scatter that contains the pulsation. A third test
+(:meth:`BlsDetector._night_sine_ratio`, ``guard_night_ratio`` = 0.81, ``None`` switches it off,
+``Candidate.sine_ratio``) puts both on the same footing: the chi-square gain of the best
+sinusoid of 1-30 cycles/day fitted to the whole record with a free level for every night (the
+six strongest peaks placed by least squares, as the detrending does) over the box's gain with a
+free level for every night, ``(sum w_k d_k)**2 / sum w_k`` over the nights of
+:func:`night_contrasts` (the square of ``snr_local * sigma``). The scatter cancels. A sinusoid keeps
+at most 81 percent of a square wave's variance and a box at most 81 percent of a sinusoid's, so the
+ratio is at most about 0.81 for a box train and at least about 1.23 for a pulsator whose best box is
+its fold; the bar is the first number, a bound of the model and not a fitted value. The box is
+rejected as ``"pulsation guard"`` (so a pulsating host is still detrended) when the ratio reaches
+it. It runs after the two tests above and only for a candidate that passed them.
+
+Planet-free stars
+-----------------
+On a run with no planets every transit claim is false. ``single_transit``'s threshold was set by a
+rule on such runs (at most 5 detections on each planet-free 20-night run, issue #33); ``bls`` was
+held to it in issue #39. At ``main`` after the shape gate the four 20-night planet-free runs (200
+stars, seeds 41 to 44) gave 0, 4, 2 and 10 detections and eight more simulated for design (seeds
+51 to 58) 2, 2, 3, 12, 2, 2, 6 and 23. Over the 41 runs without a planet on the star (the 33
+development runs and those eight) 41 of 763 flare-star runs, 8 of 920 sinusoidal ones, 2 of 4986
+constant ones and 3 of 558 eclipsing binaries made a claim (129, 122, 4 and 9 detections). Two
+gates, chosen on those runs and nothing else:
+
+* **Sinusoid against box** (above). Seven of the eight pulsators had been accepted at the first
+  pass (6 to 12 hour sinusoids of 0.15 to 0.85 percent in 8 hour nights, boxes of 0.5 to 1.35 d on
+  the same pulsation phase every night). The box-versus-sine test read 0.53 to 0.99 on them (it
+  rejects at 1); the ratio with free nightly levels reads 1.15 to 1.40 on six and 0.97 on the
+  seventh (seed 38 star 119: 9.3 h, 0.15 percent). On the 93 development candidates on a star with
+  a planet it reads at most 0.75 (seed 33 star 118, whose detections match a cloud and a flare, not
+  the planet), 0.73 for the highest where the detection is the planet (seed 38 star 168, a 0.509 d
+  planet with 20 events; a second real planet reads 0.73 on a seed used before, seed 23 star 114,
+  1.39 d, 5.6 h, 6 events) and 0.57 or less for every other. The eighth pulsator (seed 13 star 130)
+  came through the detrending and is not a pulsation effect: its box holds 9 samples with a 9.9
+  percent depth in two windows of 10 and 8 minutes, beside a cosmic ray and just before a flare
+  onset; it is left (2 pulsation-labelled detections).
+* **Flare stars.** Flare tails are red noise that ``sigma`` (the MAD) does not contain: the claims
+  on flare stars have a local S/N of 7.0 to 19.5 (median 7.7) with boxes of 2 to 6 hours, and on
+  seed 44 star 199 (7 events, P 1.512 d) every event touches the start or the end of its night and
+  five of the seven nights have 32 to 74 flare samples masked. A star with ``flare_fraction``
+  (0.03) of its clean samples masked as positive outliers must reach a local S/N of
+  ``flare_snr_threshold`` (7.2) instead of 7.0. 32 of the 41 flare-star claims are on such stars and
+  no candidate of another class is (they are under 2.8 percent), so the cut is a measured
+  separation and not a fit. The bar is the lowest on a grid of 0.1 that brings every 20-night planet-free run
+  of the development and design seeds to 5 or fewer: at 7.1 seed 44 is still at 10 (star 199's
+  local S/N is 7.107), from 7.15 to 7.19 at 3 (star 126, 7.195), at 7.2 at 0. The same bar applied to every star
+  would have lost a development transit true positive (seed 61 star 56, local S/N 7.04); on flare
+  stars the lowest local S/N of a transit true positive is 7.28 (seed 12 star 32), 0.08 above the
+  bar. The bar is not in a gap of the false claims, though: see Limits.
+
+Measured. Development (seeds 7 and 42 at 3 and 20 nights, 11-14, 31-50 and 61-66 at 20 nights; 33
+runs), ``main`` to the branch: transit true positives 271 to 271 (270 bounded and 1 touched, both
+before and after), false positives (all kinds) 74 to 58, eclipses reported as transits 8 to 8,
+pulsations reported as transits 81 to 3 (52 to 3 on seeds 7-50 and 29 to 0 on 61-66; the 3 are seed
+13 star 130 and seed 44 star 44, a planet host), detections 533 to 402. Planet-free 20-night runs
+(seeds 41-44, then the design seeds 51-58), detections per run: 0, 4, 2, 10 to 0, 4, 2, 0 and 2, 2, 3,
+12, 2, 2, 6, 23 to 2, 2, 0, 0, 2, 2, 3, 5; the 3-night runs (0, 2, 0) are unchanged. Held-out,
+scored once after both gates were committed (seeds 71-76 at 200 stars and 20 nights): transit true
+positives 33 to 33 (32 bounded and 1 touched, both before and after), false positives 8 to 8,
+eclipses reported as transits 5 to 5, pulsations reported as transits 12 to 0 (one pulsator, seed 75
+star 181, ratio 1.46), detections 62 to 50. Planet hosts there read at most 0.57. **The
+planet-free bar is not met on the held-out planet-free runs** (seeds 81-84, 20 nights): detections
+0, 6, 0, 0 at ``main`` and on the branch. pf-seed82 gives 6: two flare stars, star 136 with 4 events at
+local S/N 7.5 and star 184 with 2 at 9.1, both above the flare bar. It was not re-tuned; a flare bar
+above 7.5 would have removed star 136 and cost seed 12 star 32 on the development runs. Seeds 21-26
+(used once before) and 7 and 42: ``bls`` detections identical to ``main``, span for span. ``single_transit``,
+which reads ``Candidate.rejected``, reports the same detections span for span and score for score on
+33 runs (the 4 of seeds 7 and 42, seeds 21-26, 71-76, the planet-free runs 41-44 and 51-58, and the
+five development runs with a planet-free pulsator). The time of ``bls`` on one 20-night run is the
+the same (about 92 s on seed 26 at ``main`` and on the branch).
+
+``scripts/bls_planet_free_audit.py`` prints the ratio, the flare share and the verdict of every
+star a run would report.
 
 Shape guard
 -----------
@@ -329,6 +410,29 @@ Limits
   level (the out-of-box renormalisation repairs the depth, not the search).
 * Two single events of different planets six days apart look like one period.
 * Output spans are half-open: ``t_end = t_last + cadence_s``.
+* Flare stars still make claims above the flare bar: on the held-out planet-free seed 82 two
+  flare stars gave 6 detections (local S/N 7.5 and 9.1). The bar sits inside the distribution of
+  the false claims, not in a gap of it: on the 84 runs measured, 11 flare-star claims read 7.0 to
+  7.19 and are rejected and 7 read 7.2 to 7.4 and survive, and the development planet-free seed 44
+  meets the rule only because star 126 reads 7.195, 0.005 under the bar. The bar is also 0.08
+  above the lowest transit true positive on a flare star (7.28), so it cannot be raised much
+  without losing planets (see Planet-free stars). A bar does not solve flare stars; tracked in
+  issue #43. The 3 percent cut is a share of masked samples, not a class: a flare star with fewer
+  flares in its record is held to 7.0.
+* The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and less than
+  it looks on the planet side: the bar is not a floor under the planets. Two real planets read
+  0.73 (seed 38 star 168; seed 23 star 114) and the planet hosts of never-seen seeds at most 0.52.
+  A Monte Carlo of the simulator's planet recipe at periods of 0.5 to 1.5 d (320 draws, 20
+  nights) lost 1 of 279 planets that ``main`` accepts: P 0.562 d, 4.84 h, ratio 0.847; another
+  accepted planet read 0.797 (P 0.75 d, 4.5 h). That is roughly 1 planet in 5000 of the
+  population. The ratio depends on how the period sits against the night (a planted 3 h planet at
+  0.51 d reads 0.54 at one epoch; a planted 0.6 d, 3.5 h planet of 1.2 percent in 0.5 percent
+  noise reads 0.826 and is refused, the same at 4 h reads 0.74 and is accepted); a short-period
+  planet with a long box is the one that approaches the bar.
+  A pulsator weaker than the S/N bar never reaches the guard at all.
+* Fast pulsators (15 to 20 cycles/day) that the detrending subtracts leave a box of 2 events
+  after the subtraction in 2 of 2 cases measured (seed 13 star 130; seed 112 star 62, ratio 0.10):
+  tracked in issue #44.
 """
 
 from __future__ import annotations
@@ -391,6 +495,7 @@ class _Arrays:
     level: np.ndarray
     t_obs: np.ndarray
     night_obs: np.ndarray
+    flare_fraction: float = 0.0  # share of the star's clean samples masked as positive outliers
 
 
 def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np.ndarray:
@@ -468,7 +573,9 @@ class Candidate:
     unrelated peak; `mask` the windows a re-search leaves out (only when asked for, and
     only for a rejection other than ``"snr"``); `trend` is ``(cycles/day, amplitude)`` of the
     sinusoid that was subtracted before this box was found (None when none was); `shape` is
-    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run).
+    the shape test's statistic (:meth:`BlsDetector._shape_excess`; None when it was not run);
+    `sine_ratio` is the chi-square gain of the best sinusoid over the box's with a free level
+    for every night (:meth:`BlsDetector._night_sine_ratio`; None when it was not computed).
     """
 
     box: Box
@@ -483,6 +590,7 @@ class Candidate:
     mask: tuple[Box, ...] = ()
     trend: tuple[float, float] | None = None
     shape: float | None = None
+    sine_ratio: float | None = None
 
 
 def frequency_grid(
@@ -805,6 +913,9 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         shape_threshold: float | None = 1.5,
+        guard_night_ratio: float | None = 0.81,
+        flare_fraction: float = 0.03,
+        flare_snr_threshold: float = 7.2,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -839,6 +950,12 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
+        if guard_night_ratio is not None and not guard_night_ratio > 0:
+            raise ValueError(f"guard_night_ratio must be > 0 or None, got {guard_night_ratio}")
+        if not 0 < flare_fraction <= 1:
+            raise ValueError(f"flare_fraction must be in (0, 1], got {flare_fraction}")
+        if not flare_snr_threshold > 0:
+            raise ValueError(f"flare_snr_threshold must be > 0, got {flare_snr_threshold}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -859,6 +976,9 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.shape_threshold = shape_threshold
+        self.guard_night_ratio = guard_night_ratio
+        self.flare_fraction = flare_fraction
+        self.flare_snr_threshold = flare_snr_threshold
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -1149,6 +1269,7 @@ class BlsDetector:
         star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
         """
         t, flux, night, level = self._prepare(c, common_mode)
+        flare_fraction = 1.0 - len(t) / len(c.t)
         t_obs, night_obs = c.t, c.night_of
         if masked:
             drop = np.zeros(len(t), dtype=bool)
@@ -1159,7 +1280,7 @@ class BlsDetector:
             t, flux, night, level = t[~drop], flux[~drop], night[~drop], level[~drop]
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
-        arrays = _Arrays(t, flux, night, level, t_obs, night_obs)
+        arrays = _Arrays(t, flux, night, level, t_obs, night_obs, flare_fraction)
         cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
         if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
             return cand
@@ -1205,22 +1326,10 @@ class BlsDetector:
         td = (a.t - float(a.t[0])) / DAY_S
         k = np.unique(a.night[keep], return_inverse=True)[1]
         x = _demean_by_night(a.flux[keep] - 1.0, k)
-        spectrum = self._band_power(a.t[keep], x, sigma, cadence_s)
-        if spectrum is None:
+        fit = self._strongest_sinusoid(a.t[keep], td[keep], x, k, sigma, cadence_s, float(td[-1]))
+        if fit is None:
             return None
-        f_band, power, level, df = spectrum
-        # The power only ranks the peaks: it is approximate (it ignores the nights' intercepts,
-        # the cross term between a frequency and its mirror, and the gaps inside nights), and a
-        # sinusoid and its alias one cycle/day away are close in it; the few strongest peaks are
-        # placed by least squares and the one with the largest chi-square gain wins.
-        best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
-        for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, float(td[-1]))):
-            f = _refine_frequency(td[keep], x, k, float(f_band[i]), df)
-            sin_a, cos_a, gain = _sine_fit(td[keep], x, k, f)
-            if best is None or gain > best[0]:
-                best = (gain, f, sin_a, cos_a)
-        assert best is not None
-        gain, f, sin_a, cos_a = best
+        gain, f, sin_a, cos_a, level = fit
         ratio = gain / (2.0 * sigma**2) / level
         if ratio < self.trend_min_ratio:
             return None
@@ -1229,6 +1338,77 @@ class BlsDetector:
         arg = 2.0 * np.pi * f * td
         trend = sin_a * np.sin(arg) + cos_a * np.cos(arg)
         return trend, (f, math.hypot(sin_a, cos_a), ratio)
+
+    def _strongest_sinusoid(
+        self,
+        t: np.ndarray,
+        td: np.ndarray,
+        x: np.ndarray,
+        k: np.ndarray,
+        sigma: float,
+        cadence_s: int,
+        span_d: float,
+    ) -> tuple[float, float, float, float, float] | None:
+        """``(chi-square gain, cycles/day, sin, cos, false-alarm level)`` of the best sinusoid.
+
+        `t` (s) and `td` (days) are the samples, `x` their zero-mean flux with each night's mean
+        removed, `k` the night number, `sigma` the white-noise scatter the Fourier power is
+        normalised with and `span_d` the length of the whole record in days (peaks closer than
+        its inverse are one peak). The power of :meth:`_band_power` only ranks the peaks: it is
+        approximate (it ignores the nights' intercepts, the cross term between a frequency and
+        its mirror, and the gaps inside nights), and a sinusoid and its alias one cycle/day away
+        are close in it; the few strongest peaks are placed by least squares and the one with the
+        largest chi-square gain, with a free intercept for every night, wins. None when the
+        guard band holds no frequency.
+        """
+        spectrum = self._band_power(t, x, sigma, cadence_s)
+        if spectrum is None:
+            return None
+        f_band, power, level, df = spectrum
+        best: tuple[float, float, float, float] | None = None  # gain, f, sin, cos
+        for i in _top_peaks(f_band, power, _TREND_PEAKS, 1.0 / max(1.0, span_d)):
+            f = _refine_frequency(td, x, k, float(f_band[i]), df)
+            sin_a, cos_a, gain = _sine_fit(td, x, k, f)
+            if best is None or gain > best[0]:
+                best = (gain, f, sin_a, cos_a)
+        assert best is not None
+        return (*best, level)
+
+    def _night_sine_ratio(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box, cadence_s: int
+    ) -> float:
+        """Chi-square gain of the best sinusoid over the box's, both with a free level per night.
+
+        The nights were divided by their own medians, which absorb part of a sinusoid of a few
+        hours in a night of eight, so the pulsation guard's plain Fourier power (no night level,
+        a scatter that contains the pulsation) understates a pulsator against the box. Here both
+        are fitted to the whole record the way the nights make them comparable: the box's gain is
+        ``(sum w_k d_k)**2 / sum w_k`` over the nights (:func:`night_contrasts`, the square of
+        ``snr_local * sigma``) and the sinusoid's is the best in the guard band
+        (:meth:`_strongest_sinusoid`). The scatter cancels. A box train keeps at most 81 percent of
+        a sinusoid's variance and a sinusoid at most 81 percent of a square wave's, so the ratio
+        is at most about 0.81 for a planet and at least about 1.23 for a pulsator whose best box
+        is its fold. 0 when the scatter or the box leaves nothing to compare.
+        """
+        depth_k, weight_k = night_contrasts(t, flux, night, box)
+        if len(weight_k) == 0 or not float(weight_k.sum()) > 0:
+            return 0.0
+        box_gain = float(depth_k @ weight_k) ** 2 / float(weight_k.sum())
+        sigma = self._white_sigma(flux, night)
+        if not (box_gain > 0 and sigma > 0):
+            return 0.0
+        k = np.unique(night, return_inverse=True)[1]
+        x = _demean_by_night(flux - 1.0, k)
+        fit = self._strongest_sinusoid(
+            t,
+            (t - float(t[0])) / DAY_S,
+            x,
+            k,
+            sigma,
+            cadence_s,
+            (float(t[-1]) - float(t[0])) / DAY_S,
+        )
+        return 0.0 if fit is None else fit[0] / box_gain
 
     def _slower_sinusoid_wins(
         self, td: np.ndarray, x: np.ndarray, k: np.ndarray, gain: float
@@ -1327,17 +1507,36 @@ class BlsDetector:
         )
         supported = int((z_k >= self.support_snr).sum())
 
-        def reject(why: str, excess: float | None = None, shape: float | None = None) -> Candidate:
+        def reject(
+            why: str,
+            excess: float | None = None,
+            shape: float | None = None,
+            sine_ratio: float | None = None,
+        ) -> Candidate:
             mask = ()
             if plan_mask and why != "snr":
                 mask = self._dip_mask(t, star_flux, box, sigma)
             return Candidate(
-                box, sigma, snr, [], why, excess, alt, snr_local, supported, mask, shape=shape
+                box,
+                sigma,
+                snr,
+                [],
+                why,
+                excess,
+                alt,
+                snr_local,
+                supported,
+                mask,
+                shape=shape,
+                sine_ratio=sine_ratio,
             )
 
+        local_bar = self.snr_threshold
+        if a.flare_fraction >= self.flare_fraction:  # a flare star: its tails make red noise
+            local_bar = max(local_bar, self.flare_snr_threshold)
         if snr < self.snr_threshold:
             return reject("snr")
-        if not snr_local >= self.snr_threshold:  # also an undefined local S/N (no night has both)
+        if not snr_local >= local_bar:  # also an undefined local S/N (no night has both)
             return reject("local snr")
         events = self._events(t_obs, night_obs, box, cadence_s)
         if len({n for _, _, n in events}) < self.min_events:
@@ -1345,16 +1544,32 @@ class BlsDetector:
         if supported < self.min_events:
             return reject("support")
         r = None
+        ratio = None
         if self.guard_fap is not None:
             pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box)
+            if not pulsating and self.guard_night_ratio is not None:
+                ratio = self._night_sine_ratio(t, flux, night, box, cadence_s)
+                pulsating = ratio >= self.guard_night_ratio
             if pulsating:
-                return reject("pulsation guard", r)
+                return reject("pulsation guard", r, sine_ratio=ratio)
         shape = None
         if self.shape_threshold is not None:
             shape = self._shape_excess(t, flux, night, sigma, box)
             if shape >= self.shape_threshold:
                 return reject("shape", r, shape)
-        return Candidate(box, sigma, snr, events, None, r, alt, snr_local, supported, shape=shape)
+        return Candidate(
+            box,
+            sigma,
+            snr,
+            events,
+            None,
+            r,
+            alt,
+            snr_local,
+            supported,
+            shape=shape,
+            sine_ratio=ratio,
+        )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
         """Search one light curve on its own (no common-mode correction); None if unusable."""
