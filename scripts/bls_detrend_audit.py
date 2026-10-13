@@ -12,9 +12,9 @@ switched off, and prints one line for each star that ends with an accepted box: 
 fitted frequency (cycles/day) and amplitude, the Fourier power left at the fundamental and at
 twice it in units of the guard's false-alarm level, the box, its S/N, the night-level sine ratio,
 the S/N without the strongest night (``Candidate.snr_repeat``), how many of its events overlap a
-planet's transit, and what the shipping bar does with it. A final line counts the stars that
-reached the detrending and what became of them. It reads the light curves, the stars and the
-planets of the run and writes nothing. This is the instrument behind the "Repeat test of a
+planet's transit, and what the bar of 5 (``trend_repeat_snr=5.0``, off by default) would do with
+it. A final line counts the stars that reached the detrending and what became of them. It reads
+the light curves, the stars and the planets of the run and writes nothing. This is the instrument behind the "Repeat test of a
 detrended box" section of the `skywatch.detectors.bls` docstring (issue #44).
 
 ``--simulate OUT SEED NIGHTS PLANET_RATE`` writes a 200-star field in which every star is
@@ -36,6 +36,7 @@ from skywatch.detectors import bls
 from skywatch.detectors.bls import BlsDetector
 from skywatch.io import store
 
+REPEAT_BAR = 5.0  # the bar `trend_repeat_snr=5.0` applies; the detector ships with the test off
 DAY_S = 86400.0
 
 
@@ -108,8 +109,7 @@ def audit(run_dir: Path) -> tuple[list[str], Counter]:
     cadence_s = store.read_manifest(run_dir)["config"]["cadence_s"]
     curves = store.read_curves(run_dir)
     det = _Audit(trend_repeat_snr=None)
-    bar = BlsDetector().trend_repeat_snr
-    assert bar is not None
+    bar = REPEAT_BAR
     cleaned = {}
     for star_id in sorted(curves):
         c = det._clean(curves[star_id], cadence_s)
