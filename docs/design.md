@@ -409,12 +409,66 @@ Planned detectors, in order:
    e-foldings of every true flare leaves none). `single_transit` is identical span for span on 27
    runs; the time of `bls` is unchanged.
 
-   What opens a window. On five never-seen planet runs (1,000 stars) there are 2,142 flare-sized
-   runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent only a
-   cosmic ray; 800 of the 1,000 stars carry a window. The gate therefore detects a clip run, not a
-   flare, and taxes lost reference samples on marginal boxes (a box under local S/N 7.5 or so, on a
-   night with a window, can fall under 7.0 on weight alone). A decay-shaped run definition is issue
-   #48.
+   What opens a window (issue #48; an opt-in mode, off by default). PR #47's definition, ten
+   consecutive clipped samples, opens a window for every run, and the runs are mostly not flares. The 50 development 20-night runs (10,000
+   stars) hold 23,338 flare-sized runs on 7,901 stars (79 percent), and on 5,500 of those stars none
+   of the runs has a flare label under it: 42.4 percent of the runs have only a flare under them,
+   36.9 percent only a hot pixel (a flat plateau), 15.9 percent only a cosmic ray (a spike widened by
+   the clip and, by chance, 10 samples), 4.8 percent a mixture or none of the three
+   (`scripts/bls_flare_run_audit.py`). A flare is `A exp(-(t - t_peak) / tau)` with `tau` 120 to
+   1,800 s, so in the decay mode (`flare_tau_s=(60.0, 3600.0)`; the default `None` is PR #47's
+   definition) a run opens a window only if the exponential fitted from its highest sample
+   (`decay_fit`, in units of the night's scatter) has a decay time in 60 to 3,600 s (`flare_tau_s`:
+   the world's range with a factor of 2 either side for the fit's scatter) and a residual of at most
+   3 per degree of freedom (`flare_fit_chi2`). The fitted decay time of the flare runs is 128 s (1st
+   percentile), 218 (5th), 898 (median), 1,681 (95th), 2,198 (99th) and their residual 0.79 per
+   degree of freedom (median; 95th percentile 1.61); a cosmic ray's decay time is 15 s (a quarter
+   of a cadence) at the median, a hot pixel's plateau has a residual of 648 (median; 5th percentile
+   5.4). 9,746 of 9,888 flare-only runs (98.6 percent) still open a window, 42 of 8,613 hot-pixel-only
+   and 14 of 3,712 cosmic-ray-only runs do. Stars carrying a window: 7,901 to 2,440 of 10,000. The
+   decay time alone lets 5,849 hot-pixel runs open one, "the peak is in the first four samples" alone
+   drops 26 percent of the flare runs and lets 761 hot-pixel and 1,292 cosmic-ray runs open one.
+   The window length and the minimum run are unchanged.
+
+   Measured, `main` (with PR #47's gate) to the decay mode. Development, 20 planet runs (seeds 7, 42,
+   21-26, 61-66, 71-76): transit true positives 157 to 157, false positives (all kinds) 18 to 19,
+   eclipses reported as transits 5 to 5, pulsations 0 to 0, flares 1 to 1, detections 188 to 190; 20
+   planet-free runs (41-44, 51-58, 81-84, 101-104): false positives 6 to 6, flares 2 to 2,
+   detections 11 to 11, per run unchanged (at most 3). The detection pair added is seed 62 star 25,
+   a constant star whose two-event box (S/N 11.0, local 9.4, matched to a tracking-drift label) a
+   hot pixel's 15-sample plateau had refused by removing its reference (clean S/N 2.2). Design check
+   (12, 261, 440-445 planets): true positives 57 to 58, false positives 2 to 3, detections 65 to 67;
+   planet-free 446-449: 0 to 0. Held-out, scored once (planets 400-405, planet-free 410-413):
+   nothing changed (32 true positives, 3 false positives, 1 flare reported as a transit, 37
+   detections; 0 detections on each planet-free run); stars carrying a window 1,647 to 525 of 2,000.
+   Seed 261 star 29 (PR #47's never-seen loss) is found again, with one false positive event beside
+   it; the three development losses stay lost, to flares (61/56's clean S/N 5.26 against 3.30,
+   with the cosmic-ray window gone). `single_transit` is byte-identical on four runs.
+
+   Why it ships off (review of PR #52). Never seen (planets 600-611, planet-free 620-623, 200 stars
+   and 20 nights, simulated after the review began), `main` to the decay mode: transit true
+   positives 69 to 70, false positives 23 to 25, flares reported as transits 3 to 4, detections
+   107 to 112; 0 detections on each planet-free run on both. Nothing is removed in any run. The one
+   true positive added (seed 609 star 150) is a box of the wrong period (5.14 d against the
+   planet's 7.65 d) whose event a hot pixel's window had refused: overlap credit. The rest are
+   false: seed 601 star 131 is a flare star (4.5 flares a day, no planet) claimed on three events
+   (local S/N 7.75, clean 2.71 to 7.62), because a hot-pixel run that ended three minutes before a
+   flare opened a window of three hours that covered the flare's tail inside the box, and `main`
+   refused the box as "flare tails" by that accident. Seed 62 star 25 and the second event of
+   seed 261 star 29 on the development runs are the same: the windows PR #47 opens after hot pixels
+   refuse false boxes by accident, and narrowing them to real flares adds claims. So the mode is
+   kept, measured and opt-in, and the default stays PR #47's definition (`bls` is byte-identical
+   to `main` with it, `cmp` of `detections/bls.parquet` on seeds 42, 62 and 400).
+
+   Limits. The 98.7 percent of flare-only runs that open a window (7,694 never-seen runs) is
+   circular: the band (60 to 3,600 s) and the bar (3) come from the generator's own flare law, so
+   it shows that the code reads the world's flares, not that the shape test would read real ones.
+   A flare whose run the fit refuses (under a hot pixel) opens none: 229 of 3,525 never-seen runs
+   with a flare label under them (6.5 percent). A lead, not tried: 23 of 28 hot-pixel-only runs
+   that open a window have 5 samples or fewer from the peak to the run's end (at most 3 degrees of
+   freedom, where nearly any exponential fits), and a minimum fitted length of 8 samples would have
+   closed 26 of the 28 hot-pixel openings at a cost of 63 of 6,113 flare-only openings (1
+   percent).
 
    Never seen (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
    the constants were fixed; the review of PR #47), `main` to the branch:
