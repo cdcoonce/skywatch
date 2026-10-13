@@ -96,7 +96,14 @@ losing a find. On seeds 21-26, `bls` false alarms went from 6 to 3 and
 finds stayed at 46 and 14. One fix (#50) ships switched off, because the
 transits it would refuse are ones nothing else finds yet.
 
-Open: issues #44, #48 and #51.
+[0011](docs/log/0011-pulsating-stars-and-a-rule-that-was-decided-by-one-planet.md):
+`single_transit` now searches pulsating stars after subtracting the
+pulsation, which added 22 found transits on held-out seeds and 14 on unseen
+ones, and a second clip removed the claims that came with it. A change to
+flare windows and a switch-on of an earlier gate were both measured and
+not taken.
+
+Open: issues #44 and #57.
 
 ## Develop
 
