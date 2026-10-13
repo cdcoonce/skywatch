@@ -11,16 +11,18 @@ into runs of consecutive samples within a night, as ``flare_windows`` does; a ru
 length, its peak in sigmas of the night and where in the run the peak is, the share of the run's
 positive excess the peak sample carries, the ratio of the run's median to its peak, the decay
 time and residual per degree of freedom of the exponential ``decay_fit`` puts through it, whether
-``bls`` opens a window for it (it decays), and the truth under it (the glitch and flare labels of
-the star that overlap the run's span; never read by the detector, only a label for this table).
+the decay mode of ``bls`` (``flare_tau_s=(60, 3600)``, opt-in) opens a window for it (it decays),
+and the truth under it (the glitch and flare labels of the star that overlap the run's span; never
+read by the detector, only a label for this table).
 
 The summary groups the runs by that truth and by a description of the run that does not use the
 fit: a *spike* (the peak sample carries half the run's excess or more), a *plateau* (the run's
 median is at least half its peak) or a *decay* (neither: a peak with more mass after it than a
 spike has and a median far under it), and counts how many of each the fit lets open a window. It
-then counts the stars that carry a window under each definition: every flare-sized run (issue #43)
-and decaying runs only (issue #48). This is the instrument behind the "What opens a window" section
-of the `skywatch.detectors.bls` docstring; it reads no detections or scores.
+then counts the stars that carry a window under each definition: every flare-sized run (issue #43,
+the detector's default) and decaying runs only (issue #48, the opt-in decay mode). This is the
+instrument behind the "What opens a window" section of the `skywatch.detectors.bls` docstring; it
+reads no detections or scores.
 """
 
 from __future__ import annotations
@@ -155,7 +157,7 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=1, help="runs audited in parallel")
     ap.add_argument("runs", nargs="+", type=Path)
     args = ap.parse_args()
-    det = BlsDetector()
+    det = BlsDetector(flare_tau_s=(60.0, 3600.0))  # the decay mode is off by default
     rows: list[dict] = []
     stars: Counter = Counter()
     with ProcessPoolExecutor(args.jobs) as pool:
