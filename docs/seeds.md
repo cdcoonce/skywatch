@@ -48,6 +48,8 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 430-433 | 20 | planet-free | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0) | not yet scored |
 | 440-445 | 20 | planets | development | #48 design check (with the re-simulated seeds 12 and 261: `main` against the branch after the constants were fixed and before the held-out ranges, nothing changed afterwards: transit true positives 57 to 58, false positives 2 to 3); used |
 | 446-449 | 20 | planet-free | development | #48 design check (0 detections on `main` and on the branch); used |
+| 600-611 | 20 | planets | development | review of PR #52 (never-seen check of the decaying-run flare windows, `bls` scored, `main` against the branch: transit true positives 69 to 70, false positives 23 to 25, flares reported as transits 3 to 4, detections 107 to 112; seed 601 star 131 a false claim on a flare star, seed 609 star 150 a planet recovered); used |
+| 620-623 | 20 | planet-free | development | review of PR #52 (never-seen check, `planet_rate` 0; 0 detections on each run, `main` and the branch); used |
 
 Next unused range: 450 and up.
 
