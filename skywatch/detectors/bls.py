@@ -1320,7 +1320,7 @@ class BlsDetector:
         detrend_pulsation: bool = True,
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
-        trend_repeat_snr: float | None = 5.0,
+        trend_repeat_snr: float | None = None,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
