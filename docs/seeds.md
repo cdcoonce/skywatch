@@ -42,7 +42,13 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 380-391 | 20 | planets | development | review of PR #50 (never-seen check of the repeat test of a detrended box: one box refused, seed 390 star 136; `bls` and `single_transit` scored, `main` against the branch); used |
 | 392-395 | 20 | planets | development | review of PR #50 (never-seen check; every star sinusoidal, `planet_rate` 0.5, written by `scripts/bls_detrend_audit.py --simulate`, so these are not the standard field of the same seed numbers; 4 boxes refused, 5 transit labels lost); used |
 
-Next unused range: 396 and up.
+| 400-405 | 20 | planets | **held-out, reserved for #48** | not yet scored |
+| 410-413 | 20 | planet-free | **held-out, reserved for #48** | not yet scored |
+| 420-425 | 20 | planets | **held-out, reserved for #51** (standard field) | not yet scored |
+| 426-429 | 20 | planets | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0.5, via `scripts/bls_detrend_audit.py --simulate`) | not yet scored |
+| 430-433 | 20 | planet-free | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+
+Next unused range: 440 and up.
 
 Also read for #44 (the 67 boxes accepted after a pulsation subtraction, to set the repeat bar; scored beyond the table in its PR only on 151-156): every planet and planet-free run of the ranges above that was simulated again for it (seeds 11-14, 31-50, 61-66, 71-76, 91-100, 111-114, 131-136, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311 and 320-331 with planets; 51-58, 81-84, 101-104, 141-144, 218-219, 231-234, 251-254 and 271-274 planet-free; all 20 nights, 200 stars) and the stored runs (seeds 7 and 42 at 3 and 20 nights, 21-26, the planet-free 41-44 and 41-43 at 3 nights).
 
