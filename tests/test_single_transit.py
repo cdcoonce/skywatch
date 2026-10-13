@@ -569,7 +569,8 @@ def test_performance_60_stars_20_nights():
 def _boxes_calls(bls_detector, cv):
     """Sample counts of every ``_boxes`` call `single_transit` makes on one star's arrays."""
     det = SingleTransitDetector(detrend_pulsation=False)  # the eclipse mask is what is counted
-    det._bls = bls_detector
+    if bls_detector is not None:
+        det._bls = bls_detector
     calls: list[int] = []
     real = det._boxes
 
@@ -591,10 +592,21 @@ def test_a_detrended_box_the_repeat_test_refuses_leaves_the_star_to_the_eclipse_
     # read as "not a pulsation guard rejection" and the star dropped, with one search.
     _, cv = pulsator(0, period_d=0.5)
     _pin_repeat_snr(monkeypatch, 0.0)
-    off = _boxes_calls(BlsDetector(), cv)
+    off = _boxes_calls(BlsDetector(trend_repeat_snr=None), cv)
     assert len(off) == 1
-    on = _boxes_calls(BlsDetector(trend_repeat_snr=5.0), cv)
+    on = _boxes_calls(BlsDetector(), cv)
     assert len(on) == 2 and on[1] < on[0] == off[0]
+
+
+def test_single_transit_does_not_inherit_the_repeat_test_of_bls(monkeypatch):
+    # `bls` refuses a detrended box that does not repeat by default (issue #44); `single_transit`
+    # searches a star its guard (a) refuses with its own `BlsDetector` and must see the same
+    # candidate as before the switch (the accepted detrended box: "not searched", one `_boxes`
+    # call), not the restored "pulsation guard" candidate and its dip mask (two calls)
+    _, cv = pulsator(0, period_d=0.5)
+    _pin_repeat_snr(monkeypatch, 0.0)
+    assert SingleTransitDetector()._bls.trend_repeat_snr is None
+    assert len(_boxes_calls(None, cv)) == 1
 
 
 # -- pulsating hosts (issue #51) ---------------------------------------------------------

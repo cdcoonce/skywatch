@@ -172,7 +172,9 @@ Pulsating hosts
 Guard (a) refuses a sinusoidal star whole, and guard (b) cannot help it (a pulsator has no
 eclipses to mask), so a planet that transits once on a pulsating host was found by nothing
 (issue #51: PR #50's review counted 17 such hosts holding 18 transit labels that ``bls`` loses
-when its repeat test is on, and ``single_transit`` bounded none of them). For a star guard (a)
+when its repeat test is on, and ``single_transit`` bounded none of them; the test is on by default in
+``bls`` since issue #44 and this detector keeps its own ``BlsDetector`` with it off, so what it reads
+from ``bls`` for a refused star is unchanged). For a star guard (a)
 refuses, the search now runs on the star with its pulsation subtracted
 (``detrend_pulsation``, on by default; ``False`` is the old behaviour), before guard (b):
 
@@ -455,7 +457,9 @@ class SingleTransitDetector:
         self.mask_pad_h = mask_pad_h
         self.shape_threshold = shape_threshold
         self.detrend_pulsation = detrend_pulsation
-        self._bls = BlsDetector()
+        # the repeat test of a detrended box (issue #44, on by default in `bls`) is not this
+        # detector's: it reads `bls`'s candidate for a star it refused, and must read the same
+        self._bls = BlsDetector(trend_repeat_snr=None)
 
     # -- search ----------------------------------------------------------------------------
 
