@@ -21,7 +21,7 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 111-114 | 20 | planets | development | PR #42's review (pulsator search); used |
 | 131-136 | 20 | planets | development | held-out for #43 (PR #47), scored once; used |
 | 141-144 | 20 | planet-free | development | held-out for #43 (PR #47), scored once; used |
-| 151-156 | 20 | planets | **held-out, reserved for #44** | not yet scored |
+| 151-156 | 20 | planets | development | held-out for #44 (the repeat test of a detrended box), scored once, `main` against the branch (transit true positives 117 to 116, pulsations reported as transits 1 to 0, nothing else changed); used |
 | 160-199 | any | either | design range for #43 (not used by PR #47) | |
 | 201-206 | 20 | planets | development | held-out for #41, scored twice (the `pick = 0` variant, reverted, then the final code; thresholds fixed in 9141d90 before both; no binary reached the shape gate on them); used |
 | 210-217 | 20 | planets | development | #45 design (the shape test's threshold was set on these and the development seeds); used |
@@ -37,8 +37,12 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 300-311 | 20 | planets | development | never-seen check of #41's change (builder), scored twice (the `pick = 0` variant and the final code); it decided the `pick = 0` quirk; used |
 | 320-331 | 20 | planets | development | review of PR #49 (never-seen check of the depth-per-night reading and chi-square bar; no binary reached the shape gate); used |
 | 340-369 | 3 | planets | development | review of PR #49 (never-seen check on 3-night runs, where binaries still leak; 15 binaries reached the shape gate, PR identical to `main`); used |
+| 370-373 | 20 | planet-free | development | #44 design: every star sinusoidal (200 pulsators a run, `variability_weights={"sinusoidal": 1}`, written by `scripts/bls_detrend_audit.py --simulate`), so these are not the standard field of the same seed numbers; the repeat bar of 5 was read on these and the development runs; used |
+| 374-377 | 20 | planets | development | #44 design: every star sinusoidal, `planet_rate` 0.5 (about 100 planets a run, a third of them on stars that go through the detrending); used |
 
-Next unused range: 370 and up.
+Next unused range: 378 and up.
+
+Also read for #44 (the 67 boxes accepted after a pulsation subtraction, to set the repeat bar; scored beyond the table in its PR only on 151-156): every planet and planet-free run of the ranges above that was simulated again for it (seeds 11-14, 31-50, 61-66, 71-76, 91-100, 111-114, 131-136, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311 and 320-331 with planets; 51-58, 81-84, 101-104, 141-144, 218-219, 231-234, 251-254 and 271-274 planet-free; all 20 nights, 200 stars) and the stored runs (seeds 7 and 42 at 3 and 20 nights, 21-26, the planet-free 41-44 and 41-43 at 3 nights).
 
 Also read for #45 (the statistic of every box `single_transit` reported, to set the shape threshold; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights; planet-free 41-43 at 3 nights), 11-14, 21-26, 31-50, 61-66, 71-76, 91-100 (planets) and the planet-free 41-44 and 51-58 at 20 nights.
 
