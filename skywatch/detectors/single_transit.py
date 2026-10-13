@@ -212,6 +212,17 @@ the 38 standard runs go 23 to 27 in all (four runs change, 1, 1, 0, 0 to 2, 2, 1
 any run (4 at ``main``, seed 41), and the all-sinusoidal planet-free runs 370-373 go 0, 0, 0, 0
 to 0, 1, 0, 0.
 
+Held-out, scored once after the code was committed (seeds 420-425 standard, 426-429 every star
+sinusoidal with ``planet_rate`` 0.5, 430-433 every star sinusoidal and planet-free; 200 stars,
+20 nights), ``main`` to this. ``single_transit``: transit labels bounded or touched 12 to 44
+(standard 12 to 15, all-sinusoidal 0 to 29), false positives 0 to 0, eclipse->transit 1 to 1,
+pulsation->transit 0 to 2, detections 16 to 50; the 34 new detections are 32 transits and the 2
+pulsation claims, noise dips of S/N 8.8 (seed424 star 41) and 8.3 (seed427 star 103), and no
+detection of ``main`` is lost. Union with ``bls`` (which does not change): transit labels
+bounded or touched 154 to 176, false positives 3 to 3, eclipse->transit 5 to 5, flare->transit 0
+to 0, pulsation->transit 6 to 8, detections 182 to 216. The planet-free all-sinusoidal runs
+430-433 have no detection from either detector, before or after.
+
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
 the residual and fails the guard), a planet whose other events stand out of the residual is left
 to ``bls`` (its periodic search), and a star whose raw nights never reach 8 is not tried.

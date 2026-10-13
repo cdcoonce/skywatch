@@ -476,8 +476,29 @@ Planned detectors, in order:
    against 0.27 on development (`bls`: 0.57). On never-seen seeds 241-246 (planets) and
    251-254 (planet-free), checked in the review of #46, eclipse->transit goes 9 to 1 and 6
    to 0, no planet is lost (transit true positives 11 to 11) and the planets top at 0.05, so
-   they do not narrow the margin. The statistic, threshold, guards and limits are
-   in the `skywatch/detectors/single_transit.py` docstring.
+   they do not narrow the margin.
+   Pulsating hosts (#51): guard (a) used to refuse a sinusoidal star whole, so a planet that
+   transits once on one was found by nothing (PR #50's review: 18 transit labels on 17 hosts that
+   `bls` loses with its repeat test on, `single_transit` finding 0). For a star guard (a)
+   refuses, the search now runs after `bls`'s sinusoid is subtracted (`_pulsation_trend`,
+   refitted once with the best box's window left out), the box must pass guard (a) again on the
+   residual and then the shape test; a star that fails that goes on to guard (b) unchanged. No
+   threshold was added or changed. On the 199 development runs (149 standard, 38 standard
+   planet-free, 8 all-sinusoidal with planets, 4 all-sinusoidal planet-free) 7570 hosts are
+   refused: only sinusoidal ones come through (85 of 4324 reported, 101 detections: 86 on a
+   transit, 4 flare, 1 hot pixel, 1 cosmic ray, 9 on nothing but the pulsation, S/N 8.2 to 10.7;
+   no eclipsing binary, flare or constant host reported). Of the 18 labels 16 are bounded (the
+   other two: seed 44 star 44, whose raw night reads 7.0 so guard (a) never refuses it, and a
+   second label whose residual reads 4.0). Planet-free: all detections on the 38 standard runs
+   23 to 27 (at most 4 on a run, as at `main`), on the all-sinusoidal 370-373 0 to 1 in all. On
+   the 14 runs that carry the 18 labels the union of `bls` and `single_transit` goes from 274
+   to 287 transit labels bounded or touched, fp 3 to 3, pulsation->transit 28 to 32. Held-out,
+   scored once (420-425 standard, 426-429 all-sinusoidal with planets, 430-433 all-sinusoidal
+   planet-free): union transit labels bounded or touched 154 to 176, fp 3 to 3, eclipse->transit
+   5 to 5, pulsation->transit 6 to 8 (two noise dips at S/N 8.8 and 8.3), detections 182 to 216,
+   nothing on 430-433. `bls` is unchanged (`cmp` on four runs). The next step is the follow-up
+   PR that flips PR #50's `trend_repeat_snr` default, measured on its own seeds. The statistic,
+   threshold, guards and limits are in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring

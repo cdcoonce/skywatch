@@ -44,16 +44,18 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 
 | 400-405 | 20 | planets | **held-out, reserved for #48** | not yet scored |
 | 410-413 | 20 | planet-free | **held-out, reserved for #48** | not yet scored |
-| 420-425 | 20 | planets | **held-out, reserved for #51** (standard field) | not yet scored |
-| 426-429 | 20 | planets | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0.5, via `scripts/bls_detrend_audit.py --simulate`) | not yet scored |
-| 430-433 | 20 | planet-free | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+| 420-425 | 20 | planets | development | held-out for #51 (`single_transit` on pulsating hosts), scored once, `main` against the branch (union transit labels bounded or touched 154 to 176 over all fourteen #51 runs, standard 36 to 39; fp 3 to 3; pulsation->transit 6 to 8); used |
+| 426-429 | 20 | planets | development | held-out for #51 (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers), scored once (union 118 to 137); used |
+| 430-433 | 20 | planet-free | development | held-out for #51 (every star sinusoidal, `planet_rate` 0), scored once (no detection from `bls` or `single_transit`, before or after); used |
 
-Next unused range: 440 and up.
+Next unused range: 450 and up. (440-449 are #52's design seeds, planets 440-445 and planet-free 446-449; #51 used none of them.)
 
 Also read for #44 (the 67 boxes accepted after a pulsation subtraction, to set the repeat bar; scored beyond the table in its PR only on 151-156): every planet and planet-free run of the ranges above that was simulated again for it (seeds 11-14, 31-50, 61-66, 71-76, 91-100, 111-114, 131-136, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311 and 320-331 with planets; 51-58, 81-84, 101-104, 141-144, 218-219, 231-234, 251-254 and 271-274 planet-free; all 20 nights, 200 stars) and the stored runs (seeds 7 and 42 at 3 and 20 nights, 21-26, the planet-free 41-44 and 41-43 at 3 nights).
 
 Also read for #45 (the statistic of every box `single_transit` reported, to set the shape threshold; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights; planet-free 41-43 at 3 nights), 11-14, 21-26, 31-50, 61-66, 71-76, 91-100 (planets) and the planet-free 41-44 and 51-58 at 20 nights.
 
 Also read for #41 (the shape statistics of every star that reached the shape gate, binaries first, to design the depth-per-night reading and the chi-square bar; nothing scored beyond the table in its PR): the stored runs (seeds 7 and 42, 3 and 20 nights), 11-14, 21-26, 31-50, 61-66, 280-291 (20 nights), 280-299 (3 nights) and the planet-free 41-44 (20 nights) and 41-43 (3 nights).
+
+Also read for #51 (the host table of `scripts/single_transit_pulsator_audit.py` and the 18 labels; nothing scored beyond the table in its PR but the 51 runs where `single_transit` changes, `main` against the branch): every planet and planet-free run of the development ranges above that was simulated again for it, all 20 nights and 200 stars (149 standard planet runs: 7, 42, 11-14, 21-26, 31-50, 61-66, 71-76, 91-100, 111-114, 131-136, 151-156, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311, 320-331 and 380-391; 38 standard planet-free: 41-44, 51-58, 81-84, 101-104, 141-144, 218-219, 231-234, 251-254 and 271-274; the all-sinusoidal 374-377 and 392-395 with planets and 370-373 planet-free). No design seed from 440 up was used.
 
 Caveat on record: seeds 21-26 were where PR #34's review found the problems that became #35 and #36, so they were held out from those changes' thresholds but not from the choice of problem.
