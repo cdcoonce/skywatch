@@ -2,25 +2,25 @@
 
 Usage::
 
-    uv run python scripts/bls_flare_run_audit.py runs/seed61-200s-20n [more runs ...]
+    uv run python scripts/bls_flare_run_audit.py [--jobs N] runs/seed61-200s-20n [more runs ...]
     uv run python scripts/bls_flare_run_audit.py --dump runs.jsonl runs/seed61-200s-20n
 
 For every star of a run, the samples the one-sided clip of ``positive_outliers`` masks are split
 into runs of consecutive samples within a night, as ``flare_windows`` does; a run of
 ``flare_min_run`` (10) or more samples is *flare-sized*. One line per run goes to ``--dump``: its
-length, its peak in sigmas of the night and where in the run the peak is, the share of the run's positive excess the peak sample
-carries, the ratio of the run's median to its peak, the decay time and residual per degree of
-freedom of the exponential ``decay_fit`` puts through it, whether ``bls`` opens a window for it (it
-decays), and the truth under it (the glitch and flare labels of the star that overlap the run's
-span; never read by the detector, only a label for this table).
+length, its peak in sigmas of the night and where in the run the peak is, the share of the run's
+positive excess the peak sample carries, the ratio of the run's median to its peak, the decay
+time and residual per degree of freedom of the exponential ``decay_fit`` puts through it, whether
+``bls`` opens a window for it (it decays), and the truth under it (the glitch and flare labels of
+the star that overlap the run's span; never read by the detector, only a label for this table).
 
 The summary groups the runs by that truth and by a description of the run that does not use the
 fit: a *spike* (the peak sample carries half the run's excess or more), a *plateau* (the run's
 median is at least half its peak) or a *decay* (neither: a peak with more mass after it than a
 spike has and a median far under it), and counts how many of each the fit lets open a window. It
 then counts the stars that carry a window under each definition: every flare-sized run (issue #43)
-and decaying runs only (issue #48). This is the instrument behind the "Flare-sized runs" section of
-the `skywatch.detectors.bls` docstring; it reads no detections or scores.
+and decaying runs only (issue #48). This is the instrument behind the "What opens a window" section
+of the `skywatch.detectors.bls` docstring; it reads no detections or scores.
 """
 
 from __future__ import annotations
