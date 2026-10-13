@@ -578,7 +578,8 @@ Planned detectors, in order:
    and refuses a box whose S/N, measured without the flagged samples, is under the detector's
    own threshold (8). No distance, window or bar was added (`clip_residual`, on by default). It
    removes 13 development detections (12 pulsation claims, 1 transit: seed395 star 114, one
-   label of a planet, found by `single_transit` alone) and adds none: pulsation->transit
+   label of a planet, found by `single_transit` alone) and added none on 88 runs (it is not
+   structural: the gate runs before guard (a)): pulsation->transit
    15 to 3, union transit labels bounded or touched 768 to 767, planets 253 to 252. Held-out,
    scored once (820-825 standard, 826-829 all-sinusoidal with planets, 830-833 all-sinusoidal
    planet-free; 14 runs): `single_transit` pulsation->transit 4 to 0, detections 42 to 38 (all four
@@ -588,7 +589,11 @@ Planned detectors, in order:
    claims are no longer reported (seed424 star 41, 427 star 103, 712 star 79, 721 star 181 and 722
    star 55); seed712 star 75 stays: a hot-pixel plateau covers most of a 96-sample night, is
    the median, and the box is the unaffected stretch, so no clip sees anything above the level
-   (two more such cases on development, none held-out). `bls` is unchanged (`cmp` on four runs).
+   (two more such cases on development, none held-out). The held-out bar is not as slack as the
+   development one: seed826 star 162 reads 7.58 without its flagged samples, so a lower bar would
+   have kept it. Never-seen seeds 500-513 (14 runs, checked in the review): union planets 62 to
+   62, pulsation->transit 11 to 8, fp 3 to 3; `single_transit` pulsation->transit 5 to 2,
+   detections 47 to 44. `bls` is unchanged (`cmp` on four runs).
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.

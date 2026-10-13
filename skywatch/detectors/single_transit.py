@@ -186,9 +186,10 @@ refuses, the search now runs on the star with its pulsation subtracted
    divided again.
 3. **Gates.** A box that falls under the threshold once the residual's own flares are left out
    is refused first (Flares on a pulsator's residual, below). The boxes at the threshold (8) on that
-   residual must pass guard (a) again as one-event boxes: a residual that still holds a sinusoid (the pulsation was not removed), another
-   event of a periodic planet, or an eclipsing binary's eclipses fails it, and the star goes on to
-   guard (b) unchanged. The shape test then runs on the residual like on any other star.
+   residual must pass guard (a) again as one-event boxes: a residual that still holds a sinusoid
+   (the pulsation was not removed), another event of a periodic planet, or an eclipsing binary's
+   eclipses fails it, and the star goes on to guard (b) unchanged. The shape test then runs on the
+   residual like on any other star.
 
 No threshold or bar was added or changed: the subtraction is ``bls``'s, imported unchanged, the
 gates are this detector's own.
@@ -277,14 +278,16 @@ box's S/N is measured again over its own samples with the flagged samples left o
 and the reference (the contrast statistic of :func:`search_night`, ``sigma`` the scatter outside
 the box), and the box is refused when that S/N is under ``snr_threshold`` (8, the detector's own
 bar), or when fewer than ``min_in`` samples are left in the box or ``min_out`` outside it. A
-refusal removes a box and adds none; a star left with no box goes to guard (b) like any star whose
-detrended search failed. No distance, window length or bar was added: a variant that also leaves
-out 1 h or 3 h after each run of 10 or more samples decides the same 15 detections, and a distance
-rule would not separate them (the pulsation claims lie from 0 to 3,780 s before their runs, the
-one transit 1,200 s after its).
+refusal removes a box; a star left with no box goes to guard (b) like any star whose detrended
+search failed. It added no detection on 88 runs, but that is not structural: the gate runs before
+guard (a), so removing the strongest box changes which box the guard reads, and a star left with
+no box falls to the eclipse-mask search. No distance, window length or bar was added: a variant
+that also leaves out 1 h or 3 h after each run of 10 or more samples decides the same 15
+detections, and a distance rule would not separate them (the pulsation claims lie from 0 to 3,780
+s before their runs, the one transit 1,200 s after its).
 
 Measured, ``main`` to this. Development (the 60 runs above, where the gate was read; it has no
-constant to fit): it removes 13 detections, 12 pulsation claims and 1 transit, and adds none.
+constant to fit): it removes 13 detections, 12 pulsation claims and 1 transit, and added none.
 ``single_transit`` alone: pulsation->transit 15 to 3, transit labels bounded 176 to 175, bounded or
 touched 177 to 176, planets with a transit event bounded or touched 150 to 149, false positives 1
 to 1, eclipse->transit 4 to 4, flare->transit 5 to 5, detections 211 to 198. Union with ``bls``
@@ -303,11 +306,21 @@ sinusoidal with ``planet_rate`` 0.5, 830-833 every star sinusoidal and planet-fr
 nights), ``main`` to this. ``single_transit``: pulsation->transit 4 to 0, transit labels bounded 37
 to 37, bounded or touched 38 to 38, planets 34 to 34, fp 0 to 0, detections 42 to 38; the four
 detections removed are all pulsation claims (seed826 star 162 at 10.6, seed830 stars 54 and 108 at
-10.3 and 9.8, seed831 star 185 at 8.9) and no transit is lost. Union with ``bls``: transit labels
+10.3 and 9.8, seed831 star 185 at 8.9) and no transit is lost. On the held-out the bar is not as
+slack as on development: seed826 star 162 reads 7.58 without its flagged samples, so a bar under
+7.5 would have kept it (8 is the detector's own bar, not a fit). Union with ``bls``: transit labels
 bounded or touched 203 to 203, planets with a transit event bounded or touched 62 to 62, fp 7 to 7,
 eclipse->transit 0 to 0, flare->transit 1 to 1, pulsation->transit 20 to 16 (the 16 are ``bls``'s
 own), detections 253 to 249. The planet-free runs 830-833 go from 3 to 0 ``single_transit``
 detections.
+
+Never-seen check of the PR's review (seeds 500-505 standard, 506-509 every star sinusoidal with
+``planet_rate`` 0.5, 510-513 every star sinusoidal and planet-free; 14 runs), ``main`` to this,
+``single_transit`` alone / union with ``bls``: planets with a transit event bounded or touched
+31 to 31 / 62 to 62, fp 0 to 0 / 3 to 3, pulsation->transit 5 to 2 / 11 to 8, detections 47 to 44 /
+225 to 222. Standard 500-505 nothing changes (19 detections, union 59, on both); 506-509
+pulsation->transit 2 to 1 (detections 25 to 24); the planet-free 510-513 go from 3 to 1 detection
+(the two removed are pulsation claims beside a flare). ``bls`` is unchanged on them.
 
 What the gate does not see: a hot-pixel plateau that covers most of a short night is the night's
 median, so the unaffected stretch is the dip and nothing is above the level for a clip to flag
