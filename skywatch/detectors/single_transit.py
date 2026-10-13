@@ -184,8 +184,9 @@ refuses, the search now runs on the star with its pulsation subtracted
    sinusoid is fitted again with that box and a window 1.5 times as wide left out (a transit left
    in the fit pulls the sinusoid towards itself, the reason ``bls`` refits) and the nights are
    divided again.
-3. **Gates.** The boxes at the threshold (8) on that residual must pass guard (a) again as
-   one-event boxes: a residual that still holds a sinusoid (the pulsation was not removed), another
+3. **Gates.** A box that falls under the threshold once the residual's own flares are left out
+   is refused first (Flares on a pulsator's residual, below). The boxes at the threshold (8) on that
+   residual must pass guard (a) again as one-event boxes: a residual that still holds a sinusoid (the pulsation was not removed), another
    event of a periodic planet, or an eclipsing binary's eclipses fails it, and the star goes on to
    guard (b) unchanged. The shape test then runs on the residual like on any other star.
 
@@ -211,8 +212,8 @@ star 79 at 9.8, 721 star 181 at 9.1, 722 star 55 at 10.8), about 0.4 per all-sin
 runs), not noise dips. On a pulsator guard (a) used to refuse the whole star, so a night with a
 flare in it never reached the per-night search; after the subtraction one box is left, guard (a)
 is satisfied and the flare or hot-pixel residue reads as a dip (the class this detector already
-reports on quiet stars, flare->transit 4). Follow-up: issue #54 (a flare-adjacent gate on the
-detrended path, in the style of #47). Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
+reports on quiet stars, flare->transit 4). Issue #54 gates them (Flares on a pulsator's
+residual, below). Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
 test on loses them, ``single_transit`` before: 0): the other two are seed 44 star 44 (the transit
 night reads 7.0 raw, so guard (a) never refuses the star and the subtraction is not tried) and
 the second label of puls-seed393 star 162 (the residual reads 4.0). Planet-free, all detections:
@@ -243,10 +244,80 @@ Acceptance, pulsation->transit not higher: missed on both fresh sets, 6 to 8 hel
 never-seen. The detector ships on by default regardless (the owner's decision): the cost is one
 fixable class, the flare- or hot-pixel-adjacent claims above, and the gain is real finds (union
 transit labels 154 to 176 held-out, 224 to 238 never-seen, no detection lost, fp flat).
+Issue #54 is that fix (the section below).
 
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
 the residual and fails the guard), a planet whose other events stand out of the residual is left
 to ``bls`` (its periodic search), and a star whose raw nights never reach 8 is not tried.
+
+Flares on a pulsator's residual
+-------------------------------
+The review of the PR found that all six new pulsation->transit claims sit beside a flare or a hot
+pixel. What they have in common was measured on 60 development runs
+(``scripts/single_transit_adjacent_audit.py table``; standard 420-425, 700-711, 800-805; every
+star sinusoidal with ``planet_rate`` 0.5: 374-377, 392-395, 426-429, 712-715, 806-809; every star
+sinusoidal and planet-free: 370-373, 430-433, 720-723, 810-813; the table is in the comment of
+issue #54): 142 detections of ``main`` come from the detrended path, 127 on a transit label and 15
+on a pulsation. 12 of the 15 sit inside a run of 10 to 85 consecutive samples, or up to 1.05 h
+before one, that the clip of ``bls`` flags **on the residual** and not on the raw flux (11 of the
+12 runs are a flare by the truth under them, one a cluster of cosmic rays). The first clip works
+with the scale of the raw night, which the pulsation inflates, so a flare that would be masked on
+a quiet star stays in the data; the residual's scale is the white noise's and the same clip finds
+it. The leftover tail lifts the reference level of the night, and the best box of the night is a
+stretch away from the flare against that lifted level. Of the 127 transit detections 14 have a run
+of 10 or more samples in their night, 13 of them runs the first clip had already removed (hot
+pixels, cosmic-ray clusters), and one a residual-only run: seed395 star 114 (S/N 8.6, a flare run
+of 48 samples ending 1,200 s before the box).
+
+The gate (``clip_residual``, on by default; ``False`` is the old behaviour) runs on the detrended
+path only, on the boxes of the residual at the threshold, before they go to guard (a). The clip of
+``bls`` (:func:`positive_outliers` with ``bls``'s ``clip_sigma`` and ``tail_sigma``) is applied to
+the night of the box on the residual; a night it flags nothing in is left as it is. Otherwise the
+box's S/N is measured again over its own samples with the flagged samples left out of both the box
+and the reference (the contrast statistic of :func:`search_night`, ``sigma`` the scatter outside
+the box), and the box is refused when that S/N is under ``snr_threshold`` (8, the detector's own
+bar), or when fewer than ``min_in`` samples are left in the box or ``min_out`` outside it. A
+refusal removes a box and adds none; a star left with no box goes to guard (b) like any star whose
+detrended search failed. No distance, window length or bar was added: a variant that also leaves
+out 1 h or 3 h after each run of 10 or more samples decides the same 15 detections, and a distance
+rule would not separate them (the pulsation claims lie from 0 to 3,780 s before their runs, the
+one transit 1,200 s after its).
+
+Measured, ``main`` to this. Development (the 60 runs above, where the gate was read; it has no
+constant to fit): it removes 13 detections, 12 pulsation claims and 1 transit, and adds none.
+``single_transit`` alone: pulsation->transit 15 to 3, transit labels bounded 176 to 175, bounded or
+touched 177 to 176, planets with a transit event bounded or touched 150 to 149, false positives 1
+to 1, eclipse->transit 4 to 4, flare->transit 5 to 5, detections 211 to 198. Union with ``bls``
+(unchanged): transit labels bounded or touched 768 to 767, planets 253 to 252, fp 34 to 34,
+pulsation->transit 69 to 57, detections 1018 to 1005. The six known claims: seed424 star 41 (8.8),
+seed427 star 103 (8.3), seed712 star 79 (9.8), seed721 star 181 (9.1) and seed722 star 55 (10.8)
+are no longer reported (their S/N with the residual's flagged samples left out is 6.1, 1.3, 2.8,
+3.3 and 1.0); seed712 star 75 (182.9) is still reported, for the cause below. The planet-free
+all-sinusoidal runs go from 5 ``single_transit`` detections (371, 721, 722, 811 and 813, one each)
+to 0. The one transit lost is seed395 star 114, planet 56 (depth 0.17 percent), one of its twelve
+labels, found by ``single_transit`` alone (``bls`` has none of its labels): the flare run ends 20
+minutes before the box and the box reads 3.8 without it.
+
+Held-out, scored once after the code was committed (seeds 820-825 standard, 826-829 every star
+sinusoidal with ``planet_rate`` 0.5, 830-833 every star sinusoidal and planet-free; 200 stars, 20
+nights), ``main`` to this. ``single_transit``: pulsation->transit 4 to 0, transit labels bounded 37
+to 37, bounded or touched 38 to 38, planets 34 to 34, fp 0 to 0, detections 42 to 38; the four
+detections removed are all pulsation claims (seed826 star 162 at 10.6, seed830 stars 54 and 108 at
+10.3 and 9.8, seed831 star 185 at 8.9) and no transit is lost. Union with ``bls``: transit labels
+bounded or touched 203 to 203, planets with a transit event bounded or touched 62 to 62, fp 7 to 7,
+eclipse->transit 0 to 0, flare->transit 1 to 1, pulsation->transit 20 to 16 (the 16 are ``bls``'s
+own), detections 253 to 249. The planet-free runs 830-833 go from 3 to 0 ``single_transit``
+detections.
+
+What the gate does not see: a hot-pixel plateau that covers most of a short night is the night's
+median, so the unaffected stretch is the dip and nothing is above the level for a clip to flag
+(seed712 star 75, S/N 182.9, a night of 96 samples; seed375 star 80, 142.0, 53 samples; seed376
+star 37, 51.2, 67 samples; the boxes are 40 to 60 percent deep, the deepest planet injected in
+these runs 3 percent). These three are the pulsation->transit that remain on the development
+runs; none appears in the held-out ones. The gate judges the boxes the search found and does not
+clip the residual before the search, so that it can only remove claims; a night with a long
+flare and a real dip still has the flare in the residual that guard (a) reads, and the star is
+refused as before (a transit and a short flare on one pulsator are both kept).
 
 Limits
 ------
