@@ -89,8 +89,14 @@ held-out seeds, and a night-level sine test took pulsators reported as
 transits from 81 to 3 on the development runs, with no transit lost.
 [docs/seeds.md](docs/seeds.md) records which survey seeds are held out.
 
-The page is live on GitHub Pages from `docs/` (2026-10-12). Open: issues #41,
-#43, #44 and #45.
+[0010](docs/log/0010-a-public-page-and-four-fixes-that-only-subtract.md):
+the page went public, and four more fixes each removed false claims without
+losing a find. On seeds 21-26, `bls` false alarms went from 6 to 3 and
+`single_transit`'s eclipses reported as transits from 12 to 3, while transit
+finds stayed at 46 and 14. One fix (#50) ships switched off, because the
+transits it would refuse are ones nothing else finds yet.
+
+Open: issues #44, #48 and #51.
 
 ## Develop
 
