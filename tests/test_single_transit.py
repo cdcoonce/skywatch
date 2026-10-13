@@ -84,6 +84,7 @@ def test_defaults_are_the_documented_ones():
     assert d.durations_h == (0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0)
     assert (d.contrast, d.guards, d.mask_pad_h) == (True, True, 0.5)
     assert d.shape_threshold == 1.0
+    assert d.detrend_pulsation is True
 
 
 def test_empty_and_tiny_curves():
@@ -567,7 +568,7 @@ def test_performance_60_stars_20_nights():
 
 def _boxes_calls(bls_detector, cv):
     """Sample counts of every ``_boxes`` call `single_transit` makes on one star's arrays."""
-    det = SingleTransitDetector()
+    det = SingleTransitDetector(detrend_pulsation=False)  # the eclipse mask is what is counted
     det._bls = bls_detector
     calls: list[int] = []
     real = det._boxes
@@ -594,3 +595,151 @@ def test_a_detrended_box_the_repeat_test_refuses_leaves_the_star_to_the_eclipse_
     assert len(off) == 1
     on = _boxes_calls(BlsDetector(trend_repeat_snr=5.0), cv)
     assert len(on) == 2 and on[1] < on[0] == off[0]
+
+
+# -- pulsating hosts (issue #51) ---------------------------------------------------------
+
+
+def pulsating_host(seed=0, dip=(4, 2.5, 3.0, 0.01), amp=0.015, period_d=0.9, n_nights=20):
+    """A sinusoidal star (guard (a) refuses its night boxes) with one dip on one night."""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = 1.0 + amp * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
+    if dip is not None:
+        prof = prof * dip_profile(t, *dip)
+    return t, curve(0, t, prof, 0.005, rng)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_single_transit_on_a_pulsating_host_is_found_after_the_detrend(seed):
+    # a 1 percent, 3 h dip on a 1.5 percent pulsator: the raw nights are all refused by guard
+    # (a); with the sinusoid subtracted the dip night is the only one that reads
+    _t, cv = pulsating_host(seed)
+    out = detect({0: cv})
+    assert len(out) == 1
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert span_iou(out[0].t_start, out[0].t_end, lo, hi) >= 0.6
+    assert out[0].score >= 8.0 and out[0].kind_guess == "transit"
+    assert detect({0: cv}, detrend_pulsation=False) == []
+
+
+def test_a_pulsating_host_without_a_dip_gives_nothing():
+    for seed in range(4):
+        _t, cv = pulsating_host(seed, dip=None)
+        assert detect({0: cv}) == []
+
+
+def test_the_detrend_does_not_search_a_star_the_guard_accepts():
+    # a dip on a quiet star never reaches the detrend: the sinusoid fit is not even tried
+    _t, cv = one_dip()
+    tried: list[int] = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        tried.append(1)
+        return real(self, a, cadence_s, box)
+
+    st_det = SingleTransitDetector()
+    st_det._bls._pulsation_trend = spy.__get__(st_det._bls)
+    assert len(st_det.detect({0: cv}, C)) == 1
+    assert tried == []
+
+
+def test_the_sinusoid_is_fitted_again_around_the_box():
+    # the first fit has the dip in it; the box is then left out of a second fit
+    _t, cv = pulsating_host(0)
+    calls: list = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        calls.append(box)
+        return real(self, a, cadence_s, box)
+
+    det = SingleTransitDetector()
+    det._bls._pulsation_trend = spy.__get__(det._bls)
+    assert len(det.detect({0: cv}, C)) == 1
+    assert calls[0] is None and calls[1] is not None
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert lo <= calls[1].epoch_s <= hi
+    assert calls[1].period_s > 1e8  # one event
+
+
+def test_a_v_shaped_event_on_a_pulsating_host_is_refused_by_the_shape_test():
+    # the same night, an eclipse-like V instead of a flat dip: the detrend finds it, the shape
+    # test (run on the residual) refuses it
+    rng = np.random.default_rng(0)
+    t = night_times(20)
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof * v_profile(t, 4, 4.0, 3.0, 0.03)
+    cv = curve(0, t, prof, 0.005, rng)
+    assert len(detect({0: cv}, shape_threshold=None)) == 1
+    assert detect({0: cv}) == []
+
+
+def test_a_planet_with_several_events_on_a_pulsating_host_is_left_to_bls():
+    # its other events stand out of the residual, so guard (a) still refuses it: the periodic
+    # search is the one that finds this planet (see the bls tests of pulsating hosts)
+    _t, cv = pulsator(0)
+    assert detect({0: cv}) == []
+
+
+def test_an_eclipsing_binary_still_gives_nothing_with_the_detrend():
+    _t, cv = eb_with_dip()
+    assert detect({0: cv}) == []
+    assert detect({0: cv}, shape_threshold=None) == []
+
+
+def _trend_boxes(cv):
+    """The `box` argument of every `_pulsation_trend` call a full detect makes on one star."""
+    calls: list = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        calls.append(box)
+        return real(self, a, cadence_s, box)
+
+    det = SingleTransitDetector()
+    det._bls._pulsation_trend = spy.__get__(det._bls)
+    det.detect({0: cv}, C)
+    return calls
+
+
+def test_the_detrended_path_keeps_the_default_threshold():
+    # a dip at a residual S/N of 7.67 is under the default bar of 8 on the detrended path too:
+    # nothing at the default, found when the bar is lowered (the dip is really there)
+    _t, cv = pulsating_host(0, dip=(4, 2.5, 3.0, 0.0036))
+    assert detect({0: cv}) == []
+    low = detect({0: cv}, snr_threshold=7.0)
+    assert len(low) == 1
+    assert 7.5 < low[0].score < 8.0
+
+
+def test_the_refit_box_is_the_dip_in_epoch_and_duration():
+    # the second fit leaves out a window the size of the dip, centred on it: not three times
+    # the dip, not a window hanging off its left edge
+    _t, cv = pulsating_host(0)
+    calls = _trend_boxes(cv)
+    assert calls[1] is not None
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert abs(calls[1].epoch_s - (lo + hi) / 2) < 0.5 * HOUR
+    assert abs(calls[1].duration_s - (hi - lo)) < 0.5 * HOUR
+
+
+def test_the_refit_leaves_out_the_strongest_box_of_two():
+    # two dips on one pulsator, night 4 at 1.2 percent and night 12 at 0.8: the refit sits on
+    # the stronger one
+    rng = np.random.default_rng(0)
+    t = night_times(20)
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof * dip_profile(t, 4, 2.5, 3.0, 0.012) * dip_profile(t, 12, 2.5, 3.0, 0.008)
+    calls = _trend_boxes(curve(0, t, prof, 0.005, rng))
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert calls[1] is not None and lo - HOUR <= calls[1].epoch_s <= hi + HOUR
+
+
+def test_a_dip_that_pulls_a_fast_sinusoid_is_still_found_after_the_refit():
+    # a 0.4 d, 4 h, 1.2 percent dip drags a single fit of a short-period sinusoid (S/N about
+    # 23.5 once the refit leaves the dip out); a single fit or a refit with no window misses it
+    _t, cv = pulsating_host(0, dip=(4, 1.0, 4.0, 0.012), period_d=0.4)
+    out = detect({0: cv})
+    assert len(out) == 1 and out[0].kind_guess == "transit"

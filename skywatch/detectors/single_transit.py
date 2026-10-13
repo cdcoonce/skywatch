@@ -167,6 +167,87 @@ eclipse->transit 9 to 1 on the planet runs and 6 to 0 on the planet-free ones, p
 lost 0 (transit true positives 11 to 11, single-event planets at S/N 10 or
 more bounded 4 of 7 to 4 of 7), false positives 0 to 0.
 
+Pulsating hosts
+---------------
+Guard (a) refuses a sinusoidal star whole, and guard (b) cannot help it (a pulsator has no
+eclipses to mask), so a planet that transits once on a pulsating host was found by nothing
+(issue #51: PR #50's review counted 17 such hosts holding 18 transit labels that ``bls`` loses
+when its repeat test is on, and ``single_transit`` bounded none of them). For a star guard (a)
+refuses, the search now runs on the star with its pulsation subtracted
+(``detrend_pulsation``, on by default; ``False`` is the old behaviour), before guard (b):
+
+1. **Subtract.** The sinusoid of :meth:`BlsDetector._pulsation_trend` (the best sinusoid in the
+   guard band, a free level for every night, used only when its power is 3 times the guard's
+   false-alarm level) is subtracted from the prepared flux and each night is divided by its
+   median again. No sinusoid: the star goes on to guard (b) as before.
+2. **Search and refit.** The per-night search runs on the residual. When it finds a box, the
+   sinusoid is fitted again with that box and a window 1.5 times as wide left out (a transit left
+   in the fit pulls the sinusoid towards itself, the reason ``bls`` refits) and the nights are
+   divided again.
+3. **Gates.** The boxes at the threshold (8) on that residual must pass guard (a) again as
+   one-event boxes: a residual that still holds a sinusoid (the pulsation was not removed), another
+   event of a periodic planet, or an eclipsing binary's eclipses fails it, and the star goes on to
+   guard (b) unchanged. The shape test then runs on the residual like on any other star.
+
+No threshold or bar was added or changed: the subtraction is ``bls``'s, imported unchanged, the
+gates are this detector's own.
+
+Measured on the development runs of docs/seeds.md (199 runs of 200 stars and 20 nights: 149
+standard with planets, 38 standard planet-free, 8 all-sinusoidal with planets, 4 all-sinusoidal
+planet-free; ``scripts/single_transit_pulsator_audit.py``). Guard (a) refuses 4324 sinusoidal
+hosts, 2956 eclipsing binaries, 171 flare stars and 119 constant stars (hot pixel, cosmic ray,
+cloud) on them. Only sinusoidal hosts come through: the residual of an eclipsing binary keeps
+its other eclipses and fails guard (a) again (2371 of 2956; the other 582 and 3 have no single
+sinusoid or no night at 8), and none of the flare or constant hosts is reported. Of the 4324
+sinusoidal hosts 4168 have no night at 8 on the residual, 66 fail guard (a) on the residual
+(most of them a planet with a second event), 2 fail the shape test and 85 are reported: 101
+detections, 86 on a transit, 4 on a flare, 1 on a hot pixel, 1 on a cosmic ray and 9 on nothing
+but the pulsation (S/N 8.2 to 10.7). The real transits it reports read from 8.2 up, so no higher
+bar (``bls`` asks 9 of a detrended box) separates them from those 9: it would cost more planets than
+it removes boxes. The review of the PR read the six pulsation->transit claims the detrend adds on
+fresh seeds: all six sit beside a flare or a hot pixel in the same night (held-out seed 424 star 41
+at 8.8 and 427 star 103 at 8.3; never-seen 712 star 75 at 182.9 beside a hot-pixel plateau, 712
+star 79 at 9.8, 721 star 181 at 9.1, 722 star 55 at 10.8), about 0.4 per all-sinusoidal run (6 in 16
+runs), not noise dips. On a pulsator guard (a) used to refuse the whole star, so a night with a
+flare in it never reached the per-night search; after the subtraction one box is left, guard (a)
+is satisfied and the flare or hot-pixel residue reads as a dip (the class this detector already
+reports on quiet stars, flare->transit 4). Follow-up: issue #54 (a flare-adjacent gate on the
+detrended path, in the style of #47). Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
+test on loses them, ``single_transit`` before: 0): the other two are seed 44 star 44 (the transit
+night reads 7.0 raw, so guard (a) never refuses the star and the subtraction is not tried) and
+the second label of puls-seed393 star 162 (the residual reads 4.0). Planet-free, all detections:
+the 38 standard runs go 23 to 27 in all (four runs change, 1, 1, 0, 0 to 2, 2, 1, 1), at most 4 on
+any run (4 at ``main``, seed 41), and the all-sinusoidal planet-free runs 370-373 go 0, 0, 0, 0
+to 0, 1, 0, 0.
+
+Held-out, scored once after the code was committed (seeds 420-425 standard, 426-429 every star
+sinusoidal with ``planet_rate`` 0.5, 430-433 every star sinusoidal and planet-free; 200 stars,
+20 nights), ``main`` to this. ``single_transit``: transit labels bounded or touched 12 to 44
+(standard 12 to 15, all-sinusoidal 0 to 29), false positives 0 to 0, eclipse->transit 1 to 1,
+pulsation->transit 0 to 2, detections 16 to 50; the 34 new detections are 32 transits and the 2
+pulsation claims, both beside a flare in the same night (S/N 8.8, seed424 star 41, a flare label
+0.4 h after the box; 8.3, seed427 star 103, the box starts inside a flare label's tail), and no
+detection of ``main`` is lost. Union with ``bls`` (which does not change): transit labels
+bounded or touched 154 to 176, false positives 3 to 3, eclipse->transit 5 to 5, flare->transit 0
+to 0, pulsation->transit 6 to 8, detections 182 to 216. The planet-free all-sinusoidal runs
+430-433 have no detection from either detector, before or after.
+
+Never-seen check of the PR's review (seeds 700-711 standard, 712-715 every star sinusoidal with
+``planet_rate`` 0.5, 720-723 every star sinusoidal and planet-free; 20 runs), union with ``bls``,
+``main`` to this: transit labels bounded or touched 224 to 238 (standard 127 to 129, 712-715 97 to
+109, 720-723 0 to 0), false positives 20 to 20, pulsation->transit 7 to 11, detections 289 to 328;
+``single_transit`` alone bounds 25 to 60 labels and no detection of ``main`` (35) is lost. Planet-
+free pulsators: 0, 1, 1, 0 detections on 720-723 (S/N 9.1 and 10.8), inside the rule of 5 a run.
+
+Acceptance, pulsation->transit not higher: missed on both fresh sets, 6 to 8 held-out and 7 to 11
+never-seen. The detector ships on by default regardless (the owner's decision): the cost is one
+fixable class, the flare- or hot-pixel-adjacent claims above, and the gain is real finds (union
+transit labels 154 to 176 held-out, 224 to 238 never-seen, no detection lost, fp flat).
+
+Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
+the residual and fails the guard), a planet whose other events stand out of the residual is left
+to ``bls`` (its periodic search), and a star whose raw nights never reach 8 is not tried.
+
 Limits
 ------
 * A second strong event stays in the residual of the guard: a star with two single events of
@@ -178,10 +259,12 @@ Limits
   the mask, 21 h of every 44 h cycle, covers it). Other eclipse residue gets through: the
   eclipse->transit confusion on the held-out 20-night runs 21-26 was 0 to 7 per run at the
   default before the shape test (12 over six runs) and is 0, 0, 3, 0, 0, 0 with it: not zero.
-* A star the guards reject is lost with its planet when the star is a sinusoidal or flare
-  variable: held-out seed22 star 81 and seed25 stars 39 and 52 are found at S/N 9.5 to 15.6
-  with ``guards=False`` and dropped with them on. A planet-only host whose guard ratio
-  (see Guards) crosses 1 is the same loss.
+* A star the guards reject is lost with its planet when the star is a flare variable or a
+  sinusoidal one the subtraction does not clean (see Pulsating hosts): held-out seed25 star 52
+  (a flare star) is found at S/N 9.5 to 15.6 with ``guards=False`` and dropped with them on;
+  seed22 star 81 (sinusoidal) is now reported (S/N 11.4), and seed25 star 39 (sinusoidal) still
+  is not (its residual reads 4.8). A planet-only host whose guard ratio (see Guards) crosses 1 is
+  the same loss.
 * Only the best box per night is reported: two dips in one night are one detection.
 * A dip that fills most of a night leaves little reference (``min_out`` 30) and a night
   median taken inside the dip; the S/N is then the lower, contrast, one. When the night holds
@@ -236,6 +319,7 @@ from skywatch.detectors.bls import (
     _MAD_SCALE,
     BlsDetector,
     Box,
+    _Arrays,
     _Clean,
     _renormalise_nights,
     in_box,
@@ -348,6 +432,7 @@ class SingleTransitDetector:
         guards: bool = True,
         mask_pad_h: float = 0.5,
         shape_threshold: float | None = 1.0,
+        detrend_pulsation: bool = True,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -369,6 +454,7 @@ class SingleTransitDetector:
         self.guards = guards
         self.mask_pad_h = mask_pad_h
         self.shape_threshold = shape_threshold
+        self.detrend_pulsation = detrend_pulsation
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -471,6 +557,74 @@ class SingleTransitDetector:
             t[on], flux[on], np.zeros(int(on.sum()), dtype=np.int64), b.sigma, box
         )
 
+    def _event_box(self, b: NightBox, cadence_s: int, n_total: int) -> Box:
+        """The night box `b` as a one-event :class:`Box` (a "period" longer than the survey)."""
+        return Box(
+            period_s=_ONE_EVENT_PERIOD_S,
+            epoch_s=(b.t_start + b.t_end) / 2.0,
+            duration_s=float(b.t_end - b.t_start + cadence_s),
+            depth=b.depth,
+            n_in=b.n_in,
+            n_total=n_total,
+            power=0.0,
+        )
+
+    def _residual(
+        self,
+        c: _Clean,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        level: np.ndarray,
+        cadence_s: int,
+    ) -> np.ndarray | None:
+        """The star's flux with its pulsation subtracted, or None when no sinusoid stands out.
+
+        The sinusoid of :meth:`BlsDetector._pulsation_trend` (fitted to the whole record, the
+        night levels free) is subtracted and each night divided by its median again. When the
+        per-night search finds a box on that residual, the sinusoid is fitted again with the
+        box's window left out (a transit left in the fit pulls the sinusoid towards itself) and
+        the nights are divided again.
+        """
+        bls = self._bls
+        a = _Arrays(t, flux, night, level, c.t, c.night_of)
+        fit = bls._pulsation_trend(a, cadence_s)
+        if fit is None:
+            return None
+        resid = _renormalise_nights(flux - fit[0], night)
+        boxes = self._boxes(t, resid, night, cadence_s)
+        if not boxes:
+            return resid
+        best = max(boxes, key=lambda b: b.snr)
+        fit = bls._pulsation_trend(a, cadence_s, self._event_box(best, cadence_s, len(t)))
+        if fit is None:
+            return None
+        return _renormalise_nights(flux - fit[0], night)
+
+    def _detrended(
+        self,
+        c: _Clean,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        level: np.ndarray,
+        cadence_s: int,
+    ) -> tuple[list[NightBox], np.ndarray] | None:
+        """The star's boxes once its pulsation is subtracted, and that flux; None if there is none.
+
+        The per-night search runs on :meth:`_residual`. The result stands only if the residual
+        passes the pulsation guard: a pulsator this subtraction does not clean, a binary, and a
+        planet whose other events stand out of the residual all fail it, and are left to the
+        eclipse mask.
+        """
+        resid = self._residual(c, t, flux, night, level, cadence_s)
+        if resid is None:
+            return None
+        boxes = self._boxes(t, resid, night, cadence_s)
+        if not boxes or self._pulsating(t, resid, night, boxes, cadence_s):
+            return None
+        return boxes, resid
+
     def _star_boxes(
         self,
         star_id: int,
@@ -479,14 +633,21 @@ class SingleTransitDetector:
         cadence_s: int,
     ) -> tuple[list[NightBox], tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """The star's reportable boxes after the guards, with the arrays they were found in."""
-        t, flux, night, _ = self._bls._prepare(c, common_mode)
+        t, flux, night, level = self._bls._prepare(c, common_mode)
         none: list[NightBox] = []
         if len(t) < self.min_in + self.min_out:
             return none, (t, flux, night)
         boxes = self._boxes(t, flux, night, cadence_s)
         if not boxes:
             return none, (t, flux, night)
-        if self.guards and self._pulsating(t, flux, night, boxes, cadence_s):
+        refused = self.guards and self._pulsating(t, flux, night, boxes, cadence_s)
+        if refused and self.detrend_pulsation:
+            found = self._detrended(c, t, flux, night, level, cadence_s)
+            if found is not None:
+                log.info("single_transit star %s: pulsation subtracted", star_id)
+                boxes, flux = found
+                refused = False
+        if refused:
             cand = self._bls._search(c, common_mode, cadence_s, plan_mask=True)
             if cand is None or cand.rejected != "pulsation guard" or not cand.mask:
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
