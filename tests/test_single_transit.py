@@ -832,3 +832,60 @@ def test_a_box_with_too_little_reference_left_is_refused():
     t, x, night, box = _night_with_box(n=62, lo=20, flare_at=45, flare_len=15)
     assert not det._stands_unflared(t, x, night, box)
     assert SingleTransitDetector(min_out=20)._stands_unflared(t, x, night, box)
+
+
+def _one_night_box(depth, spike_in_box=None, flare=None, n=200, lo=100, w=20, seed=0, noise=0.005):
+    """White noise, a `w`-sample dip of `depth` at lo; optional +0.25 spike in the box, flare run."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) * C
+    x = 1.0 + noise * rng.normal(size=n)
+    x[lo : lo + w] -= depth
+    if spike_in_box is not None:
+        x[lo + spike_in_box[0]] += spike_in_box[1]
+    if flare is not None:
+        x[flare[0] : flare[0] + flare[1]] += 0.3
+    box = st.NightBox(0, int(t[lo]), int(t[lo + w - 1]), 0.05, w, n - w, 0.005, 20.0)
+    return t, x, np.zeros(n, dtype=np.int64), box
+
+
+def test_a_spike_inside_the_box_is_left_out_of_the_box_too():
+    # a 30-sample box: clean S/N 13.4 (25 samples left, the spike and its tail out); with the
+    # spike (+0.25) counted in the box it reads 6.0 and would be refused
+    t, x, night, box = _one_night_box(0.0135, spike_in_box=(10, 0.25), w=30)
+    assert SingleTransitDetector()._stands_unflared(t, x, night, box)
+
+
+def test_the_clip_reads_the_night_of_the_box_only():
+    # night 0 holds the box (clean S/N about 10) and a flare far from it; night 1 is far noisier.
+    # The reference is night 0's own: the noisy night must not enter the box's scatter
+    t, x, night, box = _one_night_box(0.0135, flare=(20, 10))
+    rng = np.random.default_rng(1)
+    x2 = 1.0 + 0.03 * rng.normal(size=len(t))
+    tt = np.concatenate([t, t + 86400])
+    xx = np.concatenate([x, x2])
+    nn = np.concatenate([night, night + 1])
+    assert SingleTransitDetector()._stands_unflared(tt, xx, nn, box)
+
+
+def test_an_unflagged_night_is_not_cut_by_a_stricter_clip():
+    # a pure-noise night with nothing above 4 sigma and a dip at S/N 8.13 (seed 23, depth 0.0095):
+    # it stands. A clip at 2 sigma flags the noise's own upper tail and reads 7.9. Thin by
+    # construction: it pins the scale of the clip, so the seed is part of the test
+    t, x, night, box = _one_night_box(0.0095, seed=23)
+    assert SingleTransitDetector()._stands_unflared(t, x, night, box)
+
+
+def test_a_box_of_exactly_min_in_and_a_reference_of_exactly_min_out_stands():
+    # 54 samples, a 15-sample box (min_in); the clip flags 9 (the 5 of the flare and its tail), so
+    # 30 are left outside (min_out): both limits are met with no sample to spare
+    rng = np.random.default_rng(0)
+    n = 54
+    t = np.arange(n) * C
+    x = 1.0 + 0.002 * rng.normal(size=n)
+    x[30:45] -= 0.05
+    x[2:7] += 0.3
+    box = st.NightBox(0, int(t[30]), int(t[44]), 0.05, 15, 39, 0.002, 30.0)
+    night = np.zeros(n, dtype=np.int64)
+    det = SingleTransitDetector()
+    assert (det.min_in, det.min_out) == (15, 30)
+    assert det._stands_unflared(t, x, night, box)
