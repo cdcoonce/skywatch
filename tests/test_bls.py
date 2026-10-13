@@ -1526,25 +1526,48 @@ def _pin_repeat_snr(monkeypatch, value):
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_a_planet_on_a_pulsating_host_repeats_far_above_the_bar(seed):
     _, cv = pulsator(seed)
-    cand = BlsDetector().search(cv, C)
+    cand = BlsDetector(trend_repeat_snr=5.0).search(cv, C)
     assert cand is not None and cand.trend is not None and len(cand.events) == 4
-    assert cand.snr_repeat > 3 * BlsDetector().trend_repeat_snr
+    assert cand.snr_repeat > 3 * 5.0
     assert cand.snr_repeat < cand.snr_local  # one night fewer can only lower the S/N
 
 
 def test_a_detrended_box_must_repeat(monkeypatch):
     _, cv = pulsator(0)
-    bar = BlsDetector().trend_repeat_snr
-    assert bar == 5.0
-    for value in (math.nan, 0.0, bar - 0.01):
+    gate = BlsDetector(trend_repeat_snr=5.0)
+    for value in (math.nan, 0.0, 4.99):
         _pin_repeat_snr(monkeypatch, value)
-        assert BlsDetector().search(cv, C).rejected == "pulsation guard"
-        assert detect({0: cv}) == []
-    for value in (bar, 50.0):
+        assert gate.search(cv, C).rejected == "pulsation guard"
+        assert detect({0: cv}, trend_repeat_snr=5.0) == []
+    for value in (5.0, 50.0):
         _pin_repeat_snr(monkeypatch, value)
-        cand = BlsDetector().search(cv, C)
+        cand = gate.search(cv, C)
         assert cand.rejected is None and cand.trend is not None
-        assert len(detect({0: cv})) == 4
+        assert len(detect({0: cv}, trend_repeat_snr=5.0)) == 4
+
+
+def test_the_repeat_bar_sits_at_five_whatever_its_literal(monkeypatch):
+    # behaviour, not the literal: a box that repeats at 4.9 is refused and one at 5.1 is kept,
+    # so a bar moved to 4 or to 6.5 (or scaled, or off by one) fails here and nowhere else
+    _, cv = pulsator(0)
+    gate = BlsDetector(trend_repeat_snr=5.0)
+    _pin_repeat_snr(monkeypatch, 4.9)
+    assert gate.search(cv, C).rejected == "pulsation guard"
+    _pin_repeat_snr(monkeypatch, 5.1)
+    assert gate.search(cv, C).rejected is None
+
+
+def test_the_repeat_test_is_off_by_default(monkeypatch):
+    # a box that repeats at 4.9 is refused at the bar of 5 and kept by the default detector
+    _, cv = pulsator(0)
+    assert BlsDetector().trend_repeat_snr is None
+    _pin_repeat_snr(monkeypatch, 4.9)
+    assert BlsDetector(trend_repeat_snr=5.0).search(cv, C).rejected == "pulsation guard"
+    cand = BlsDetector().search(cv, C)
+    assert cand.rejected is None and cand.trend is not None
+    assert len(detect({0: cv})) == 4
+    _pin_repeat_snr(monkeypatch, 0.0)  # even a box that does not repeat at all
+    assert BlsDetector().search(cv, C).rejected is None
 
 
 def test_the_repeat_bar_is_a_parameter_and_none_switches_it_off(monkeypatch):
@@ -1563,10 +1586,11 @@ def test_a_refused_detrended_box_leaves_the_pulsation_rejection_for_the_second_p
     # planned and `single_transit`, which reads the rejection reason, still sees a pulsator
     _, cv = pulsator(0)
     _pin_repeat_snr(monkeypatch, 0.0)
-    cand = BlsDetector().search(cv, C)
+    det = BlsDetector(trend_repeat_snr=5.0)
+    cand = det.search(cv, C)
     assert cand.rejected == "pulsation guard" and cand.trend is None
-    searched = BlsDetector(second_pass=True)._search(
-        BlsDetector()._clean(cv, C), None, C, plan_mask=True
+    searched = BlsDetector(second_pass=True, trend_repeat_snr=5.0)._search(
+        det._clean(cv, C), None, C, plan_mask=True
     )
     assert searched.rejected == "pulsation guard" and searched.mask
 
@@ -1576,9 +1600,9 @@ def test_the_repeat_test_is_for_detrended_stars_only(monkeypatch):
     # `snr_repeat` reads
     _, _, cv = planted(n_nights=10)
     _pin_repeat_snr(monkeypatch, 0.0)
-    cand = BlsDetector().search(cv, C)
+    cand = BlsDetector(trend_repeat_snr=5.0).search(cv, C)
     assert cand.rejected is None and cand.trend is None
-    assert len(detect({0: cv})) == len(cand.events) > 1
+    assert len(detect({0: cv}, trend_repeat_snr=5.0)) == len(cand.events) > 1
 
 
 @pytest.mark.parametrize("seed", [0, 1, 2])
