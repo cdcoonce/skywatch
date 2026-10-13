@@ -309,6 +309,7 @@ of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -323,6 +324,7 @@ from skywatch.detectors.bls import (
     _Clean,
     _renormalise_nights,
     in_box,
+    positive_outliers,
 )
 from skywatch.types import Detection, LightCurve
 
@@ -433,6 +435,7 @@ class SingleTransitDetector:
         mask_pad_h: float = 0.5,
         shape_threshold: float | None = 1.0,
         detrend_pulsation: bool = True,
+        clip_residual: bool = True,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -455,6 +458,7 @@ class SingleTransitDetector:
         self.mask_pad_h = mask_pad_h
         self.shape_threshold = shape_threshold
         self.detrend_pulsation = detrend_pulsation
+        self.clip_residual = clip_residual
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -601,6 +605,35 @@ class SingleTransitDetector:
             return None
         return _renormalise_nights(flux - fit[0], night)
 
+    def _stands_unflared(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, b: NightBox
+    ) -> bool:
+        """False when box `b` falls under the threshold once its night's flares are left out.
+
+        The flares are the positive outliers of ``bls``'s clip (:func:`positive_outliers`)
+        applied to the night of the *residual*, whose scale is the white noise's and not the
+        pulsation's. A night the clip flags nothing in stands as it is. Otherwise the box's S/N is
+        measured again without the flagged samples, with the statistic of :func:`search_night`
+        (the contrast form, ``sigma`` the scatter outside the box) over the box's own samples, and
+        must reach ``snr_threshold``; a box left with fewer than ``min_in`` samples inside or
+        ``min_out`` outside, or with no scatter to measure, is refused.
+        """
+        idx = np.flatnonzero(night == b.night)
+        tk, xk = t[idx], flux[idx]
+        flagged = positive_outliers(xk, self._bls.clip_sigma, self._bls.tail_sigma)
+        if not flagged.any():
+            return True
+        inside = (tk >= b.t_start) & (tk <= b.t_end)
+        box, out = xk[~flagged & inside], xk[~flagged & ~inside]
+        n_in, n_out = len(box), len(out)
+        if n_in < self.min_in or n_out < self.min_out:
+            return False
+        sigma = _MAD_SCALE * float(np.median(np.abs(out - np.median(out))))
+        if not sigma > 0:
+            return False
+        snr = (float(out.mean()) - float(box.mean())) * math.sqrt(n_in * n_out / (n_in + n_out))
+        return snr / sigma >= self.snr_threshold
+
     def _detrended(
         self,
         c: _Clean,
@@ -621,6 +654,8 @@ class SingleTransitDetector:
         if resid is None:
             return None
         boxes = self._boxes(t, resid, night, cadence_s)
+        if boxes and self.clip_residual:
+            boxes = [b for b in boxes if self._stands_unflared(t, resid, night, b)]
         if not boxes or self._pulsating(t, resid, night, boxes, cadence_s):
             return None
         return boxes, resid
