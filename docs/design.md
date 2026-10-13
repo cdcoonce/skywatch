@@ -247,19 +247,28 @@ Planned detectors, in order:
    One sinusoid per star, and a sinusoid slower than the guard band is left to the
    guard. A pulsator with one real transit can borrow a noise dip as the second
    event `min_events` asks for (dev seed 44 star 44; about 1 in 120 such stars on 240
-   synthetic cases, and nothing on `main`). A detrended box must also repeat (issue #44):
-   its S/N over the nights other than its strongest must reach 5. The fast pulsators the
-   issue named (seed 112 star 62 at 20.65 cycles/day, seed 13 star 130 at 15.71) were not
-   subtraction residue: on 5,254 pulsators the power left at the fundamental and at twice it
-   is a median 0.2 of the false-alarm level in every band from 2 to 25 cycles/day, and the
-   three false boxes among the 67 accepted after a subtraction each rest on one short night
-   with a flare (S/N without that night 2.2, 3.6 and 4.4; the 52 planets read 6.1 or more).
-   The test also refuses 11 boxes whose one real transit shared a box with a borrowed dip: on
-   the 174 standard development runs transit true positives 1248 to 1242, pulsations reported
-   as transits 10 to 0, everything else unchanged; on held-out seeds 151-156 (scored once)
-   transit true positives 117 to 116 (a pulsator hosting a planet that transits once, seed
-   154 star 37), pulsations reported as transits 1 to 0, so the held-out criterion "true
-   positives not lower" is missed by one event. The grid, statistic, guard, detrending and
+   synthetic cases, and nothing on `main`). A detrended box can be made to repeat (issue #44, `trend_repeat_snr`,
+   **off by default**): its S/N over the nights other than its strongest must reach 5. The fast
+   pulsators the issue named (seed 112 star 62 at 20.65 cycles/day, seed 13 star 130 at 15.71)
+   were not subtraction residue: on 5,254 pulsators the power left at the fundamental and at
+   twice it is a median 0.2 of the false-alarm level in every band from 2 to 25 cycles/day, and
+   the three false boxes among the 67 development and design boxes accepted after a subtraction
+   each rest on one short night with a flare (S/N without that night 2.2, 3.6 and 4.4; the 52
+   planets among them read 6.1 or more, a development-only gap). With the test on, it also
+   refuses 11 boxes whose one real transit shared a box with a borrowed dip: on the 174
+   standard development runs transit true positives 1248 to 1242, pulsations reported as
+   transits 10 to 0; on held-out seeds 151-156 (scored once) 117 to 116 (a pulsator hosting a
+   planet that transits once, seed 154 star 37) and 1 to 0.
+   It ships off because the review of PR #50 found two things the development data hid.
+   First, the transits it costs are lost to the system: the union of `bls` and `single_transit`
+   loses transit true positives 151 to 140 on the 11 development and design runs where it fires,
+   125 to 124 held-out, 176 to 175 and 100 to 95 on never-seen seeds (380-391, 392-395), for
+   pulsations reported as transits 25 to 3, 1 to 0, 1 to 0 and 11 to 7: 28 false detections for
+   18 real transits, and `single_transit` finds 0 of the 18 because it cannot see a pulsating host
+   (issue #51). Second, the bar's gap did not hold unseen: a real two-transit planet read 3.57
+   (refused), a false box 5.50 and a mixed one 5.73 (both kept); seed 21 star 85, a planet PR #38
+   recovered, sits 1.9 above the bar. The default is flipped after #51, on seeds nobody has read.
+   The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
 
    The last gate is a shape test (issue #36). `main` reported 40 eclipse detections as
@@ -355,7 +364,7 @@ Planned detectors, in order:
    claims, not in a gap of it (11 claims at 7.0 to 7.19 rejected, 7 at 7.2 to 7.4 survive; pf-seed44
    meets the rule because star 126 reads 7.195), so flare stars are not solved by a bar (issue #43,
    next paragraph; the fast pulsators of issue #44 were one short night with a flare, refused by the
-   repeat test of a detrended box, above). Development, `main` to the branch (33 runs):
+   repeat test of a detrended box when it is on, above). Development, `main` to the branch (33 runs):
    transit true positives 271 to 271, false positives 74 to 58, eclipses reported as transits 8 to
    8, pulsations reported as transits 81 to 3 (29 to 0 on seeds 61-66), planet-free 20-night runs
    0, 4, 2, 10 to 0, 4, 2, 0. Held-out, scored once (seeds 71-76): transit true positives 33 to 33,

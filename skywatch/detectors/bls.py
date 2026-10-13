@@ -152,8 +152,8 @@ gates, chosen on those runs and nothing else:
   1.39 d, 5.6 h, 6 events) and 0.57 or less for every other. The eighth pulsator (seed 13 star 130)
   came through the detrending and is not a pulsation effect: its box holds 9 samples with a 9.9
   percent depth in two windows of 10 and 8 minutes, beside a cosmic ray and just before a flare
-  onset; it was left then (2 pulsation-labelled detections) and is refused by the repeat test of
-  a detrended box (issue #44, see Repeat test below).
+  onset; it was left then (2 pulsation-labelled detections) and is refused when the repeat test of
+  a detrended box is switched on (issue #44, off by default, see Repeat test below).
 * **Flare stars.** Flare tails are red noise that ``sigma`` (the MAD) does not contain: the claims
   on flare stars have a local S/N of 7.0 to 19.5 (median 7.7) with boxes of 2 to 6 hours, and on
   seed 44 star 199 (7 events, P 1.512 d) every event touches the start or the end of its night and
@@ -572,11 +572,17 @@ a planet on a pulsating star whose box reaches S/N 7-9; a pulsator with one real
 a noise dip as the second event that ``min_events`` asks for, so the candidate has one true and
 one spurious event (dev seed 44 star 44: P 5.562 d, S/N 13.3, a bounded transit and a touched noise
 dip; about 1 in 120 such stars on 240 synthetic pulsators with one 3 h transit, never a detection
-without the real transit; on ``main`` these stars give nothing). The repeat test below refuses such
-a box, and with it the real event.
+without the real transit; on ``main`` these stars give nothing). The repeat test below, when switched on,
+refuses such a box, and with it the real event.
 
-Repeat test of a detrended box
-------------------------------
+Repeat test of a detrended box (off by default)
+-----------------------------------------------
+The test ships **off**: ``trend_repeat_snr`` is ``None`` and the detector is byte-identical to
+before it. It is kept as a parameter (``trend_repeat_snr=5.0`` switches it on), with the audit
+script, because it removes false claims and costs real transits that nothing else finds, and its bar
+of 5 did not hold on seeds nobody had read (see "Why it is off"). Issue #51 tracks ``single_transit``
+on pulsating hosts; the default is flipped after it, not before.
+
 Issue #44 asked why the last pulsators reported as transits are fast ones (seed 112 star 62 at 20.65
 cycles/day, seed 13 star 130 at 15.71), and suggested that the one-sinusoid detrend leaves a harmonic,
 an amplitude change or a second mode that a short box can sit on. Measured on 5,254 pulsators (the
@@ -604,27 +610,30 @@ no planet), that is not what happens:
   In the three false boxes that night is a short one with a flare in or beside the event: seed 112 star
   62 night 16 has 110 samples and the quiet 3,000 s before the flare sit 3.0 percent under the night's
   level (64 of the 87 box samples); seed 13 star 130 night 17 has 40 samples, 28 of them in an unclipped
-  flare of roughly 35 percent that sets the level the 12 quiet samples are 10 percent under;
+  flare of roughly 35 percent that sets the level the 12 quiet samples are 7 percent under (the night's
+  median; the box depth of 9.9 percent is against the out-of-box mean, which the flare lifts);
   puls-pf-seed371 star 68 night 20 has 255 samples and a flare within an hour. The other event is one
   sample (2.2 sigma), 23 samples at 0.8 percent (3.6 sigma) and six nights at 0.4 to 2.9 sigma. In the
   mixed boxes the strong night is a real transit.
 
-The test (:func:`repeat_snr`, ``Candidate.snr_repeat``, ``trend_repeat_snr`` = 5, ``None`` switches it
-off): the local S/N of the box over every night but its strongest (the one with the largest
+The test (:func:`repeat_snr`, ``Candidate.snr_repeat``, ``trend_repeat_snr`` = 5 when on, ``None``, the
+default, is off): the local S/N of the box over every night but its strongest (the one with the largest
 ``depth_k * sqrt(weight_k)`` of :func:`night_contrasts`; the rest combined as ``snr_local`` combines
 all), which for two event nights is the weaker night's S/N. A detrended candidate must reach it, in
 addition to every other gate and ``trend_snr_threshold``: a detrended star is a second look, the
 two events ``min_events`` asks for were satisfied by one real or flare-made night plus the best noise
-dip the period search could borrow, and the test makes "the dip repeats" a measured thing. It reads 2.2,
-3.6 and 4.4 on the three false boxes and 2.2 to 4.0 on 11 of the 12 mixed ones (the twelfth, 7.3, has two
-of four events on a planet and stays); the lowest of the 53 boxes it keeps is 6.12 (seed 13 star 57; then
-6.43, 6.76, 6.78 and 6.94 for seed 21 star 85, one of the planets PR #38 recovered). The bar of 5 is the
-round number in the gap 4.41 to 6.12, not a fitted optimum, and the gap is a fact of these 67 boxes. Only
+dip the period search could borrow, and the test makes "the dip repeats" a measured thing. On the
+development and design data it read 2.2, 3.6 and 4.4 on the three false boxes and 2.2 to 4.0 on 11 of
+the 12 mixed ones (the twelfth, 7.3, has two of four events on a planet and stays); the 52 planets of
+those 67 boxes read 6.1 or more and the lowest of the 53 boxes it kept there was 6.12 (seed 13 star 57;
+then 6.43, 6.76, 6.78 and 6.94 for seed 21 star 85, one of the planets PR #38 recovered, which sits
+1.9 above the bar). The bar of 5 is the round number in the gap 4.41 to 6.12, not a fitted optimum, and
+**the gap is a fact of those 67 boxes only: it did not hold on never-seen seeds** (below). Only
 the detrended search is tested: a star that was not rejected by the pulsation guard is reported as
 before, and a refused box leaves the star with its original ``"pulsation guard"`` candidate, which is what
 ``single_transit`` reads.
 
-Measured, ``main`` to the branch (the bar was fixed on the development runs and the design runs;
+Measured with ``trend_repeat_snr=5.0``, ``main`` to the branch (the bar was fixed on the development runs and the design runs;
 the held-out seeds 151-156 were simulated and scored once afterwards). Development, the 174
 standard runs (seeds 7 and 42 at 3 and 20 nights, 11-14, 21-26, 31-50, 61-66, 71-76, 91-100, 111-114,
 131-136, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311 and 320-331, and the planet-free
@@ -644,11 +653,41 @@ transits 5 to 5, detections 133 to 131; five of six runs are identical and the s
 37 (a pulsator, 3.06 cycles/day, with a planet of 17.5 d that transits once in the record): a box of
 S/N 13.0 whose strong night is the transit (S/N 10.5) and whose other event is the last 12 minutes of a
 night at S/N 2.3; the true event is lost with it. **The held-out criterion "transit true positives not
-lower" is not met, by that one event.** The three planets of seeds 21 star 85, 22 star 6 and 24 star 37
+lower" is not met, by that one event** (a reason, with the above, for leaving it off). The three planets of seeds 21 star 85, 22 star 6 and 24 star 37
 are found as before (2 events bounded; 9 bounded and 1 touched of 10; 3 bounded). ``single_transit``
 reports the same detections, span for span and score for score, on the 45 development runs that
 contain an accepted detrended box and the 6 held-out runs. The cost of the test is one reduction over
 the nights of each candidate.
+
+Why it is off (the review of PR #50, measured on `main` and the branch with the scorer's own matcher,
+`bls` and `single_transit` both re-detected). Two findings, neither visible on the development data.
+
+* **The transits it costs are lost to the system.** The union of what `bls` and `single_transit`
+  bound or touch, `main` to the branch, transit true positives: 151 to 140 on the 11 development and
+  design runs where the gate fires, 125 to 124 on the held-out seeds 151-156, 176 to 175 on the
+  never-seen 380-391 and 100 to 95 on the never-seen all-sinusoidal 392-395; the 32 other runs that hold
+  an accepted detrended box do not move. Pulsations reported as transits (the same union) fall 25 to 3,
+  1 to 0, 1 to 0 and 11 to 7. In all, 28 false detections are removed for 18 real transits lost, and
+  `single_transit` finds 0 of the 18: all 17 host stars are sinusoidal pulsators, and its guard (a)
+  refuses a pulsating host (on `main` the accepted detrended candidate makes guard (b) "not searched"; on
+  the branch the restored ``"pulsation guard"`` candidate masks the window that holds the refused box's
+  own events, the real transit among them, and nothing is left). So "a single real transit paired with a
+  noise dip is `single_transit`'s job" is false exactly where it matters: `single_transit` does not run on
+  a pulsating host (issue #51; subtracting the sinusoid first and searching the nights returned 17 of the
+  18 labels in a prototype, with the false-alarm cost on pulsators without planets not measured).
+* **The bar's gap did not generalise.** On the never-seen seeds a real two-transit planet reads 3.57
+  (puls393 star 162, refused), a false box with four events on no planet reads 5.50 (puls393 star 73,
+  kept, four pulsation detections) and a box with one of its three events on a planet reads 5.73 (puls395
+  star 139, kept). Over the 95 boxes accepted after a subtraction that could be graded (from 43 development
+  runs, seed 154 and the 16 never-seen runs), the boxes whose events are all on a planet read 3.57 to 80.9
+  (72 boxes, 1 under 5), those with some read 2.18 to 50.7 (19, 16 under 5) and the false ones 2.17 to
+  5.50 (4, 3 under 5). "The 52 planets read 6.1 or more", "the lowest of the 53 boxes it keeps is 6.12"
+  and "the gap is a fact of these 67 boxes" are statements about the development and design boxes. A
+  bar of 6 would refuse all four wrong boxes and the 3.57 planet and keep two mixed ones, but fitting it
+  needs seeds nobody has read (396 and up).
+
+The default is flipped in a later change, after `single_transit` sees a pulsating host, on seeds that
+are still unread. Until then the detector is as before.
 
 ``scripts/bls_detrend_audit.py`` prints, for every sinusoidal star a run sends through the detrending,
 the fit, the power left, the box and its repeat S/N (``--simulate`` writes the all-sinusoidal design runs
@@ -760,8 +799,9 @@ Limits
 * Fast pulsators (15 to 20 cycles/day) were reported as transits twice on the development runs
   (seed 13 star 130; seed 112 star 62). The subtraction was clean (the power left at the fundamental and
   twice it is 0.1 to 0.4 of the false-alarm level); the box rested on one short night with a flare, and
-  is refused by the repeat test above (issue #44). A pulsator with one real transit and a noise dip
-  borrowed as the second event is refused too, and loses the real event.
+  is refused when the repeat test above is switched on (issue #44; it is off by default). A pulsator
+  with one real transit and a noise dip borrowed as the second event is refused too, and loses the real
+  event.
 """
 
 from __future__ import annotations
@@ -1943,10 +1983,10 @@ class BlsDetector:
            first time. Only the second fit is used for the answer when there is one.
 
         The result must pass every gate (``snr`` and ``snr_local`` at ``trend_snr_threshold``,
-        a second look at a star whose first look failed) and must repeat: its S/N over the nights
-        other than its strongest (:func:`repeat_snr`) reaches ``trend_repeat_snr``. None when no
-        sinusoid stands out or the result is rejected, and the caller keeps the original
-        candidate then.
+        a second look at a star whose first look failed) and, when ``trend_repeat_snr`` is set (it is
+        off by default), must repeat: its S/N over the nights other than its strongest
+        (:func:`repeat_snr`) reaches ``trend_repeat_snr``. None when no sinusoid stands out or the
+        result is rejected, and the caller keeps the original candidate then.
         """
         fit = self._pulsation_trend(a, cadence_s)
         if fit is None:
