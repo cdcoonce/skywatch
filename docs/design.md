@@ -268,6 +268,26 @@ Planned detectors, in order:
    (issue #51). Second, the bar's gap did not hold unseen: a real two-transit planet read 3.57
    (refused), a false box 5.50 and a mixed one 5.73 (both kept); seed 21 star 85, a planet PR #38
    recovered, sits 1.9 above the bar. The default is flipped after #51, on seeds nobody has read.
+
+   The common mode of a field of pulsators (issue #57). `bls` divides every star by the per-time
+   median over the stars, and the median of a field of pulsators is a smooth wobble that the
+   division writes into every star: on quiet nights its 2 hour block scatter is 0.034 percent on the
+   all-sinusoidal runs 830 and 831 against 0.021 to 0.022 percent on standard runs. That wobble, not
+   the repeat test's one-night or borrowed-dip case, is what made 10 pulsation->transit claims
+   (twice the planet-free rule) on puls-pf-seed830: star 133's 8-event box survives subtracting the
+   injected sinusoid, reads 7.59 in the repeat test (which is off) and shows in the other 179 stars
+   of the run as a median local S/N of 1.22 where the same box at four other epochs reads -0.18 to
+   0.63. When more than half the stars carry a significant sinusoid (`common_mode_pulsators` = 0.5;
+   standard runs 0.115 to 0.28, all-sinusoidal 0.875 to 0.98) the median is taken a second time over the
+   stars with their own sinusoid subtracted; below that, and for `single_transit`, it is the plain
+   one. Development (100 runs), `main` to the branch, `bls` alone: all-sinusoidal planet-free
+   detections 21 to 8 (seeds 830 and 811 go, 371 keeps 4 of 7, two small boxes appear), on the 28
+   all-sinusoidal runs with planets planets 186 to 199, transit labels bounded 724 to 781, pulsation->
+   transit 55 to 46; standard runs identical. Held-out, scored once (460-473): planet-free detections
+   0, 0, 14, 0 to 0, 0, 2, 0, all-sinusoidal with planets planets 34 to 37, transit labels bounded 120 to
+   130, standard identical. The first variant took the second median in every field and raised
+   standard-field fp on 460-465 from 3 to 10 (two borderline flare-star boxes), having lowered it on
+   the development runs 66 to 56: a standard field's effect is of either sign, so it is left as it was.
    The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
 
@@ -594,6 +614,15 @@ Planned detectors, in order:
    have kept it. Never-seen seeds 500-513 (14 runs, checked in the review): union planets 62 to
    62, pulsation->transit 11 to 8, fp 3 to 3; `single_transit` pulsation->transit 5 to 2,
    detections 47 to 44. `bls` is unchanged (`cmp` on four runs).
+
+   Short nights (issue #57). A night with fewer than two hours of samples (`min_night_h` = 2) is not
+   searched: a dropout splits an 8 h night, and a hot pixel (up to an hour in the world) can cover
+   most of the fragment, so the plateau is the median and the unaffected stretch reads as a 35 to 66
+   percent dip that no clip sees (seed 712 star 75, seed 375 star 80, seed 376 star 37). On the 100
+   development runs 89 of 2,122 nights are that short, `main` made 10 detections on them and none was a
+   transit; detections 316 to 305, fp 1 to 1, pulsation->transit 5 to 1, no transit label lost.
+   Held-out (460-473, scored once): detections 49 to 44, transit labels bounded 42 to 41 (puls-seed466
+   star 14), fp 1 to 0, pulsation->transit 2 to 0.
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.

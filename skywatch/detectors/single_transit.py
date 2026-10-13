@@ -356,6 +356,34 @@ Limits
   held-out seed25 star 121 (a constant host, true stacked S/N 15.2) has 56 observed samples on
   its night, 44 inside the label, so no box has ``n_out >= 30`` and the dip is missed.
 
+Short nights
+------------
+A night is searched only if it holds at least ``min_night_h`` (2) hours of samples (120 at 60 s) after
+the clip; ``0`` switches the bar off. A dropout or a flagged span splits an 8 h night, and a hot pixel
+(flux stuck at 1.5 to 4 times the star for 5 to 60 minutes in the world) can then cover most of what is
+left: the plateau is the night's median and the unaffected stretch reads as a 35 to 66 percent dip, with
+nothing above the level for any clip to see (issue #57; seed 712 star 75, S/N 182.9 on a 96-sample night,
+seed 375 star 80 on 53 samples, seed 376 star 37 on 67). The bar is twice the longest hot pixel. Measured
+on the 100 development runs (48 standard with planets, 28 all-sinusoidal with planets, 24 all-sinusoidal
+planet-free; 200 stars, 20 nights): 89 of the 2,122 nights (counted on the first star of each run) hold
+fewer than 120 samples, and `main` made 10 detections on such nights, none of them a transit (5 hot-pixel
+plateaus, 3 plateaus on pulsators, 2 dropouts); the 7 detections on nights of 120 to 239 samples (1
+transit, 3 flares, 2 dropouts, 1 cloud) are not touched. The deepest planet of the world is 3 percent, but
+5 detections matched to transit labels also read 12 to 37 percent, so a bar on depth would have cost
+labels where this costs none measured on those nights.
+
+`main` to the branch (``single_transit`` alone). Development: detections 316 to 305, transit labels
+bounded or touched 279 to 279, fp 1 to 1, pulsation->transit 5 to 1, eclipse->transit 9 to 9; 12
+detections removed (10 on nights under 120 samples, as above) and one added (seed800 star 73, S/N 8.3).
+Held-out, scored once (460-465 standard, 466-469 all-sinusoidal with planets, 470-473 planet-free):
+detections 49 to 44, transit labels bounded 42 to 41 (puls-seed466 star 14, S/N 8.7), fp 1 to 0,
+pulsation->transit 2 to 0, eclipse->transit 4 to 3. The bar also acts inside the searches that follow a
+guard rejection (the pulsation subtracted, the eclipse windows masked), where the mask can leave a
+fragment: 2 of the 12 removals on the development runs (seed601 star 64, an eclipse; puls-pf-seed510
+star 54, a pulsation) and 2 of the 5 held-out (puls-seed466 star 14, the transit label lost; seed460 star
+51, an eclipse) are on nights of 387 to 480 samples, on stars the guard rejected, whose boxes before the
+guard are the same with and without the bar.
+
 Coupling with ``bls``
 ---------------------
 Guard (b) tests ``cand.rejected != "pulsation guard"``: a star whose periodic search is not
@@ -387,7 +415,10 @@ and 20 nights, 11, 12, 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 4
 and 104).
 The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
-of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it.
+of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it. It calls ``_common_mode`` without a
+cadence, so it keeps the plain median of the stars: the median over pulsation-free stars that ``bls``
+takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here, and
+its effect on this detector was not measured.
 """
 
 from __future__ import annotations
