@@ -53,14 +53,14 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 700-711 | 20 | planets | development | review of PR #53 (never-seen check of `single_transit` on pulsating hosts, standard field; also `bls` with `trend_repeat_snr=5.0` for the #50 gate question); used |
 | 712-715 | 20 | planets | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers); used |
 | 720-723 | 20 | planet-free | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0, `scripts/bls_detrend_audit.py --simulate`); used |
-| 800-805 | 20 | planets | **held-out, reserved for the #44 flip PR** (standard field) | not yet scored |
-| 806-809 | 20 | planets | **held-out, reserved for the #44 flip PR** (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`) | not yet scored |
-| 810-813 | 20 | planet-free | **held-out, reserved for the #44 flip PR** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+| 800-805 | 20 | planets | development | held-out for the #44 flip (`trend_repeat_snr` default 5.0; standard field), scored once, `main` against the branch, `bls` and `single_transit` (union transit labels bounded or touched 39 to 39 of 315, fp 11 to 11, pulsation->transit 0 to 0, detections 65 to 65: nothing changes); used |
+| 806-809 | 20 | planets | development | held-out for the #44 flip (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers), scored once (union transit labels bounded or touched 93 to 91 of 733, pulsation->transit 13 to 6, fp 0 to 0, detections 120 to 105; the two labels lost are one planet, seed 809 star 185); used |
+| 810-813 | 20 | planet-free | development | held-out for the #44 flip (every star sinusoidal, `planet_rate` 0, `scripts/bls_detrend_audit.py --simulate`), scored once (union detections 0, 5, 0, 1 to 0, 1, 0, 1; `bls` 4 to 0, `single_transit` 2 to 2); used |
 | 820-825 | 20 | planets | **held-out, reserved for #54** (standard field) | not yet scored |
 | 826-829 | 20 | planets | **held-out, reserved for #54** (every star sinusoidal, `planet_rate` 0.5) | not yet scored |
 | 830-833 | 20 | planet-free | **held-out, reserved for #54** (every star sinusoidal, `planet_rate` 0) | not yet scored |
 
-Next unused range: 450-599 (free), and 840 and up. (440-449 are #52's design seeds, planets 440-445 and planet-free 446-449; #51 used none of them; 600-623 and 700-723 are review seeds; 800-833 are reserved above.)
+Next unused range: 450-599 (free), and 840 and up. (440-449 are #52's design seeds, planets 440-445 and planet-free 446-449; #51 used none of them; 600-623 and 700-723 are review seeds; 800-813 were the held-out seeds of the #44 flip, used; 820-833 are reserved above for #54.)
 
 Also read for #48 (every flare-sized masked run of `bls`, 23,338 of them on 10,000 stars, with the truth under it, to read the shape of a flare, a hot pixel and a cosmic ray and to set the decay-time band and the residual bar; `scripts/bls_flare_run_audit.py`): seeds 7, 42, 21-26, 31-40, 61-66 and 71-76 with planets and planet-free 41-44, 51-58, 81-84 and 101-104 (all 20 nights, 200 stars). `main` against the branch was scored on all of these but 31-40 (40 runs), and on 12, 261, 440-445 and planet-free 446-449.
 

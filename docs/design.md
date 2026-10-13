@@ -248,7 +248,7 @@ Planned detectors, in order:
    guard. A pulsator with one real transit can borrow a noise dip as the second
    event `min_events` asks for (dev seed 44 star 44; about 1 in 120 such stars on 240
    synthetic cases, and nothing on `main`). A detrended box can be made to repeat (issue #44, `trend_repeat_snr`,
-   **off by default**): its S/N over the nights other than its strongest must reach 5. The fast
+   **on by default**, `None` switches it off): its S/N over the nights other than its strongest must reach 5. The fast
    pulsators the issue named (seed 112 star 62 at 20.65 cycles/day, seed 13 star 130 at 15.71)
    were not subtraction residue: on 5,254 pulsators the power left at the fundamental and at
    twice it is a median 0.2 of the false-alarm level in every band from 2 to 25 cycles/day, and
@@ -259,7 +259,7 @@ Planned detectors, in order:
    standard development runs transit true positives 1248 to 1242, pulsations reported as
    transits 10 to 0; on held-out seeds 151-156 (scored once) 117 to 116 (a pulsator hosting a
    planet that transits once, seed 154 star 37) and 1 to 0.
-   It ships off because the review of PR #50 found two things the development data hid.
+   It merged off (PR #50) because the review of PR #50 found two things the development data hid.
    First, the transits it costs are lost to the system: the union of `bls` and `single_transit`
    loses transit true positives 151 to 140 on the 11 development and design runs where it fires,
    125 to 124 held-out, 176 to 175 and 100 to 95 on never-seen seeds (380-391, 392-395), for
@@ -267,7 +267,19 @@ Planned detectors, in order:
    18 real transits, and `single_transit` finds 0 of the 18 because it cannot see a pulsating host
    (issue #51). Second, the bar's gap did not hold unseen: a real two-transit planet read 3.57
    (refused), a false box 5.50 and a mixed one 5.73 (both kept); seed 21 star 85, a planet PR #38
-   recovered, sits 1.9 above the bar. The default is flipped after #51, on seeds nobody has read.
+   recovered, sits 1.9 above the bar. With `single_transit` seeing pulsating hosts (PR #53, issue
+   #51) the default was switched on in a change of its own, on seeds reserved for it (800-813,
+   scored once, `main` against the branch, both detectors; the rule was fixed in advance: in the
+   union pulsation->transit falls, fp does not rise, transit labels bounded or touched fall by at
+   most 1 percent, planet-free pulsator runs stay within 5 detections). Union over the 14 runs:
+   transit labels bounded or touched 132 to 130, pulsation->transit 17 to 8 (0 to 0 on the
+   standard field 800-805, 13 to 6 on the all-sinusoidal planet runs 806-809, 4 to 2 planet-free
+   810-813), fp 11 to 11, detections 191 to 172; planet-free runs at most 5 detections before
+   and 1 after. **The label bar is missed by one label (2 of 132, 1.5 percent against 1):** both
+   are the two events of one planet, seed 809 star 185 (5.714 d, repeat S/N 4.44; its host
+   residual still fails `single_transit`'s guard (a), so neither detector bounds it once `bls`
+   refuses the box). `single_transit` keeps its own `BlsDetector` with the test off and its
+   output is byte-identical on all 14 runs.
    The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
 
@@ -562,14 +574,13 @@ Planned detectors, in order:
    The acceptance bar "pulsation->transit not higher" is missed on both fresh sets (6 to 8
    held-out, 7 to 11 never-seen); the detector ships on by default on the owner's decision,
    because the cost is one fixable class (follow-up issue #54, a flare-adjacent gate on the
-   detrended path) and the gain is real finds. The next step after that is the follow-up PR that
-   flips PR #50's `trend_repeat_snr` default, measured on its own seeds. PR #50's gate, measured
+   detrended path) and the gain is real finds. PR #50's gate, measured
    in the review beside this detector (`bls` with `trend_repeat_snr=5.0`, 14 held-out runs
    420-433 and never-seen 700-715; 30 runs): the union of `bls` and `single_transit` goes from
    405 to 404 transit labels bounded (414 to 412 bounded or touched), pulsation->transit 19 to 10,
    detections 544 to 522, fp 23 to 23; 2 of 414 transit labels are lost (puls-seed715
    `transit-n2-s28-0`, puls-seed428 `transit-n7-s156-0`, both found only by `bls` with the gate
-   off), not zero. That is the basis for the flip PR. The statistic, threshold, guards and limits
+   off), not zero. That was the basis for the flip PR (the held-out numbers are above). The statistic, threshold, guards and limits
    are in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
