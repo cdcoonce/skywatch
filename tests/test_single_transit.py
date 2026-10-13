@@ -85,6 +85,7 @@ def test_defaults_are_the_documented_ones():
     assert (d.contrast, d.guards, d.mask_pad_h) == (True, True, 0.5)
     assert d.shape_threshold == 1.0
     assert d.detrend_pulsation is True
+    assert d.clip_residual is True
 
 
 def test_empty_and_tiny_curves():
@@ -743,3 +744,148 @@ def test_a_dip_that_pulls_a_fast_sinusoid_is_still_found_after_the_refit():
     _t, cv = pulsating_host(0, dip=(4, 1.0, 4.0, 0.012), period_d=0.4)
     out = detect({0: cv})
     assert len(out) == 1 and out[0].kind_guess == "transit"
+
+
+# -- flares on a pulsator's residual (issue #54) -----------------------------------------
+
+
+def flared_host(seed=0, flare=(8, 4.0, 0.03, 60.0), dip=None, amp=0.015, period_d=0.9):
+    """A pulsator with an exponential flare (night, start h, amplitude, decay minutes)."""
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    prof = 1.0 + amp * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
+    if dip is not None:
+        prof = prof * dip_profile(t, *dip)
+    night, start_h, height, decay_min = flare
+    dt = t - (night * DAY + start_h * HOUR)
+    prof = prof + np.where(dt >= 0, height * np.exp(-np.clip(dt, 0, None) / (decay_min * 60.0)), 0)
+    return t, curve(0, t, prof, 0.005, rng)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_flare_the_pulsation_hid_from_the_first_clip_is_not_a_transit(seed):
+    # a 3 percent flare with a 1 h decay on a 1.5 percent pulsator is under the first clip's bar
+    # (the pulsation inflates its scale); once the sinusoid is subtracted the night holds a box
+    # round it. Without the second clip that box is reported (S/N 9 to 12), with it the box
+    # does not reach the bar once the flare is left out (about 4 to 6)
+    _t, cv = flared_host(seed)
+    off = detect({0: cv}, clip_residual=False)
+    assert len(off) == 1 and off[0].score >= 8.0 and off[0].t_start // DAY == 8
+    assert detect({0: cv}) == []
+
+
+def test_the_bar_of_the_second_clip_is_the_detectors_threshold():
+    _t, cv = flared_host(0)
+    assert detect({0: cv}) == []
+    kept = detect({0: cv}, snr_threshold=4.0)
+    assert len(kept) == 1 and kept[0].t_start // DAY == 8
+    assert (
+        kept[0].score == detect({0: cv}, clip_residual=False)[0].score
+    )  # the score is not changed
+
+
+@pytest.mark.parametrize("night", [8, 4])
+def test_a_short_flare_beside_a_real_dip_does_not_remove_it(night):
+    # a 3 percent, 10 minute flare is flagged by the second clip but leaves no box: the transit
+    # stays, with the score it has without the gate, on the flare's night and on another
+    _t, cv = flared_host(0, flare=(8, 6.5, 0.03, 10.0), dip=(night, 0.2, 3.0, 0.012))
+    out = detect({0: cv})
+    assert len(out) == 1 and out[0].t_start // DAY == night and out[0].score > 20
+    assert out == detect({0: cv}, clip_residual=False)
+
+
+def test_the_second_clip_runs_only_on_the_detrended_path(monkeypatch):
+    # a quiet star (guard (a) accepts it) never reaches the detrend, so the gate is not asked
+    def refuse(self, *a, **k):
+        raise AssertionError("the second clip ran on a star that was not detrended")
+
+    monkeypatch.setattr(SingleTransitDetector, "_stands_unflared", refuse)
+    _t, cv = one_dip()
+    assert len(detect({0: cv})) == 1
+
+
+def _night_with_box(n=200, lo=100, flare_at=None, flare_len=10):
+    """`n` samples of white noise with a 20-sample, 5 percent dip at lo:lo+20; optional flare."""
+    rng = np.random.default_rng(0)
+    t = np.arange(n) * C
+    x = 1.0 + 0.005 * rng.normal(size=n)
+    x[lo : lo + 20] -= 0.05
+    if flare_at is not None:
+        x[flare_at : flare_at + flare_len] += 0.3
+    box = st.NightBox(0, int(t[lo]), int(t[lo + 19]), 0.05, 20, n - 20, 0.005, 20.0)
+    return t, x, np.zeros(n, dtype=np.int64), box
+
+
+def test_a_box_the_second_clip_leaves_too_little_of_is_refused():
+    det = SingleTransitDetector()
+    t, x, night, box = _night_with_box()
+    assert det._stands_unflared(t, x, night, box)  # nothing flagged: unchanged
+    t, x, night, box = _night_with_box(flare_at=20)
+    assert det._stands_unflared(t, x, night, box)  # a flare far from the box: it stands
+    t, x, night, box = _night_with_box(flare_at=105)
+    assert not det._stands_unflared(t, x, night, box)  # 10 of its 20 samples are the flare
+
+
+def test_a_box_with_too_little_reference_left_is_refused():
+    # 62 samples: the box holds 20, the reference 42; the 15-sample flare and its tail take it to 23 (min_out 30)
+    det = SingleTransitDetector()
+    t, x, night, box = _night_with_box(n=62, lo=20, flare_at=45, flare_len=15)
+    assert not det._stands_unflared(t, x, night, box)
+    assert SingleTransitDetector(min_out=20)._stands_unflared(t, x, night, box)
+
+
+def _one_night_box(depth, spike_in_box=None, flare=None, n=200, lo=100, w=20, seed=0, noise=0.005):
+    """White noise, a `w`-sample dip of `depth` at lo; optional +0.25 spike in the box, flare run."""
+    rng = np.random.default_rng(seed)
+    t = np.arange(n) * C
+    x = 1.0 + noise * rng.normal(size=n)
+    x[lo : lo + w] -= depth
+    if spike_in_box is not None:
+        x[lo + spike_in_box[0]] += spike_in_box[1]
+    if flare is not None:
+        x[flare[0] : flare[0] + flare[1]] += 0.3
+    box = st.NightBox(0, int(t[lo]), int(t[lo + w - 1]), 0.05, w, n - w, 0.005, 20.0)
+    return t, x, np.zeros(n, dtype=np.int64), box
+
+
+def test_a_spike_inside_the_box_is_left_out_of_the_box_too():
+    # a 30-sample box: clean S/N 13.4 (25 samples left, the spike and its tail out); with the
+    # spike (+0.25) counted in the box it reads 6.0 and would be refused
+    t, x, night, box = _one_night_box(0.0135, spike_in_box=(10, 0.25), w=30)
+    assert SingleTransitDetector()._stands_unflared(t, x, night, box)
+
+
+def test_the_clip_reads_the_night_of_the_box_only():
+    # night 0 holds the box (clean S/N about 10) and a flare far from it; night 1 is far noisier.
+    # The reference is night 0's own: the noisy night must not enter the box's scatter
+    t, x, night, box = _one_night_box(0.0135, flare=(20, 10))
+    rng = np.random.default_rng(1)
+    x2 = 1.0 + 0.03 * rng.normal(size=len(t))
+    tt = np.concatenate([t, t + 86400])
+    xx = np.concatenate([x, x2])
+    nn = np.concatenate([night, night + 1])
+    assert SingleTransitDetector()._stands_unflared(tt, xx, nn, box)
+
+
+def test_an_unflagged_night_is_not_cut_by_a_stricter_clip():
+    # a pure-noise night with nothing above 4 sigma and a dip at S/N 8.13 (seed 23, depth 0.0095):
+    # it stands. A clip at 2 sigma flags the noise's own upper tail and reads 7.9. Thin by
+    # construction: it pins the scale of the clip, so the seed is part of the test
+    t, x, night, box = _one_night_box(0.0095, seed=23)
+    assert SingleTransitDetector()._stands_unflared(t, x, night, box)
+
+
+def test_a_box_of_exactly_min_in_and_a_reference_of_exactly_min_out_stands():
+    # 54 samples, a 15-sample box (min_in); the clip flags 9 (the 5 of the flare and its tail), so
+    # 30 are left outside (min_out): both limits are met with no sample to spare
+    rng = np.random.default_rng(0)
+    n = 54
+    t = np.arange(n) * C
+    x = 1.0 + 0.002 * rng.normal(size=n)
+    x[30:45] -= 0.05
+    x[2:7] += 0.3
+    box = st.NightBox(0, int(t[30]), int(t[44]), 0.05, 15, 39, 0.002, 30.0)
+    night = np.zeros(n, dtype=np.int64)
+    det = SingleTransitDetector()
+    assert (det.min_in, det.min_out) == (15, 30)
+    assert det._stands_unflared(t, x, night, box)

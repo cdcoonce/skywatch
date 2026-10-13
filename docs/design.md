@@ -561,16 +561,41 @@ Planned detectors, in order:
    pulsator guard (a) used to refuse the whole star, so such a night never reached the search.
    The acceptance bar "pulsation->transit not higher" is missed on both fresh sets (6 to 8
    held-out, 7 to 11 never-seen); the detector ships on by default on the owner's decision,
-   because the cost is one fixable class (follow-up issue #54, a flare-adjacent gate on the
-   detrended path) and the gain is real finds. The next step after that is the follow-up PR that
+   because the cost is one fixable class (the flare-adjacent gate of #54, below) and the gain
+   is real finds. The next step after that is the follow-up PR that
    flips PR #50's `trend_repeat_snr` default, measured on its own seeds. PR #50's gate, measured
    in the review beside this detector (`bls` with `trend_repeat_snr=5.0`, 14 held-out runs
    420-433 and never-seen 700-715; 30 runs): the union of `bls` and `single_transit` goes from
    405 to 404 transit labels bounded (414 to 412 bounded or touched), pulsation->transit 19 to 10,
    detections 544 to 522, fp 23 to 23; 2 of 414 transit labels are lost (puls-seed715
    `transit-n2-s28-0`, puls-seed428 `transit-n7-s156-0`, both found only by `bls` with the gate
-   off), not zero. That is the basis for the flip PR. The statistic, threshold, guards and limits
-   are in the `skywatch/detectors/single_transit.py` docstring.
+   off), not zero. That is the basis for the flip PR.
+   Flares on a pulsator's residual (#54): the six pulsation->transit claims above are the
+   flares and hot pixels that the pulsation hid from the first clip (its scale is the raw
+   night's, inflated by the sinusoid). 12 of the 15 pulsation claims `main` makes on the
+   detrended path across 60 development runs sit inside, or up to 1.05 h before, a run of 10 to 85
+   samples that `bls`'s clip flags on the residual; the gate applies that clip to the residual
+   and refuses a box whose S/N, measured without the flagged samples, is under the detector's
+   own threshold (8). No distance, window or bar was added (`clip_residual`, on by default). It
+   removes 13 development detections (12 pulsation claims, 1 transit: seed395 star 114, one
+   label of a planet, found by `single_transit` alone) and added none on 88 runs (it is not
+   structural: the gate runs before guard (a)): pulsation->transit
+   15 to 3, union transit labels bounded or touched 768 to 767, planets 253 to 252. Held-out,
+   scored once (820-825 standard, 826-829 all-sinusoidal with planets, 830-833 all-sinusoidal
+   planet-free; 14 runs): `single_transit` pulsation->transit 4 to 0, detections 42 to 38 (all four
+   removed are pulsation claims), no transit label lost; union with `bls`: transit labels bounded
+   or touched 203 to 203, planets with a transit event bounded or touched 62 to 62, fp 7 to 7,
+   pulsation->transit 20 to 16 (all `bls`'s), detections 253 to 249. Five of the six known
+   claims are no longer reported (seed424 star 41, 427 star 103, 712 star 79, 721 star 181 and 722
+   star 55); seed712 star 75 stays: a hot-pixel plateau covers most of a 96-sample night, is
+   the median, and the box is the unaffected stretch, so no clip sees anything above the level
+   (two more such cases on development, none held-out). The held-out bar is not as slack as the
+   development one: seed826 star 162 reads 7.58 without its flagged samples, so a lower bar would
+   have kept it. Never-seen seeds 500-513 (14 runs, checked in the review): union planets 62 to
+   62, pulsation->transit 11 to 8, fp 3 to 3; `single_transit` pulsation->transit 5 to 2,
+   detections 47 to 44. `bls` is unchanged (`cmp` on four runs).
+   The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
+   docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring
