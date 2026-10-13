@@ -14,10 +14,12 @@ from tests.test_bls import (
     DAY,
     NIGHT_N,
     C,
+    _pin_repeat_snr,
     curve,
     eclipsing,
     make_field,
     night_times,
+    pulsator,
 )
 
 HOUR = 3600
@@ -561,3 +563,34 @@ def test_performance_60_stars_20_nights():
     elapsed = time.process_time() - t0
     assert {d.star_id for d in out} == set(range(0, 60, 5))
     assert elapsed < 2.3, f"60 stars x 20 nights took {elapsed:.2f} s of CPU"
+
+
+def _boxes_calls(bls_detector, cv):
+    """Sample counts of every ``_boxes`` call `single_transit` makes on one star's arrays."""
+    det = SingleTransitDetector()
+    det._bls = bls_detector
+    calls: list[int] = []
+    real = det._boxes
+
+    def spy(t, flux, night, cadence_s):
+        calls.append(len(t))
+        return real(t, flux, night, cadence_s)
+
+    det._boxes = spy
+    c = det._bls._clean(cv, C)
+    det._star_boxes(0, c, det._bls._common_mode({0: c}), C)
+    return calls
+
+
+def test_a_detrended_box_the_repeat_test_refuses_leaves_the_star_to_the_eclipse_mask(monkeypatch):
+    # guard (a) refuses this fast pulsator's night box. `bls` first accepts a detrended box and
+    # the star is not searched (guard (b)); with the repeat test on and the box refused it keeps
+    # its original "pulsation guard" candidate, so its dip windows are masked and the nights are
+    # searched again, on fewer samples. A refusal that did not restore that candidate would be
+    # read as "not a pulsation guard rejection" and the star dropped, with one search.
+    _, cv = pulsator(0, period_d=0.5)
+    _pin_repeat_snr(monkeypatch, 0.0)
+    off = _boxes_calls(BlsDetector(), cv)
+    assert len(off) == 1
+    on = _boxes_calls(BlsDetector(trend_repeat_snr=5.0), cv)
+    assert len(on) == 2 and on[1] < on[0] == off[0]
