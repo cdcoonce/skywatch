@@ -687,3 +687,59 @@ def test_an_eclipsing_binary_still_gives_nothing_with_the_detrend():
     _t, cv = eb_with_dip()
     assert detect({0: cv}) == []
     assert detect({0: cv}, shape_threshold=None) == []
+
+
+def _trend_boxes(cv):
+    """The `box` argument of every `_pulsation_trend` call a full detect makes on one star."""
+    calls: list = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        calls.append(box)
+        return real(self, a, cadence_s, box)
+
+    det = SingleTransitDetector()
+    det._bls._pulsation_trend = spy.__get__(det._bls)
+    det.detect({0: cv}, C)
+    return calls
+
+
+def test_the_detrended_path_keeps_the_default_threshold():
+    # a dip at a residual S/N of 7.67 is under the default bar of 8 on the detrended path too:
+    # nothing at the default, found when the bar is lowered (the dip is really there)
+    _t, cv = pulsating_host(0, dip=(4, 2.5, 3.0, 0.0036))
+    assert detect({0: cv}) == []
+    low = detect({0: cv}, snr_threshold=7.0)
+    assert len(low) == 1
+    assert 7.5 < low[0].score < 8.0
+
+
+def test_the_refit_box_is_the_dip_in_epoch_and_duration():
+    # the second fit leaves out a window the size of the dip, centred on it: not three times
+    # the dip, not a window hanging off its left edge
+    _t, cv = pulsating_host(0)
+    calls = _trend_boxes(cv)
+    assert calls[1] is not None
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert abs(calls[1].epoch_s - (lo + hi) / 2) < 0.5 * HOUR
+    assert abs(calls[1].duration_s - (hi - lo)) < 0.5 * HOUR
+
+
+def test_the_refit_leaves_out_the_strongest_box_of_two():
+    # two dips on one pulsator, night 4 at 1.2 percent and night 12 at 0.8: the refit sits on
+    # the stronger one
+    rng = np.random.default_rng(0)
+    t = night_times(20)
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof * dip_profile(t, 4, 2.5, 3.0, 0.012) * dip_profile(t, 12, 2.5, 3.0, 0.008)
+    calls = _trend_boxes(curve(0, t, prof, 0.005, rng))
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert calls[1] is not None and lo - HOUR <= calls[1].epoch_s <= hi + HOUR
+
+
+def test_a_dip_that_pulls_a_fast_sinusoid_is_still_found_after_the_refit():
+    # a 0.4 d, 4 h, 1.2 percent dip drags a single fit of a short-period sinusoid (S/N about
+    # 23.5 once the refit leaves the dip out); a single fit or a refit with no window misses it
+    _t, cv = pulsating_host(0, dip=(4, 1.0, 4.0, 0.012), period_d=0.4)
+    out = detect({0: cv})
+    assert len(out) == 1 and out[0].kind_guess == "transit"
