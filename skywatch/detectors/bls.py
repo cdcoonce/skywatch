@@ -90,8 +90,9 @@ The best box per star is a candidate when all of these hold, tested in this orde
   0.81.
 * The shape guard passes (below).
 * The flare-tail gate passes (below): ``snr_clean``, the local S/N with the samples inside and the
-  ``flare_window_h`` = 3 hours after each flare-sized masked run left out of the contrast, reaches
-  ``snr_threshold``. It is the last gate, so a pulsator or a binary is still named by its own.
+  ``flare_window_h`` = 3 hours after each decaying flare-sized masked run left out of the contrast,
+  reaches ``snr_threshold``. It is the last gate, so a pulsator or a binary is still named by its
+  own.
 
 Pulsation guard
 ---------------
@@ -219,8 +220,9 @@ runs, 36 on the others and the 10 true positives on flare hosts; the table is in
 
 The gate (``flare_window_h`` = 3 hours, ``flare_min_run`` = 10; ``flare_window_h=None`` switches it
 off) leaves out of the contrast the samples a flare may still lift. A *flare-sized run* is 10 or more
-consecutive samples masked as positive outliers within a night (:func:`flare_windows`); its window
-runs from its first masked sample to 3 hours after its last, and ``Candidate.snr_clean`` is the local
+consecutive samples masked as positive outliers within a night (:func:`flare_windows`); with the
+opt-in decay mode of issue #48 (below: ``flare_tau_s``, ``flare_fit_chi2``; off by default) only a run
+that *decays* counts. Its window runs from its first masked sample to 3 hours after its last, and ``Candidate.snr_clean`` is the local
 S/N of the same box with every sample in a window left out of both sides of the contrast
 (``snr_local`` when there is no window; NaN when no night keeps both box and reference, which is
 refused). The box is rejected as ``"flare tails"`` when ``snr_clean`` is under ``snr_threshold``
@@ -285,15 +287,77 @@ single event (0.239 times its period), local S/N 7.04. No in-box sample is in a 
 nightly contrasts barely move (0.0099 to 0.0098), but the 3 hours after one cosmic-ray run on the
 event night remove 152 reference samples (that night's weight 104 to 71) and the clean S/N is 5.88.
 
-**What opens a window.** On the five never-seen planet runs (1,000 stars) there are 2,142
-flare-sized runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent
-only a cosmic ray; 800 of the 1,000 stars carry at least one window. A hot pixel is a flat plateau
-that masks any number of samples from 10 up, and a cosmic ray reaches 10 by chance in 4.5 to 6
-percent, so ten consecutive clipped samples detect a clip run, not a flare. The gate therefore
-taxes lost reference samples on marginal boxes: a box with a local S/N under about 7.5 on a night
-with a window can fall under 7.0 on weight alone, with no flare residue under it, and that is
-most stars, not only flare stars. A run definition with a decay shape (a monotone fall of the
-masked run) would separate a flare from a plateau; it is issue #48.
+**What opens a window (issue #48; an opt-in mode, off by default).** PR #47's definition, ten consecutive clipped samples, opened a
+window for every run, and the runs are mostly not flares. The 50 development 20-night runs (planets
+7, 42, 21-26, 31-40, 61-66, 71-76; planet-free 41-44, 51-58, 81-84, 101-104; 10,000 stars) hold
+23,338 flare-sized runs on 7,901 stars (79 percent), and on 5,500 of those stars none of the runs has
+a flare label under it. The truth under the runs (``scripts/bls_flare_run_audit.py``; truth names a
+run, the detector never reads it): 42.4 percent only a flare (9,888), 36.9 percent only a hot pixel
+(8,613), 15.9 percent only a cosmic ray (3,712), 4.8 percent a mixture of those or none of them. By
+their own samples a flare's run is a peak and a fall (the peak sample carries under half of the run's
+excess and the median is under half the peak: 95 percent of the flare runs), a hot pixel's a plateau
+(median at least half the peak: 98 percent) and a cosmic ray's a spike (the peak sample carries half
+of the excess or more: 91 percent). A flare is ``A exp(-(t - t_peak) / tau)`` after an instant rise
+with ``tau`` 120 to 1,800 s, so in the decay mode a run opens a window only if the exponential fitted from its highest
+sample to its end (:func:`decay_fit`, in units of the night's scatter) has a decay time in
+``flare_tau_s`` = (60, 3600) seconds (the world's range with a factor of 2 either side for the fit's
+scatter) and a residual of at most ``flare_fit_chi2`` = 3 per degree of freedom;
+``flare_tau_s=None`` (the default) is the definition of PR #47 (every run of ten). The fitted decay time of the flare runs is 128 s
+(1st percentile), 218 (5th), 898 (median), 1,681 (95th) and 2,198 (99th); a cosmic ray's is 15 s (a
+quarter of a cadence, the grid's floor) at the median and 25 s at the 95th percentile; a hot
+pixel's plateau is anything (5th to 95th percentile 86 to 15,111 s) but its residual is 648 per
+degree of freedom (median; 5th percentile 5.4) against 0.79 for flare runs (95th percentile 1.61,
+99th 2.66). Runs that open a
+window: 9,746 of 9,888 flare-only (98.6 percent), 42 of 8,613 hot-pixel-only, 14 of 3,712
+cosmic-ray-only, 36 of 830 mixed, 96 of 295 with none of the three under them. The decay time alone
+(without the residual) lets 5,849 hot-pixel runs open one; "the peak is in the first four samples"
+alone drops 26 percent of the flare runs and lets 761 hot-pixel and 1,292 cosmic-ray runs open one.
+Stars carrying a window: 7,901 to 2,440 of 10,000 (24.4 percent; 117 of them with no flare label
+under any of their windows). The window length (3 hours) and the minimum run (10) are unchanged.
+
+Measured, ``main`` (with PR #47's gate) to the decay mode, 200 stars and 20 nights. Development, 20
+planet runs (seeds 7, 42, 21-26, 61-66, 71-76): transit true positives 157 to 157, false positives
+(all kinds) 18 to 19, eclipses reported as transits 5 to 5, pulsations 0 to 0, flares 1 to 1,
+detections 188 to 190; 20 planet-free runs (41-44, 51-58, 81-84, 101-104): false positives 6 to 6,
+flares 2 to 2, detections 11 to 11, per run unchanged (0, 0, 2, 0; 0, 0, 0, 0, 0, 2, 0, 2; 0, 2, 0, 0;
+0, 0, 0, 3). The one detection pair added is seed 62 star 25, a constant star whose two-event box
+(S/N 11.0, local 9.4, matched to a tracking-drift label) a hot pixel's 15-sample plateau had refused
+by removing its reference (clean S/N 2.2): a fall in the false positives that was not meant. Design
+check, 12, 261 and 440-445 (planets): 57 to 58 true positives, 2 to 3 false positives, 65 to 67
+detections; planet-free 446-449: 0 to 0. Held-out, scored once (planets 400-405, planet-free
+410-413): nothing changed, 32 true positives, 3 false positives, 1 flare reported as a transit, 37
+detections on both, and 0 detections on each planet-free run. Stars carrying a window on the
+held-out runs: 1,647 to 525 of 2,000 (82.4 to 26.3 percent). Seed 261 star 29 (the never-seen loss
+of PR #47) is found again: no window is opened by its cosmic-ray run (a spike, decay time 15 s), the
+clean S/N is the local 7.04, and the box is credited as a transit (its second event is a false
+positive, which is the 2 to 3 above). The three development losses stay lost, to flares: 12/32 and
+62/38 to flare windows over the box as before, 61/56 to the flare on night 13 (the cosmic-ray window
+on night 5 and the hot-pixel windows are gone; its clean S/N is 5.26 against 3.30). ``single_transit``
+is byte-identical (``cmp``) on seeds 61, 62 and planet-free 58, 82.
+
+**Why it ships off.** Never seen (planets 600-611 and planet-free 620-623, 200 stars and 20 nights,
+simulated after the constants were fixed; the review of PR #52), ``main`` to the decay mode:
+transit true positives 69 to 70, false positives 23 to 25, flares reported as transits 3 to 4,
+detections 107 to 112, and 0 detections on each planet-free run on both; nothing is removed in any
+run. The one true positive added, seed 609 star 150, is a box of the wrong period (5.14 d against
+the planet's 7.65 d) whose event a hot pixel's window had refused (clean S/N 2.53 to 10.47): overlap
+credit. The other four detections added are false: seed 601 star 131, a flare star (4.5 flares a
+day, no planet), is claimed on three events (local S/N 7.75, clean 2.71 to 7.62, stacked 17.8).
+``main`` refused it as "flare tails" by accident: a hot-pixel run ending at 1,221,660 s opened a
+window of three hours, and a flare that begins three minutes after the run (not flare-sized by
+itself) has its tail inside the box's third event, under that window. The decay mode refuses the
+hot-pixel run and the box stands. Seed 62 star 25 and the second event of seed 261 star 29 on the
+development runs are the same: the windows that PR #47 opens after hot pixels refuse false boxes
+by accident, and narrowing them to real flares adds claims. The decay mode is kept, measured and
+opt-in (``flare_tau_s=(60.0, 3600.0)``); the default stays PR #47's definition. Limits: the 98.7
+percent of flare-only runs that open a window is circular, since the band (60 to 3,600 s) and the
+bar (3) come from the generator's own flare law (120 to 1,800 s): it shows that the code reads the
+world's flares, not that the shape test would read real ones. A flare whose run the fit refuses
+(one under a hot pixel) opens no window: 229 of 3,525 never-seen runs with a flare label under them
+(6.5 percent). 23 of 28 hot-pixel-only runs that open a window have 5 samples or fewer from the peak
+to the end of the run (at most 3 degrees of freedom: nearly any exponential fits); a minimum fitted
+length of 8 samples would have closed 26 of the 28 hot-pixel openings at a cost of 63 of 6,113
+flare-only openings (1 percent) -- not tested, a lead.
 
 **The flare bar is not redundant.** With ``flare_snr_threshold`` at 7.0 the 64 stored runs are
 unchanged, but seed 96 star 10 (flare share 9.7 percent, local S/N 7.13, clean S/N 7.93) is claimed
@@ -780,11 +844,14 @@ Limits
   a planet whose events follow a flare by less than 3 hours (3 of 537 development true
   positives);
   on a star with a flare every night the clean S/N is about 60 percent of the local one (a planted
-  planet: 22 against 37); most windows are not flares' (a hot pixel's plateau opens one, and a
-  cosmic ray whose run reaches 10 samples, 5 percent of them; see What opens a window), so a
-  marginal box on a night with a window can fall under 7.0 on the weight of the reference it
-  loses, with no flare residue (issue #48); the window is a fixed 3 hours and not scaled to
-  each flare.
+  planet: 22 against 37); a marginal box on a night with a flare can fall under 7.0 on the weight
+  of the reference the window removes, with no flare residue left (issue #48 stopped hot pixels
+  and cosmic rays, most of the windows, from doing it: see What opens a window); the window is a
+  fixed 3 hours and not scaled to the fitted decay time of each flare. A decaying run that is not
+  a flare (98.6 percent of the flare-only runs open a window, 42 of 8,613 hot-pixel-only and 14 of
+  3,712 cosmic-ray-only runs do too, and 96 of 295 runs with none of the three under them) still
+  opens one, and a flare whose run the fit refuses (142 of the 9,888 flare-only runs; two flares in
+  one run among them) opens none: its tail then stays in the contrast.
 * The sinusoid-against-box ratio has margin on the pulsator side (0.97 and above) and less than
   it looks on the planet side: the bar is not a floor under the planets. Two real planets read
   0.73 (seed 38 star 168; seed 23 star 114) and the planet hosts of never-seen seeds at most 0.52.
@@ -894,8 +961,63 @@ def positive_outliers(x: np.ndarray, clip_sigma: float, tail_sigma: float) -> np
     return cand & has_seed[run]
 
 
+def masked_runs(masked: np.ndarray, min_run: int = 1) -> list[tuple[int, int]]:
+    """Half-open index pairs ``(a, b)`` of the runs of `min_run` or more consecutive True."""
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], masked.astype(np.int8), [0]))))
+    return [
+        (int(a), int(b)) for a, b in zip(edges[::2], edges[1::2], strict=True) if b - a >= min_run
+    ]
+
+
+_DECAY_GRID = np.geomspace(0.25, 256.0, 64)  # decay times tried, in samples
+
+
+def _decay_residual(y: np.ndarray, k: np.ndarray, tau: np.ndarray) -> np.ndarray:
+    """Sum of squares of `y` about its best ``A exp(-k / tau)`` (A at least 0), for each `tau`."""
+    e = np.exp(-k[:, None] / tau[None, :])
+    amp = np.maximum(y @ e, 0.0) / np.sum(e * e, axis=0)
+    return np.sum((y[:, None] - amp * e) ** 2, axis=0)
+
+
+def decay_fit(t: np.ndarray, x: np.ndarray, cadence_s: float) -> tuple[float, float]:
+    """``(tau_s, chi2_per_dof)`` of the exponential ``A exp(-(t - t_peak) / tau)`` fitted to `x`.
+
+    `x` is a masked run's excess over its night in units of the night's scatter (so each sample
+    has unit noise) and `t` its times (s). The fit starts at the run's highest sample and goes to
+    its end. ``A >= 0`` is solved for each ``tau`` of a geometric grid of 64 from a quarter of a
+    cadence to 256 cadences, and the best ``tau`` is refined between its neighbours (a golden
+    section on ``log tau``: at 100 sigma a grid step of 11 percent leaves a misfit of several
+    sigma per sample). It is returned with the residual over the degrees of freedom (the samples
+    from the peak on, less the two parameters). ``(nan, inf)`` when fewer than 3 samples remain.
+    """
+    i = int(np.argmax(x))
+    y = x[i:]
+    if len(y) < 3:
+        return math.nan, math.inf
+    k = (t[i:] - t[i]) / cadence_s
+    j = int(np.argmin(_decay_residual(y, k, _DECAY_GRID)))
+    lo, hi = math.log(_DECAY_GRID[max(j - 1, 0)]), math.log(_DECAY_GRID[min(j + 1, 63)])
+    phi = (math.sqrt(5.0) - 1.0) / 2.0
+    for _ in range(30):
+        a, b = hi - phi * (hi - lo), lo + phi * (hi - lo)
+        if _decay_residual(y, k, np.exp([a]))[0] < _decay_residual(y, k, np.exp([b]))[0]:
+            hi = b
+        else:
+            lo = a
+    tau = math.exp((lo + hi) / 2.0)
+    return tau * cadence_s, float(_decay_residual(y, k, np.array([tau]))[0]) / (len(y) - 2)
+
+
 def flare_windows(
-    t: np.ndarray, night: np.ndarray, kept: np.ndarray, min_run: int, window_s: float
+    t: np.ndarray,
+    night: np.ndarray,
+    kept: np.ndarray,
+    min_run: int,
+    window_s: float,
+    flux: np.ndarray | None = None,
+    cadence_s: float = 60.0,
+    tau_range_s: tuple[float, float] | None = None,
+    max_chi2: float = 3.0,
 ) -> np.ndarray:
     """``(m, 2)`` array of ``[start, end]`` (seconds): the span of each flare-sized masked run.
 
@@ -905,17 +1027,32 @@ def flare_windows(
     span runs from the first masked sample to `window_s` after the last, where the flare's decay
     left what the clip's tail growth stops at (a running mean within about half a sigma of the
     night) and the rest of the exponential is still above the noise for a few more e-foldings.
+
+    With `flux` (the star's night-normalised flux at `t`, before the clip) and `tau_range_s`, a run
+    opens a window only if it *decays*: the exponential of :func:`decay_fit`, fitted to the run in
+    units of its night's scatter, has a decay time in `tau_range_s` (seconds) and a residual of at
+    most `max_chi2` per degree of freedom. A hot pixel's plateau fits no exponential and a
+    cosmic ray's spike decays in under a sample. Without them every flare-sized run opens a window.
     """
+    shaped = flux is not None and tau_range_s is not None
     out = []
     for k in np.unique(night):
         idx = np.flatnonzero(night == k)
         masked = ~kept[idx]
         if not masked.any():
             continue
-        edges = np.flatnonzero(np.diff(np.concatenate(([0], masked.astype(np.int8), [0]))))
-        for a, b in zip(edges[::2], edges[1::2], strict=True):
-            if b - a >= min_run:
-                out.append((float(t[idx[a]]), float(t[idx[b - 1]]) + window_s))
+        scale = 0.0
+        if shaped:
+            x = flux[idx]
+            scale = _MAD_SCALE * float(np.median(np.abs(x - np.median(x))))
+        for a, b in masked_runs(masked, min_run):
+            if shaped:
+                if not scale > 0:
+                    continue
+                tau, chi2 = decay_fit(t[idx[a:b]], (flux[idx[a:b]] - 1.0) / scale, cadence_s)
+                if not (tau_range_s[0] <= tau <= tau_range_s[1] and chi2 <= max_chi2):
+                    continue
+            out.append((float(t[idx[a]]), float(t[idx[b - 1]]) + window_s))
     return np.array(out, dtype=np.float64).reshape(-1, 2)
 
 
@@ -1368,6 +1505,8 @@ class BlsDetector:
         flare_snr_threshold: float = 7.2,
         flare_window_h: float | None = 3.0,
         flare_min_run: int = 10,
+        flare_tau_s: tuple[float, float] | None = None,
+        flare_fit_chi2: float = 3.0,
     ) -> None:
         if not min_period_d > 0:
             raise ValueError(f"min_period_d must be > 0, got {min_period_d}")
@@ -1416,6 +1555,10 @@ class BlsDetector:
             raise ValueError(f"flare_window_h must be > 0 or None, got {flare_window_h}")
         if flare_min_run < 1:
             raise ValueError(f"flare_min_run must be >= 1, got {flare_min_run}")
+        if flare_tau_s is not None and not 0 < flare_tau_s[0] <= flare_tau_s[1]:
+            raise ValueError(f"flare_tau_s must be 0 < low <= high or None, got {flare_tau_s}")
+        if not flare_fit_chi2 > 0:
+            raise ValueError(f"flare_fit_chi2 must be > 0, got {flare_fit_chi2}")
         self.min_period_d = min_period_d
         self.max_period_d = max_period_d
         self.durations_h = tuple(sorted(durations_h))
@@ -1443,6 +1586,8 @@ class BlsDetector:
         self.flare_snr_threshold = flare_snr_threshold
         self.flare_window_h = flare_window_h
         self.flare_min_run = flare_min_run
+        self.flare_tau_s = flare_tau_s
+        self.flare_fit_chi2 = flare_fit_chi2
 
     # -- preprocessing -----------------------------------------------------------------
 
@@ -1482,13 +1627,11 @@ class BlsDetector:
         cm[counts < self.common_mode_min_stars] = 1.0
         return grid, cm
 
-    def _prepare(
-        self, c: _Clean, common_mode: tuple[np.ndarray, np.ndarray] | None
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """(t, flux, night, level) used by the search: common mode removed, renormalised, clipped.
-
-        `level` is the factor that took each sample's flux from raw units to `flux`.
-        """
+    @staticmethod
+    def _unclipped(
+        c: _Clean, common_mode: tuple[np.ndarray, np.ndarray] | None
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """(flux, level) of every clean sample: common mode removed, nights renormalised."""
         flux = c.flux
         level = c.level
         if common_mode is not None:
@@ -1496,6 +1639,16 @@ class BlsDetector:
             x = flux / cm[np.searchsorted(grid, c.t)]
             flux = _divide_by_night_median(x, c.night_of)
             level = level * _night_medians(x, c.night_of)
+        return flux, level
+
+    def _prepare(
+        self, c: _Clean, common_mode: tuple[np.ndarray, np.ndarray] | None
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """(t, flux, night, level) used by the search: common mode removed, renormalised, clipped.
+
+        `level` is the factor that took each sample's flux from raw units to `flux`.
+        """
+        flux, level = self._unclipped(c, common_mode)
         ok = np.ones(len(flux), dtype=bool)
         for k in range(int(c.night_of[-1]) + 1):
             m = c.night_of == k
@@ -1808,7 +1961,15 @@ class BlsDetector:
         windows = np.zeros((0, 2))
         if self.flare_window_h is not None:
             windows = flare_windows(
-                c.t, c.night_of, np.isin(c.t, t), self.flare_min_run, self.flare_window_h * HOUR_S
+                c.t,
+                c.night_of,
+                np.isin(c.t, t),
+                self.flare_min_run,
+                self.flare_window_h * HOUR_S,
+                self._unclipped(c, common_mode)[0],
+                cadence_s,
+                self.flare_tau_s,
+                self.flare_fit_chi2,
             )
         t_obs, night_obs = c.t, c.night_of
         if masked:
