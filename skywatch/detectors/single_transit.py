@@ -167,6 +167,55 @@ eclipse->transit 9 to 1 on the planet runs and 6 to 0 on the planet-free ones, p
 lost 0 (transit true positives 11 to 11, single-event planets at S/N 10 or
 more bounded 4 of 7 to 4 of 7), false positives 0 to 0.
 
+Pulsating hosts
+---------------
+Guard (a) refuses a sinusoidal star whole, and guard (b) cannot help it (a pulsator has no
+eclipses to mask), so a planet that transits once on a pulsating host was found by nothing
+(issue #51: PR #50's review counted 17 such hosts holding 18 transit labels that ``bls`` loses
+when its repeat test is on, and ``single_transit`` bounded none of them). For a star guard (a)
+refuses, the search now runs on the star with its pulsation subtracted
+(``detrend_pulsation``, on by default; ``False`` is the old behaviour), before guard (b):
+
+1. **Subtract.** The sinusoid of :meth:`BlsDetector._pulsation_trend` (the best sinusoid in the
+   guard band, a free level for every night, used only when its power is 3 times the guard's
+   false-alarm level) is subtracted from the prepared flux and each night is divided by its
+   median again. No sinusoid: the star goes on to guard (b) as before.
+2. **Search and refit.** The per-night search runs on the residual. When it finds a box, the
+   sinusoid is fitted again with that box and a window 1.5 times as wide left out (a transit left
+   in the fit pulls the sinusoid towards itself, the reason ``bls`` refits) and the nights are
+   divided again.
+3. **Gates.** The boxes at the threshold (8) on that residual must pass guard (a) again as
+   one-event boxes: a residual that still holds a sinusoid (the pulsation was not removed), another
+   event of a periodic planet, or an eclipsing binary's eclipses fails it, and the star goes on to
+   guard (b) unchanged. The shape test then runs on the residual like on any other star.
+
+No threshold or bar was added or changed: the subtraction is ``bls``'s, imported unchanged, the
+gates are this detector's own.
+
+Measured on the development runs of docs/seeds.md (199 runs of 200 stars and 20 nights: 149
+standard with planets, 38 standard planet-free, 8 all-sinusoidal with planets, 4 all-sinusoidal
+planet-free; ``scripts/single_transit_pulsator_audit.py``). Guard (a) refuses 4324 sinusoidal
+hosts, 2956 eclipsing binaries, 171 flare stars and 119 constant stars (hot pixel, cosmic ray,
+cloud) on them. Only sinusoidal hosts come through: the residual of an eclipsing binary keeps
+its other eclipses and fails guard (a) again (2371 of 2956; the other 582 and 3 have no single
+sinusoid or no night at 8), and none of the flare or constant hosts is reported. Of the 4324
+sinusoidal hosts 4168 have no night at 8 on the residual, 66 fail guard (a) on the residual
+(most of them a planet with a second event), 2 fail the shape test and 85 are reported: 101
+detections, 86 on a transit, 4 on a flare, 1 on a hot pixel, 1 on a cosmic ray and 9 on nothing
+but the pulsation (S/N 8.2 to 10.7). The real transits it reports read from 8.2 up, so no higher
+bar (``bls`` asks 9 of a detrended box) separates them from those 9: it would cost more planets than
+it removes dips. Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
+test on loses them, ``single_transit`` before: 0): the other two are seed 44 star 44 (the transit
+night reads 7.0 raw, so guard (a) never refuses the star and the subtraction is not tried) and
+the second label of puls-seed393 star 162 (the residual reads 4.0). Planet-free, all detections:
+the 38 standard runs go 23 to 27 in all (four runs change, 1, 1, 0, 0 to 2, 2, 1, 1), at most 4 on
+any run (4 at ``main``, seed 41), and the all-sinusoidal planet-free runs 370-373 go 0, 0, 0, 0
+to 0, 1, 0, 0.
+
+Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
+the residual and fails the guard), a planet whose other events stand out of the residual is left
+to ``bls`` (its periodic search), and a star whose raw nights never reach 8 is not tried.
+
 Limits
 ------
 * A second strong event stays in the residual of the guard: a star with two single events of
@@ -178,10 +227,12 @@ Limits
   the mask, 21 h of every 44 h cycle, covers it). Other eclipse residue gets through: the
   eclipse->transit confusion on the held-out 20-night runs 21-26 was 0 to 7 per run at the
   default before the shape test (12 over six runs) and is 0, 0, 3, 0, 0, 0 with it: not zero.
-* A star the guards reject is lost with its planet when the star is a sinusoidal or flare
-  variable: held-out seed22 star 81 and seed25 stars 39 and 52 are found at S/N 9.5 to 15.6
-  with ``guards=False`` and dropped with them on. A planet-only host whose guard ratio
-  (see Guards) crosses 1 is the same loss.
+* A star the guards reject is lost with its planet when the star is a flare variable or a
+  sinusoidal one the subtraction does not clean (see Pulsating hosts): held-out seed25 star 52
+  (a flare star) is found at S/N 9.5 to 15.6 with ``guards=False`` and dropped with them on;
+  seed22 star 81 (sinusoidal) is now reported (S/N 11.4), and seed25 star 39 (sinusoidal) still
+  is not (its residual reads 4.8). A planet-only host whose guard ratio (see Guards) crosses 1 is
+  the same loss.
 * Only the best box per night is reported: two dips in one night are one detection.
 * A dip that fills most of a night leaves little reference (``min_out`` 30) and a night
   median taken inside the dip; the S/N is then the lower, contrast, one. When the night holds
@@ -236,6 +287,7 @@ from skywatch.detectors.bls import (
     _MAD_SCALE,
     BlsDetector,
     Box,
+    _Arrays,
     _Clean,
     _renormalise_nights,
     in_box,
@@ -348,6 +400,7 @@ class SingleTransitDetector:
         guards: bool = True,
         mask_pad_h: float = 0.5,
         shape_threshold: float | None = 1.0,
+        detrend_pulsation: bool = True,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -369,6 +422,7 @@ class SingleTransitDetector:
         self.guards = guards
         self.mask_pad_h = mask_pad_h
         self.shape_threshold = shape_threshold
+        self.detrend_pulsation = detrend_pulsation
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -471,6 +525,74 @@ class SingleTransitDetector:
             t[on], flux[on], np.zeros(int(on.sum()), dtype=np.int64), b.sigma, box
         )
 
+    def _event_box(self, b: NightBox, cadence_s: int, n_total: int) -> Box:
+        """The night box `b` as a one-event :class:`Box` (a "period" longer than the survey)."""
+        return Box(
+            period_s=_ONE_EVENT_PERIOD_S,
+            epoch_s=(b.t_start + b.t_end) / 2.0,
+            duration_s=float(b.t_end - b.t_start + cadence_s),
+            depth=b.depth,
+            n_in=b.n_in,
+            n_total=n_total,
+            power=0.0,
+        )
+
+    def _residual(
+        self,
+        c: _Clean,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        level: np.ndarray,
+        cadence_s: int,
+    ) -> np.ndarray | None:
+        """The star's flux with its pulsation subtracted, or None when no sinusoid stands out.
+
+        The sinusoid of :meth:`BlsDetector._pulsation_trend` (fitted to the whole record, the
+        night levels free) is subtracted and each night divided by its median again. When the
+        per-night search finds a box on that residual, the sinusoid is fitted again with the
+        box's window left out (a transit left in the fit pulls the sinusoid towards itself) and
+        the nights are divided again.
+        """
+        bls = self._bls
+        a = _Arrays(t, flux, night, level, c.t, c.night_of)
+        fit = bls._pulsation_trend(a, cadence_s)
+        if fit is None:
+            return None
+        resid = _renormalise_nights(flux - fit[0], night)
+        boxes = self._boxes(t, resid, night, cadence_s)
+        if not boxes:
+            return resid
+        best = max(boxes, key=lambda b: b.snr)
+        fit = bls._pulsation_trend(a, cadence_s, self._event_box(best, cadence_s, len(t)))
+        if fit is None:
+            return None
+        return _renormalise_nights(flux - fit[0], night)
+
+    def _detrended(
+        self,
+        c: _Clean,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        level: np.ndarray,
+        cadence_s: int,
+    ) -> tuple[list[NightBox], np.ndarray] | None:
+        """The star's boxes once its pulsation is subtracted, and that flux; None if there is none.
+
+        The per-night search runs on :meth:`_residual`. The result stands only if the residual
+        passes the pulsation guard: a pulsator this subtraction does not clean, a binary, and a
+        planet whose other events stand out of the residual all fail it, and are left to the
+        eclipse mask.
+        """
+        resid = self._residual(c, t, flux, night, level, cadence_s)
+        if resid is None:
+            return None
+        boxes = self._boxes(t, resid, night, cadence_s)
+        if not boxes or self._pulsating(t, resid, night, boxes, cadence_s):
+            return None
+        return boxes, resid
+
     def _star_boxes(
         self,
         star_id: int,
@@ -479,14 +601,21 @@ class SingleTransitDetector:
         cadence_s: int,
     ) -> tuple[list[NightBox], tuple[np.ndarray, np.ndarray, np.ndarray]]:
         """The star's reportable boxes after the guards, with the arrays they were found in."""
-        t, flux, night, _ = self._bls._prepare(c, common_mode)
+        t, flux, night, level = self._bls._prepare(c, common_mode)
         none: list[NightBox] = []
         if len(t) < self.min_in + self.min_out:
             return none, (t, flux, night)
         boxes = self._boxes(t, flux, night, cadence_s)
         if not boxes:
             return none, (t, flux, night)
-        if self.guards and self._pulsating(t, flux, night, boxes, cadence_s):
+        refused = self.guards and self._pulsating(t, flux, night, boxes, cadence_s)
+        if refused and self.detrend_pulsation:
+            found = self._detrended(c, t, flux, night, level, cadence_s)
+            if found is not None:
+                log.info("single_transit star %s: pulsation subtracted", star_id)
+                boxes, flux = found
+                refused = False
+        if refused:
             cand = self._bls._search(c, common_mode, cadence_s, plan_mask=True)
             if cand is None or cand.rejected != "pulsation guard" or not cand.mask:
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
