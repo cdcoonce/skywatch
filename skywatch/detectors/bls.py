@@ -854,7 +854,9 @@ class Candidate:
     flare-sized masked run left out of the contrast (:func:`flare_windows`; equal to
     ``snr_local`` when there is no such run, NaN when no night keeps both box and reference);
     `shape_chi2` is the chi-square by which the best triangle beats the best box with a depth for
-    each night (:meth:`BlsDetector._shape_test`; None when the shape test was not run).
+    each night (:meth:`BlsDetector._shape_test`; None when the shape test was not run);
+    `snr_repeat` is the local S/N of the box over the nights other than its strongest
+    (:func:`repeat_snr`; NaN when fewer than two nights hold the box and a reference).
     """
 
     box: Box
@@ -872,6 +874,7 @@ class Candidate:
     sine_ratio: float | None = None
     snr_clean: float = math.nan
     shape_chi2: float | None = None
+    snr_repeat: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -1057,6 +1060,22 @@ def night_contrasts(
     return depth, n_in[ok] * n_out[ok] / nk[ok]
 
 
+def repeat_snr(depth_k: np.ndarray, weight_k: np.ndarray, sigma: float) -> float:
+    """Local S/N of a box over every night but its strongest: does the dip repeat?
+
+    `depth_k` and `weight_k` are :func:`night_contrasts`' per-night depth and weight. The strongest
+    night is the one with the largest ``depth_k * sqrt(weight_k)`` (its own matched-filter S/N);
+    the rest are combined the way ``snr_local`` combines all of them, ``sum(w d) / (sigma *
+    sqrt(sum w))``. For two event nights it is the weaker night's S/N. NaN when fewer than two
+    nights hold both the box and a reference.
+    """
+    if len(weight_k) < 2:
+        return math.nan
+    rest = np.arange(len(weight_k)) != int(np.argmax(depth_k * np.sqrt(weight_k)))
+    w = float(weight_k[rest].sum())
+    return float(depth_k[rest] @ weight_k[rest] / (sigma * math.sqrt(w))) if w > 0 else math.nan
+
+
 def _renormalise_out_of_box(
     t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box, min_out: int = 5
 ) -> np.ndarray:
@@ -1210,6 +1229,7 @@ class BlsDetector:
         detrend_pulsation: bool = True,
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
+        trend_repeat_snr: float | None = 5.0,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
@@ -1249,6 +1269,8 @@ class BlsDetector:
             raise ValueError(f"trend_min_ratio must be >= 1, got {trend_min_ratio}")
         if not trend_snr_threshold > 0:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
+        if trend_repeat_snr is not None and not trend_repeat_snr > 0:
+            raise ValueError(f"trend_repeat_snr must be > 0 or None, got {trend_repeat_snr}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if shape_chi2 is not None and not shape_chi2 > 0:
@@ -1282,6 +1304,7 @@ class BlsDetector:
         self.detrend_pulsation = detrend_pulsation
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
+        self.trend_repeat_snr = trend_repeat_snr
         self.shape_threshold = shape_threshold
         self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
@@ -1829,8 +1852,10 @@ class BlsDetector:
            first time. Only the second fit is used for the answer when there is one.
 
         The result must pass every gate (``snr`` and ``snr_local`` at ``trend_snr_threshold``,
-        a second look at a star whose first look failed); None when no sinusoid stands out or
-        the result is rejected, and the caller keeps the original candidate then.
+        a second look at a star whose first look failed) and must repeat: its S/N over the nights
+        other than its strongest (:func:`repeat_snr`) reaches ``trend_repeat_snr``. None when no
+        sinusoid stands out or the result is rejected, and the caller keeps the original
+        candidate then.
         """
         fit = self._pulsation_trend(a, cadence_s)
         if fit is None:
@@ -1846,6 +1871,16 @@ class BlsDetector:
         if cand is None or cand.rejected is not None:
             return None
         if min(cand.snr, cand.snr_local) < self.trend_snr_threshold:
+            return None
+        if self.trend_repeat_snr is not None and not cand.snr_repeat >= self.trend_repeat_snr:
+            log.info(
+                "bls: detrended box P %.3f d, S/N %.1f refused: %.1f over its nights but the "
+                "strongest (bar %.1f)",
+                cand.box.period_s / DAY_S,
+                cand.snr,
+                cand.snr_repeat,
+                self.trend_repeat_snr,
+            )
             return None
         return replace(cand, trend=fit[1][:2])
 
@@ -1892,6 +1927,7 @@ class BlsDetector:
             float(depth_k @ weight_k / (sigma * math.sqrt(w_sum))) if w_sum > 0 else math.nan
         )
         supported = int((z_k >= self.support_snr).sum())
+        snr_repeat = repeat_snr(depth_k, weight_k, sigma)
         snr_clean = snr_local
         after = in_windows(t, a.flare_windows)
         if after.any():  # the same box with the samples a flare may still lift left out
@@ -1926,6 +1962,7 @@ class BlsDetector:
                 sine_ratio=sine_ratio,
                 snr_clean=snr_clean,
                 shape_chi2=shape_chi2,
+                snr_repeat=snr_repeat,
             )
 
         local_bar = self.snr_threshold
@@ -1972,6 +2009,7 @@ class BlsDetector:
             sine_ratio=ratio,
             snr_clean=snr_clean,
             shape_chi2=advantage,
+            snr_repeat=snr_repeat,
         )
 
     def search(self, curve: LightCurve, cadence_s: int) -> Candidate | None:
