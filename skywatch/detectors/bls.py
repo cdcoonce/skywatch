@@ -220,9 +220,9 @@ runs, 36 on the others and the 10 true positives on flare hosts; the table is in
 
 The gate (``flare_window_h`` = 3 hours, ``flare_min_run`` = 10; ``flare_window_h=None`` switches it
 off) leaves out of the contrast the samples a flare may still lift. A *flare-sized run* is 10 or more
-consecutive samples masked as positive outliers within a night (:func:`flare_windows`) that *decays*
-(issue #48, below: ``flare_tau_s``, ``flare_fit_chi2``); its window
-runs from its first masked sample to 3 hours after its last, and ``Candidate.snr_clean`` is the local
+consecutive samples masked as positive outliers within a night (:func:`flare_windows`); with the
+opt-in decay mode of issue #48 (below: ``flare_tau_s``, ``flare_fit_chi2``; off by default) only a run
+that *decays* counts. Its window runs from its first masked sample to 3 hours after its last, and ``Candidate.snr_clean`` is the local
 S/N of the same box with every sample in a window left out of both sides of the contrast
 (``snr_local`` when there is no window; NaN when no night keeps both box and reference, which is
 refused). The box is rejected as ``"flare tails"`` when ``snr_clean`` is under ``snr_threshold``
@@ -287,7 +287,7 @@ single event (0.239 times its period), local S/N 7.04. No in-box sample is in a 
 nightly contrasts barely move (0.0099 to 0.0098), but the 3 hours after one cosmic-ray run on the
 event night remove 152 reference samples (that night's weight 104 to 71) and the clean S/N is 5.88.
 
-**What opens a window (issue #48).** PR #47's definition, ten consecutive clipped samples, opened a
+**What opens a window (issue #48; an opt-in mode, off by default).** PR #47's definition, ten consecutive clipped samples, opened a
 window for every run, and the runs are mostly not flares. The 50 development 20-night runs (planets
 7, 42, 21-26, 31-40, 61-66, 71-76; planet-free 41-44, 51-58, 81-84, 101-104; 10,000 stars) hold
 23,338 flare-sized runs on 7,901 stars (79 percent), and on 5,500 of those stars none of the runs has
@@ -298,11 +298,11 @@ their own samples a flare's run is a peak and a fall (the peak sample carries un
 excess and the median is under half the peak: 95 percent of the flare runs), a hot pixel's a plateau
 (median at least half the peak: 98 percent) and a cosmic ray's a spike (the peak sample carries half
 of the excess or more: 91 percent). A flare is ``A exp(-(t - t_peak) / tau)`` after an instant rise
-with ``tau`` 120 to 1,800 s, so a run opens a window only if the exponential fitted from its highest
+with ``tau`` 120 to 1,800 s, so in the decay mode a run opens a window only if the exponential fitted from its highest
 sample to its end (:func:`decay_fit`, in units of the night's scatter) has a decay time in
 ``flare_tau_s`` = (60, 3600) seconds (the world's range with a factor of 2 either side for the fit's
 scatter) and a residual of at most ``flare_fit_chi2`` = 3 per degree of freedom;
-``flare_tau_s=None`` restores the definition of #43. The fitted decay time of the flare runs is 128 s
+``flare_tau_s=None`` (the default) is the definition of PR #47 (every run of ten). The fitted decay time of the flare runs is 128 s
 (1st percentile), 218 (5th), 898 (median), 1,681 (95th) and 2,198 (99th); a cosmic ray's is 15 s (a
 quarter of a cadence, the grid's floor) at the median and 25 s at the 95th percentile; a hot
 pixel's plateau is anything (5th to 95th percentile 86 to 15,111 s) but its residual is 648 per
@@ -315,7 +315,7 @@ alone drops 26 percent of the flare runs and lets 761 hot-pixel and 1,292 cosmic
 Stars carrying a window: 7,901 to 2,440 of 10,000 (24.4 percent; 117 of them with no flare label
 under any of their windows). The window length (3 hours) and the minimum run (10) are unchanged.
 
-Measured, ``main`` (with PR #47's gate) to the branch, 200 stars and 20 nights. Development, 20
+Measured, ``main`` (with PR #47's gate) to the decay mode, 200 stars and 20 nights. Development, 20
 planet runs (seeds 7, 42, 21-26, 61-66, 71-76): transit true positives 157 to 157, false positives
 (all kinds) 18 to 19, eclipses reported as transits 5 to 5, pulsations 0 to 0, flares 1 to 1,
 detections 188 to 190; 20 planet-free runs (41-44, 51-58, 81-84, 101-104): false positives 6 to 6,
@@ -334,6 +334,30 @@ positive, which is the 2 to 3 above). The three development losses stay lost, to
 62/38 to flare windows over the box as before, 61/56 to the flare on night 13 (the cosmic-ray window
 on night 5 and the hot-pixel windows are gone; its clean S/N is 5.26 against 3.30). ``single_transit``
 is byte-identical (``cmp``) on seeds 61, 62 and planet-free 58, 82.
+
+**Why it ships off.** Never seen (planets 600-611 and planet-free 620-623, 200 stars and 20 nights,
+simulated after the constants were fixed; the review of PR #52), ``main`` to the decay mode:
+transit true positives 69 to 70, false positives 23 to 25, flares reported as transits 3 to 4,
+detections 107 to 112, and 0 detections on each planet-free run on both; nothing is removed in any
+run. The one true positive added, seed 609 star 150, is a box of the wrong period (5.14 d against
+the planet's 7.65 d) whose event a hot pixel's window had refused (clean S/N 2.53 to 10.47): overlap
+credit. The other four detections added are false: seed 601 star 131, a flare star (4.5 flares a
+day, no planet), is claimed on three events (local S/N 7.75, clean 2.71 to 7.62, stacked 17.8).
+``main`` refused it as "flare tails" by accident: a hot-pixel run ending at 1,221,660 s opened a
+window of three hours, and a flare that begins three minutes after the run (not flare-sized by
+itself) has its tail inside the box's third event, under that window. The decay mode refuses the
+hot-pixel run and the box stands. Seed 62 star 25 and the second event of seed 261 star 29 on the
+development runs are the same: the windows that PR #47 opens after hot pixels refuse false boxes
+by accident, and narrowing them to real flares adds claims. The decay mode is kept, measured and
+opt-in (``flare_tau_s=(60.0, 3600.0)``); the default stays PR #47's definition. Limits: the 98.7
+percent of flare-only runs that open a window is circular, since the band (60 to 3,600 s) and the
+bar (3) come from the generator's own flare law (120 to 1,800 s): it shows that the code reads the
+world's flares, not that the shape test would read real ones. A flare whose run the fit refuses
+(one under a hot pixel) opens no window: 229 of 3,525 never-seen runs with a flare label under them
+(6.5 percent). 23 of 28 hot-pixel-only runs that open a window have 5 samples or fewer from the peak
+to the end of the run (at most 3 degrees of freedom: nearly any exponential fits); a minimum fitted
+length of 8 samples would have closed 26 of the 28 hot-pixel openings at a cost of 63 of 6,113
+flare-only openings (1 percent) -- not tested, a lead.
 
 **The flare bar is not redundant.** With ``flare_snr_threshold`` at 7.0 the 64 stored runs are
 unchanged, but seed 96 star 10 (flare share 9.7 percent, local S/N 7.13, clean S/N 7.93) is claimed
@@ -1481,7 +1505,7 @@ class BlsDetector:
         flare_snr_threshold: float = 7.2,
         flare_window_h: float | None = 3.0,
         flare_min_run: int = 10,
-        flare_tau_s: tuple[float, float] | None = (60.0, 3600.0),
+        flare_tau_s: tuple[float, float] | None = None,
         flare_fit_chi2: float = 3.0,
     ) -> None:
         if not min_period_d > 0:
