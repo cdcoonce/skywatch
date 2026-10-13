@@ -429,6 +429,21 @@ Planned detectors, in order:
    drops 26 percent of the flare runs and lets 761 hot-pixel and 1,292 cosmic-ray runs open one.
    The window length and the minimum run are unchanged.
 
+   Measured, `main` (with PR #47's gate) to the branch. Development, 20 planet runs (seeds 7, 42,
+   21-26, 61-66, 71-76): transit true positives 157 to 157, false positives (all kinds) 18 to 19,
+   eclipses reported as transits 5 to 5, pulsations 0 to 0, flares 1 to 1, detections 188 to 190; 20
+   planet-free runs (41-44, 51-58, 81-84, 101-104): false positives 6 to 6, flares 2 to 2,
+   detections 11 to 11, per run unchanged (at most 3). The detection pair added is seed 62 star 25,
+   a constant star whose two-event box (S/N 11.0, local 9.4, matched to a tracking-drift label) a
+   hot pixel's 15-sample plateau had refused by removing its reference (clean S/N 2.2). Design check
+   (12, 261, 440-445 planets): true positives 57 to 58, false positives 2 to 3, detections 65 to 67;
+   planet-free 446-449: 0 to 0. Held-out, scored once (planets 400-405, planet-free 410-413):
+   nothing changed (32 true positives, 3 false positives, 1 flare reported as a transit, 37
+   detections; 0 detections on each planet-free run); stars carrying a window 1,647 to 525 of 2,000.
+   Seed 261 star 29 (PR #47's never-seen loss) is found again, with one false positive event beside
+   it; the three development losses stay lost, to flares (61/56's clean S/N 5.26 against 3.30,
+   with the cosmic-ray window gone). `single_transit` is byte-identical on four runs.
+
    Never seen (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
    the constants were fixed; the review of PR #47), `main` to the branch:
 

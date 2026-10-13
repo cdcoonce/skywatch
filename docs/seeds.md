@@ -41,14 +41,17 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 374-377 | 20 | planets | development | #44 design: every star sinusoidal, `planet_rate` 0.5 (about 100 planets a run, a third of them on stars that go through the detrending); used |
 | 380-391 | 20 | planets | development | review of PR #50 (never-seen check of the repeat test of a detrended box: one box refused, seed 390 star 136; `bls` and `single_transit` scored, `main` against the branch); used |
 | 392-395 | 20 | planets | development | review of PR #50 (never-seen check; every star sinusoidal, `planet_rate` 0.5, written by `scripts/bls_detrend_audit.py --simulate`, so these are not the standard field of the same seed numbers; 4 boxes refused, 5 transit labels lost); used |
-
-| 400-405 | 20 | planets | **held-out, reserved for #48** | not yet scored |
-| 410-413 | 20 | planet-free | **held-out, reserved for #48** | not yet scored |
+| 400-405 | 20 | planets | development | held-out for #48 (the decaying-run definition of a flare window), scored once, `main` against the branch, after the constants were committed (d3f46ce): transit true positives 32 to 32, false positives 3 to 3, eclipses and pulsations reported as transits 0 to 0, flares reported as transits 1 to 1, detections 37 to 37, per run 0, 4, 6, 0, 8, 19 on both; used |
+| 410-413 | 20 | planet-free | development | held-out for #48, scored once with 400-405: 0 detections on each run, `main` and the branch; used |
 | 420-425 | 20 | planets | **held-out, reserved for #51** (standard field) | not yet scored |
 | 426-429 | 20 | planets | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0.5, via `scripts/bls_detrend_audit.py --simulate`) | not yet scored |
 | 430-433 | 20 | planet-free | **held-out, reserved for #51** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+| 440-445 | 20 | planets | development | #48 design check (with the re-simulated seeds 12 and 261: `main` against the branch after the constants were fixed and before the held-out ranges, nothing changed afterwards: transit true positives 57 to 58, false positives 2 to 3); used |
+| 446-449 | 20 | planet-free | development | #48 design check (0 detections on `main` and on the branch); used |
 
-Next unused range: 440 and up.
+Next unused range: 450 and up.
+
+Also read for #48 (every flare-sized masked run of `bls`, 23,338 of them on 10,000 stars, with the truth under it, to read the shape of a flare, a hot pixel and a cosmic ray and to set the decay-time band and the residual bar; `scripts/bls_flare_run_audit.py`): seeds 7, 42, 21-26, 31-40, 61-66 and 71-76 with planets and planet-free 41-44, 51-58, 81-84 and 101-104 (all 20 nights, 200 stars). `main` against the branch was scored on all of these but 31-40 (40 runs), and on 12, 261, 440-445 and planet-free 446-449.
 
 Also read for #44 (the 67 boxes accepted after a pulsation subtraction, to set the repeat bar; scored beyond the table in its PR only on 151-156): every planet and planet-free run of the ranges above that was simulated again for it (seeds 11-14, 31-50, 61-66, 71-76, 91-100, 111-114, 131-136, 201-206, 210-217, 221-226, 241-246, 261-266, 280-291, 300-311 and 320-331 with planets; 51-58, 81-84, 101-104, 141-144, 218-219, 231-234, 251-254 and 271-274 planet-free; all 20 nights, 200 stars) and the stored runs (seeds 7 and 42 at 3 and 20 nights, 21-26, the planet-free 41-44 and 41-43 at 3 nights).
 
