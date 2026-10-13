@@ -104,6 +104,8 @@ def test_registered_and_a_detector():
         {"guard_f_min_per_d": 0},
         {"guard_f_min_per_d": 5, "guard_f_max_per_d": 5},
         {"tail_sigma": -1},
+        {"common_mode_pulsators": 1.0},
+        {"common_mode_pulsators": -0.1},
     ],
 )
 def test_constructor_validation(kw):
@@ -546,7 +548,7 @@ def test_default_parameters():
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
     assert d.second_pass is False  # opt-in: held-out seeds gain false positives, no transits
     assert d.shape_threshold == 1.5 and d.shape_chi2 == 14.0
-    assert d.common_mode_detrend is True
+    assert d.common_mode_pulsators == 0.5  # the median is robust to a minority of pulsators
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -3145,7 +3147,7 @@ def test_without_a_cadence_or_with_the_switch_off_the_common_mode_is_the_plain_m
     curves = _pulsator_field(n_stars=14)
     det = BlsDetector()
     cleaned = {k: det._clean(v, C) for k, v in curves.items()}
-    plain = BlsDetector(common_mode_detrend=False)._common_mode(cleaned, C)
+    plain = BlsDetector(common_mode_pulsators=None)._common_mode(cleaned, C)
     for got in (det._common_mode(cleaned), det._common_mode(cleaned, None), plain):
         np.testing.assert_array_equal(got[1], plain[1])
     assert not np.array_equal(det._common_mode(cleaned, C)[1], plain[1])
@@ -3175,7 +3177,7 @@ def test_a_field_without_pulsators_has_the_same_common_mode_either_way():
     det = BlsDetector()
     cleaned = {k: det._clean(v, C) for k, v in curves.items()}
     np.testing.assert_array_equal(det._common_mode(cleaned, C)[1], det._common_mode(cleaned)[1])
-    assert detect(curves) == detect(curves, common_mode_detrend=False)
+    assert detect(curves) == detect(curves, common_mode_pulsators=None)
 
 
 def test_detect_uses_the_pulsation_free_common_mode(monkeypatch):
@@ -3190,3 +3192,41 @@ def test_detect_uses_the_pulsation_free_common_mode(monkeypatch):
     curves = make_field(n_stars=11)[2]
     detect(curves)
     assert seen == [C]
+
+
+def test_the_common_mode_is_taken_over_pulsation_free_stars_only_when_they_are_a_majority(
+    monkeypatch,
+):
+    # 14 stars, the first `k` of them found to pulsate (stubbed, so the count is the test's):
+    # the median is taken a second time only when `k` is more than half of them
+    curves = make_field(n_stars=14)[2]
+    calls = []
+    real = BlsDetector._median_over_stars
+
+    def spy(self, cleaned):
+        calls.append(len(cleaned))
+        return real(self, cleaned)
+
+    monkeypatch.setattr(BlsDetector, "_median_over_stars", spy)
+
+    def with_k(k, share=0.5):
+        det = BlsDetector(common_mode_pulsators=share)
+        cleaned = {i: det._clean(v, C) for i, v in curves.items()}
+        monkeypatch.setattr(
+            BlsDetector,
+            "_pulsation_free",
+            lambda self, cl, cm, cad: {
+                i: replace(cl[i], flux=cl[i].flux * 1.001) for i in range(k)
+            },
+        )
+        calls.clear()
+        plain = det._common_mode(cleaned)[1]
+        got = det._common_mode(cleaned, C)[1]
+        return len(calls) - 1, np.array_equal(got, plain)  # -1: the plain call above
+
+    assert with_k(0) == (1, True)  # nothing pulsates: the plain median
+    assert with_k(7) == (1, True)  # exactly half is not more than half
+    assert with_k(8) == (2, False)  # a majority: the median again, over the freed stars
+    assert with_k(1, share=0.0) == (2, False)  # a share of 0: as soon as one star pulsates
+    assert with_k(14, share=None) == (1, True)  # None: never
+    assert with_k(14, share=0.9) == (2, False) and with_k(12, share=0.9) == (1, True)

@@ -1498,7 +1498,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         trend_repeat_snr: float | None = None,
-        common_mode_detrend: bool = True,
+        common_mode_pulsators: float | None = 0.5,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
@@ -1542,6 +1542,10 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if trend_repeat_snr is not None and not trend_repeat_snr > 0:
             raise ValueError(f"trend_repeat_snr must be > 0 or None, got {trend_repeat_snr}")
+        if common_mode_pulsators is not None and not 0 <= common_mode_pulsators < 1:
+            raise ValueError(
+                f"common_mode_pulsators must be in [0, 1) or None, got {common_mode_pulsators}"
+            )
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if shape_chi2 is not None and not shape_chi2 > 0:
@@ -1580,7 +1584,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.trend_repeat_snr = trend_repeat_snr
-        self.common_mode_detrend = common_mode_detrend
+        self.common_mode_pulsators = common_mode_pulsators
         self.shape_threshold = shape_threshold
         self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
@@ -1618,22 +1622,24 @@ class BlsDetector:
         otherwise be the deepest "transit" on every star. Times seen by fewer than
         `common_mode_min_stars` stars get no correction.
 
-        With `cadence_s` (``detect`` passes it) and ``common_mode_detrend`` the median is taken
-        a second time over the stars with their own pulsation subtracted
-        (:meth:`_pulsation_free`): a pulsator's flux is part of the median, and the median of
-        many pulsators is a smooth, field-wide wobble that dividing it out writes into every
-        star. Without `cadence_s` the median is the plain one.
+        With `cadence_s` (``detect`` passes it) the stars with a significant sinusoid are found
+        (:meth:`_pulsation_free`) and, when they are more than the share ``common_mode_pulsators``
+        of the field (a majority by default; ``None`` never), the median is taken a second time
+        over the stars with their own pulsation subtracted: a pulsator's flux is part of the median,
+        and the median of a field of pulsators is a smooth, field-wide wobble that dividing it out
+        writes into every star. Below that share, and without `cadence_s`, the median is the plain
+        one.
         """
         plain = self._median_over_stars(cleaned)
         if (
             plain is None
             or cadence_s is None
-            or not self.common_mode_detrend
+            or self.common_mode_pulsators is None
             or not self._can_detrend()
         ):
             return plain
         freed = self._pulsation_free(cleaned, plain, cadence_s)
-        if not freed:
+        if not len(freed) > self.common_mode_pulsators * len(cleaned):
             return plain
         again = self._median_over_stars({**cleaned, **freed})
         return plain if again is None else again
