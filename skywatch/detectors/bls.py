@@ -1498,6 +1498,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         trend_repeat_snr: float | None = None,
+        common_mode_detrend: bool = True,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
@@ -1579,6 +1580,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.trend_repeat_snr = trend_repeat_snr
+        self.common_mode_detrend = common_mode_detrend
         self.shape_threshold = shape_threshold
         self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
@@ -1606,14 +1608,71 @@ class BlsDetector:
             t, _divide_by_night_median(flux, night_of), night_of, _night_medians(flux, night_of)
         )
 
-    def _common_mode(self, cleaned: Mapping[int, _Clean]) -> tuple[np.ndarray, np.ndarray] | None:
+    def _common_mode(
+        self, cleaned: Mapping[int, _Clean], cadence_s: int | None = None
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """(time grid, per-time median over stars of the night-normalised flux), or None.
 
         Field-wide offsets the quality flag does not cover (a tracking drift holds its new
         level after the flagged span; a cloud's wings) hit every star alike and would
         otherwise be the deepest "transit" on every star. Times seen by fewer than
         `common_mode_min_stars` stars get no correction.
+
+        With `cadence_s` (``detect`` passes it) and ``common_mode_detrend`` the median is taken
+        a second time over the stars with their own pulsation subtracted
+        (:meth:`_pulsation_free`): a pulsator's flux is part of the median, and the median of
+        many pulsators is a smooth, field-wide wobble that dividing it out writes into every
+        star. Without `cadence_s` the median is the plain one.
         """
+        plain = self._median_over_stars(cleaned)
+        if (
+            plain is None
+            or cadence_s is None
+            or not self.common_mode_detrend
+            or not self._can_detrend()
+        ):
+            return plain
+        freed = self._pulsation_free(cleaned, plain, cadence_s)
+        if not freed:
+            return plain
+        again = self._median_over_stars({**cleaned, **freed})
+        return plain if again is None else again
+
+    def _pulsation_free(
+        self,
+        cleaned: Mapping[int, _Clean],
+        common_mode: tuple[np.ndarray, np.ndarray],
+        cadence_s: int,
+    ) -> dict[int, _Clean]:
+        """The stars whose pulsation :meth:`_pulsation_trend` finds, with it subtracted.
+
+        The sinusoid is fitted to the star's flux with the plain `common_mode` removed and
+        clipped, as the search does, and subtracted from every clean sample (the clipped ones
+        too); the nights are divided by their median again. Stars with no significant
+        sinusoid are not in the result.
+        """
+        out: dict[int, _Clean] = {}
+        for star_id, c in cleaned.items():
+            t, flux, night, level = self._prepare(c, common_mode)
+            if len(t) < 4:
+                continue
+            fit = self._pulsation_trend(_Arrays(t, flux, night, level, c.t, c.night_of), cadence_s)
+            if fit is None:
+                continue
+            f = fit[1][0]
+            k = np.unique(night, return_inverse=True)[1]
+            sin_a, cos_a, _ = _sine_fit(
+                (t - float(t[0])) / DAY_S, _demean_by_night(flux - 1.0, k), k, f
+            )
+            arg = 2.0 * np.pi * f * (c.t - float(t[0])) / DAY_S
+            trend = sin_a * np.sin(arg) + cos_a * np.cos(arg)
+            out[star_id] = replace(c, flux=_divide_by_night_median(c.flux - trend, c.night_of))
+        return out
+
+    def _median_over_stars(
+        self, cleaned: Mapping[int, _Clean]
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """(time grid, per-time median of the stars' night-normalised flux), or None."""
         if self.common_mode_min_stars <= 0 or len(cleaned) < self.common_mode_min_stars:
             return None
         grid = np.unique(np.concatenate([c.t for c in cleaned.values()]))
@@ -2446,7 +2505,7 @@ class BlsDetector:
             c = self._clean(curves[star_id], cadence_s)
             if c is not None:
                 cleaned[star_id] = c
-        common_mode = self._common_mode(cleaned)
+        common_mode = self._common_mode(cleaned, cadence_s)
         out: list[Detection] = []
         for star_id, c in cleaned.items():
             out.extend(self._star(star_id, c, common_mode, cadence_s))

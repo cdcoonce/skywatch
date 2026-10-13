@@ -68,6 +68,7 @@ def test_registered_and_a_detector():
         {"mask_pad_h": -1},
         {"shape_threshold": 0},
         {"shape_threshold": -1.0},
+        {"min_night_h": -1.0},
     ],
 )
 def test_constructor_validation(kw):
@@ -86,6 +87,7 @@ def test_defaults_are_the_documented_ones():
     assert d.shape_threshold == 1.0
     assert d.detrend_pulsation is True
     assert d.clip_residual is True
+    assert d.min_night_h == 2.0
 
 
 def test_empty_and_tiny_curves():
@@ -889,3 +891,66 @@ def test_a_box_of_exactly_min_in_and_a_reference_of_exactly_min_out_stands():
     det = SingleTransitDetector()
     assert (det.min_in, det.min_out) == (15, 30)
     assert det._stands_unflared(t, x, night, box)
+
+
+# -- nights too short to have a reference (issue #57) ------------------------------------
+
+
+def _night_cut_short(n_short, depth=0.03, noise=0.002, seed=0, night=4):
+    """Ten nights, night `night` cut to its first `n_short` samples, a 40-sample dip in it.
+
+    The dip sits at samples 20 to 59 of the short night, so it is a clean dip with 30 or more
+    samples to spare outside it from 90 samples of night on: only the length of the night varies.
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(10)
+    t = t[~((t >= night * DAY + n_short * C) & (t < (night + 1) * DAY))]
+    prof = 1.0 - depth * ((t >= night * DAY + 20 * C) & (t < night * DAY + 60 * C))
+    return curve(0, t, prof, noise, rng)
+
+
+def test_a_plateau_that_fills_a_short_night_is_not_a_transit():
+    # a hot pixel (flux stuck at 2.2 times the star) covers the last 59 of 96 samples of a night:
+    # the night's median is the plateau, so the 37 normal samples before it read as a 55 percent
+    # "dip" that nothing above the level can flag (seed 712 star 75 of the development runs)
+    rng = np.random.default_rng(0)
+    t = night_times(10)
+    t = t[~((t >= 4 * DAY + 96 * C) & (t < 5 * DAY))]
+    prof = np.where((t >= 4 * DAY + 37 * C) & (t < 5 * DAY), 2.2, 1.0)
+    cv = curve(0, t, prof, 0.005, rng)
+    found = detect({0: cv}, min_night_h=0.0)
+    assert [(d.t_start, d.t_end) for d in found] == [(4 * DAY, 4 * DAY + 37 * C)]
+    assert found[0].score > 100
+    assert detect({0: cv}) == []
+
+
+def test_a_night_is_searched_from_two_hours_of_samples_on():
+    # the bar is the samples a night holds, not a clock span: 120 samples at 60 s is two hours
+    assert len(detect({0: _night_cut_short(120)})) == 1
+    assert detect({0: _night_cut_short(119)}) == []
+    # ... and the same dip on the same short night is found when the bar is switched off
+    assert len(detect({0: _night_cut_short(119)}, min_night_h=0.0)) == 1
+
+
+def test_the_short_night_bar_is_in_hours_at_any_cadence():
+    # at 120 s a night needs 60 samples for the same two hours
+    rng = np.random.default_rng(0)
+    cadence = 2 * C
+
+    def short(n_short):
+        t = np.concatenate(
+            [
+                k * DAY + np.arange(NIGHT_N // 2 if k != 4 else n_short, dtype=np.int64) * cadence
+                for k in range(10)
+            ]
+        )
+        prof = 1.0 - 0.03 * ((t >= 4 * DAY + 10 * cadence) & (t < 4 * DAY + 30 * cadence))
+        return curve(0, t, prof, 0.002, rng)
+
+    assert len(SingleTransitDetector().detect({0: short(60)}, cadence)) == 1
+    assert SingleTransitDetector().detect({0: short(59)}, cadence) == []
+
+
+def test_a_full_night_is_untouched_by_the_short_night_bar():
+    _, cv = one_dip()
+    assert detect({0: cv}) == detect({0: cv}, min_night_h=0.0) != []

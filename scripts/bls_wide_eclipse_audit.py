@@ -78,7 +78,7 @@ def audit(run_dir: Path, everything: bool) -> list[dict]:
         c = detector._clean(curves[star_id], cadence_s)
         if c is not None:
             cleaned[star_id] = c
-    common_mode = detector._common_mode(cleaned)
+    common_mode = detector._common_mode(cleaned, cadence_s)
     rows = []
     for star_id, c in cleaned.items():
         seen.clear()

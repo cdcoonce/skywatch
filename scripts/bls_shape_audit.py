@@ -33,7 +33,7 @@ def audit(run_dir: Path) -> list[tuple[float, str]]:
         c = detector._clean(curves[star_id], cadence_s)
         if c is not None:
             cleaned[star_id] = c
-    common_mode = detector._common_mode(cleaned)
+    common_mode = detector._common_mode(cleaned, cadence_s)
     rows = []
     for star_id, c in cleaned.items():
         cand = detector._search(c, common_mode, cadence_s)

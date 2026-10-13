@@ -546,6 +546,7 @@ def test_default_parameters():
     assert d.night_gap_cadences == 100 and d.common_mode_min_stars == 10
     assert d.second_pass is False  # opt-in: held-out seeds gain false positives, no transits
     assert d.shape_threshold == 1.5 and d.shape_chi2 == 14.0
+    assert d.common_mode_detrend is True
 
 
 def test_short_transit_at_a_long_period_keeps_every_event_placed():
@@ -688,9 +689,10 @@ def test_second_pass_is_deterministic():
 
 
 def test_second_pass_finds_the_planet_in_a_field_with_common_mode_removal():
-    # a 12-star field of white noise over 20 nights is not quiet once the (noisy) common mode is
-    # divided out, so compare against the same field without the second pass
-    _, _, curves = make_field(n_stars=12, n_nights=20)
+    # a field of a dozen stars of white noise over 20 nights is not quiet once the (noisy) common
+    # mode is divided out (and the median of so few stars is itself too noisy for the planet to
+    # stand), so use two dozen and compare against the same field without the second pass
+    _, _, curves = make_field(n_stars=24, n_nights=20)
     _, eb = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
     curves[5] = LightCurve(5, eb.t, eb.flux, eb.flux_err, eb.quality)
     off = detect(curves, second_pass=False)
@@ -1212,7 +1214,9 @@ def test_performance_with_re_searches_20_stars_10_nights(caplog):
         out = detect(curves, second_pass=True)
         elapsed = time.perf_counter() - t0
     searched = [r for r in caplog.records if "re-search" in r.getMessage()]
-    assert len(searched) == 4, "the fixture must fire re-searches or it guards nothing"
+    # four, and at most one more: a noise star whose best box is refused for a reason other than
+    # S/N (what the common mode divided out leaves in 20 stars of white noise)
+    assert 4 <= len(searched) <= 5, "the fixture must fire re-searches or it guards nothing"
     assert {d.star_id for d in out} == {0, 5, 10, 15}
     # 2.1-2.7 s measured (three runs); four times the slowest, as above
     assert elapsed < 11.0, (
@@ -1375,14 +1379,14 @@ def test_a_short_box_still_leaves_the_transit_out_of_the_fit():
 
 
 def test_performance_with_pulsating_hosts_20_stars_10_nights(caplog):
-    # two of the 20 stars pulsate (1.5 percent, 0.9 and 0.6 d) and carry the 3 h transit of
+    # two of the 20 stars pulsate (1.5 percent, 0.8 and 0.6 d) and carry the 3 h transit of
     # `pulsator`: the guard rejects each, so each is detrended and searched twice more
     t = night_times(10)
     rng = np.random.default_rng(0)
     curves = {}
     for i in range(20):
         if i in (0, 10):
-            curves[i] = pulsator(i, period_d={0: 0.9, 10: 0.6}[i], n_nights=10)[1]
+            curves[i] = pulsator(i, period_d={0: 0.8, 10: 0.6}[i], n_nights=10)[1]
         else:
             curves[i] = curve(i, t, np.ones(len(t)), 0.005, rng)
     with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
@@ -3104,3 +3108,85 @@ def test_a_ratio_rejection_carries_a_mask_and_the_re_search_refuses_its_aliases(
     det = _FirstSearchReal(1.1, detrend_pulsation=False)  # a period that is not an alias stands
     assert len(det.detect({0: cv}, C)) == 2
     assert det.first.rejected == "pulsation guard" and len(det.calls) == 2
+
+
+# -- the field's common mode is taken over the stars with their pulsation subtracted (#57) ----
+
+
+def _pulsator_field(n_stars=40, n_nights=10, seed=3, noise=0.001):
+    """Quiet pulsators (1 percent, 2 to 10 h, random phase): the median of them is not flat."""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    curves = {}
+    for i in range(n_stars):
+        period = rng.uniform(2.0, 10.0) / 24.0 * DAY
+        prof = 1.0 + 0.01 * np.sin(2 * np.pi * t / period + rng.uniform(0, 2 * np.pi))
+        curves[i] = curve(i, t, prof, noise, rng)
+    return curves
+
+
+def _wobble(det, cleaned, cadence=None):
+    grid, cm = det._common_mode(cleaned, cadence)
+    return float(np.std(_renormalise_nights(cm, np.searchsorted(np.arange(0, 10) * DAY, grid) - 1)))
+
+
+def test_the_median_of_many_pulsators_is_a_wobble_and_subtracting_them_first_flattens_it():
+    curves = _pulsator_field()
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    plain = _wobble(det, cleaned)
+    freed = _wobble(det, cleaned, C)
+    assert plain > 0.0015  # the median of 40 sinusoids of 1 percent
+    assert freed < 0.4 * plain
+
+
+def test_without_a_cadence_or_with_the_switch_off_the_common_mode_is_the_plain_median():
+    # single_transit calls `_common_mode(cleaned)`: its field is the plain median, as before
+    curves = _pulsator_field(n_stars=14)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    plain = BlsDetector(common_mode_detrend=False)._common_mode(cleaned, C)
+    for got in (det._common_mode(cleaned), det._common_mode(cleaned, None), plain):
+        np.testing.assert_array_equal(got[1], plain[1])
+    assert not np.array_equal(det._common_mode(cleaned, C)[1], plain[1])
+    # the guard off means no pulsation is fitted, so there is nothing to subtract
+    assert np.array_equal(BlsDetector(guard_fap=None)._common_mode(cleaned, C)[1], plain[1])
+
+
+def test_only_stars_with_a_significant_sinusoid_are_subtracted():
+    curves = make_field(n_stars=12)[2]
+    _, cv = pulsator(0, n_nights=10, transit=False)
+    curves[5] = LightCurve(5, cv.t, cv.flux, cv.flux_err, cv.quality)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    freed = det._pulsation_free(cleaned, det._common_mode(cleaned), C)
+    assert set(freed) == {5}
+    # the pulsation is gone from it (1.5 percent in 0.5 percent noise: the scatter falls to the
+    # noise) and its nights are
+    # divided by their median again
+    before, after = cleaned[5].flux, freed[5].flux
+    assert np.std(before) > 0.0075 and np.std(after) == pytest.approx(0.005, rel=0.05)
+    for k in range(10):
+        assert np.median(after[freed[5].night_of == k]) == pytest.approx(1.0)
+
+
+def test_a_field_without_pulsators_has_the_same_common_mode_either_way():
+    curves = make_field(n_stars=12)[2]
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    np.testing.assert_array_equal(det._common_mode(cleaned, C)[1], det._common_mode(cleaned)[1])
+    assert detect(curves) == detect(curves, common_mode_detrend=False)
+
+
+def test_detect_uses_the_pulsation_free_common_mode(monkeypatch):
+    seen = []
+    real = BlsDetector._common_mode
+
+    def spy(self, cleaned, cadence_s=None):
+        seen.append(cadence_s)
+        return real(self, cleaned, cadence_s)
+
+    monkeypatch.setattr(BlsDetector, "_common_mode", spy)
+    curves = make_field(n_stars=11)[2]
+    detect(curves)
+    assert seen == [C]

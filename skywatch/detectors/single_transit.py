@@ -520,6 +520,7 @@ class SingleTransitDetector:
         shape_threshold: float | None = 1.0,
         detrend_pulsation: bool = True,
         clip_residual: bool = True,
+        min_night_h: float = 2.0,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -531,6 +532,8 @@ class SingleTransitDetector:
             raise ValueError(f"min_out must be >= 1, got {min_out}")
         if mask_pad_h < 0:
             raise ValueError(f"mask_pad_h must be >= 0, got {mask_pad_h}")
+        if min_night_h < 0:
+            raise ValueError(f"min_night_h must be >= 0, got {min_night_h}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         self.snr_threshold = snr_threshold
@@ -543,6 +546,7 @@ class SingleTransitDetector:
         self.shape_threshold = shape_threshold
         self.detrend_pulsation = detrend_pulsation
         self.clip_residual = clip_residual
+        self.min_night_h = min_night_h
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -552,9 +556,12 @@ class SingleTransitDetector:
     ) -> list[NightBox]:
         """The best box of each night whose S/N reaches the threshold (night order)."""
         durations = tuple(h * HOUR_S for h in self.durations_h)
+        shortest = self.min_night_h * HOUR_S / cadence_s  # samples a night needs to be searched
         out: list[NightBox] = []
         for k in np.unique(night):
             idx = np.flatnonzero(night == k)
+            if len(idx) < shortest:
+                continue
             found = search_night(
                 t[idx], flux[idx], cadence_s, durations, self.min_in, self.min_out, self.contrast
             )

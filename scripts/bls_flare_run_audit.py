@@ -69,7 +69,7 @@ def audit(run_dir: Path, det: BlsDetector) -> tuple[list[dict], dict[str, int]]:
         c = det._clean(curves[star_id], cadence_s)
         if c is not None:
             cleaned[star_id] = c
-    common_mode = det._common_mode(cleaned)
+    common_mode = det._common_mode(cleaned, cadence_s)
     rows: list[dict] = []
     stars = {"stars": len(cleaned), "old": 0, "new": 0}
     for star_id, c in cleaned.items():
