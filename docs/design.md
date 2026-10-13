@@ -540,8 +540,8 @@ Planned detectors, in order:
    threshold was added or changed. On the 199 development runs (149 standard, 38 standard
    planet-free, 8 all-sinusoidal with planets, 4 all-sinusoidal planet-free) 7570 hosts are
    refused: only sinusoidal ones come through (85 of 4324 reported, 101 detections: 86 on a
-   transit, 4 flare, 1 hot pixel, 1 cosmic ray, 9 on nothing but the pulsation, S/N 8.2 to 10.7;
-   no eclipsing binary, flare or constant host reported). Of the 18 labels 16 are bounded (the
+   transit, 4 flare, 1 hot pixel, 1 cosmic ray, 9 on nothing but the pulsation, S/N 8.2 to 10.7
+   on development; no eclipsing binary, flare or constant host reported). Of the 18 labels 16 are bounded (the
    other two: seed 44 star 44, whose raw night reads 7.0 so guard (a) never refuses it, and a
    second label whose residual reads 4.0). Planet-free: all detections on the 38 standard runs
    23 to 27 (at most 4 on a run, as at `main`), on the all-sinusoidal 370-373 0 to 1 in all. On
@@ -549,10 +549,28 @@ Planned detectors, in order:
    to 287 transit labels bounded or touched, fp 3 to 3, pulsation->transit 28 to 32. Held-out,
    scored once (420-425 standard, 426-429 all-sinusoidal with planets, 430-433 all-sinusoidal
    planet-free): union transit labels bounded or touched 154 to 176, fp 3 to 3, eclipse->transit
-   5 to 5, pulsation->transit 6 to 8 (two noise dips at S/N 8.8 and 8.3), detections 182 to 216,
-   nothing on 430-433. `bls` is unchanged (`cmp` on four runs). The next step is the follow-up
-   PR that flips PR #50's `trend_repeat_snr` default, measured on its own seeds. The statistic,
-   threshold, guards and limits are in the `skywatch/detectors/single_transit.py` docstring.
+   5 to 5, pulsation->transit 6 to 8 (the two new claims, S/N 8.8 and 8.3, sit beside a flare in
+   the same night), detections 182 to 216, nothing on 430-433. `bls` is unchanged (`cmp` on four
+   runs). Never-seen check in the review (700-711 standard, 712-715 all-sinusoidal with planets,
+   720-723 all-sinusoidal planet-free): union transit labels bounded or touched 224 to 238, fp 20
+   to 20, pulsation->transit 7 to 11, detections 289 to 328, no detection of `main` lost; the four
+   new pulsation claims there are 712 star 75 (S/N 182.9, a ramp-down then a hot-pixel plateau 25 s
+   after the box), 712 star 79 (9.8, a flare label 28 s after), 721 star 181 (9.1) and 722 star 55
+   (10.8) (flare labels 1.0 h after). All six new claims on fresh seeds are flare- or
+   hot-pixel-adjacent in the same night, about 0.4 per all-sinusoidal run, not noise dips: on a
+   pulsator guard (a) used to refuse the whole star, so such a night never reached the search.
+   The acceptance bar "pulsation->transit not higher" is missed on both fresh sets (6 to 8
+   held-out, 7 to 11 never-seen); the detector ships on by default on the owner's decision,
+   because the cost is one fixable class (follow-up issue #54, a flare-adjacent gate on the
+   detrended path) and the gain is real finds. The next step after that is the follow-up PR that
+   flips PR #50's `trend_repeat_snr` default, measured on its own seeds. PR #50's gate, measured
+   in the review beside this detector (`bls` with `trend_repeat_snr=5.0`, 14 held-out runs
+   420-433 and never-seen 700-715; 30 runs): the union of `bls` and `single_transit` goes from
+   405 to 404 transit labels bounded (414 to 412 bounded or touched), pulsation->transit 19 to 10,
+   detections 544 to 522, fp 23 to 23; 2 of 414 transit labels are lost (puls-seed715
+   `transit-n2-s28-0`, puls-seed428 `transit-n7-s156-0`, both found only by `bls` with the gate
+   off), not zero. That is the basis for the flip PR. The statistic, threshold, guards and limits
+   are in the `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring

@@ -50,8 +50,11 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 446-449 | 20 | planet-free | development | #48 design check (0 detections on `main` and on the branch); used |
 | 600-611 | 20 | planets | development | review of PR #52 (never-seen check of the decaying-run flare windows, `bls` scored, `main` against the branch: transit true positives 69 to 70, false positives 23 to 25, flares reported as transits 3 to 4, detections 107 to 112; seed 601 star 131 a false claim on a flare star, seed 609 star 150 a planet recovered); used |
 | 620-623 | 20 | planet-free | development | review of PR #52 (never-seen check, `planet_rate` 0; 0 detections on each run, `main` and the branch); used |
+| 700-711 | 20 | planets | development | review of PR #53 (never-seen check of `single_transit` on pulsating hosts, standard field; also `bls` with `trend_repeat_snr=5.0` for the #50 gate question); used |
+| 712-715 | 20 | planets | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers); used |
+| 720-723 | 20 | planet-free | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0, `scripts/bls_detrend_audit.py --simulate`); used |
 
-Next unused range: 450 and up. (440-449 are #52's design seeds, planets 440-445 and planet-free 446-449; #51 used none of them.)
+Next unused range: 450 and up. (440-449 are #52's design seeds, planets 440-445 and planet-free 446-449; #51 used none of them; 700-723 are PR #53's review seeds.)
 
 Also read for #48 (every flare-sized masked run of `bls`, 23,338 of them on 10,000 stars, with the truth under it, to read the shape of a flare, a hot pixel and a cosmic ray and to set the decay-time band and the residual bar; `scripts/bls_flare_run_audit.py`): seeds 7, 42, 21-26, 31-40, 61-66 and 71-76 with planets and planet-free 41-44, 51-58, 81-84 and 101-104 (all 20 nights, 200 stars). `main` against the branch was scored on all of these but 31-40 (40 runs), and on 12, 261, 440-445 and planet-free 446-449.
 

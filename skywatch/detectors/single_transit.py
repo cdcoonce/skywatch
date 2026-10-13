@@ -204,7 +204,15 @@ sinusoidal hosts 4168 have no night at 8 on the residual, 66 fail guard (a) on t
 detections, 86 on a transit, 4 on a flare, 1 on a hot pixel, 1 on a cosmic ray and 9 on nothing
 but the pulsation (S/N 8.2 to 10.7). The real transits it reports read from 8.2 up, so no higher
 bar (``bls`` asks 9 of a detrended box) separates them from those 9: it would cost more planets than
-it removes dips. Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
+it removes boxes. The review of the PR read the six pulsation->transit claims the detrend adds on
+fresh seeds: all six sit beside a flare or a hot pixel in the same night (held-out seed 424 star 41
+at 8.8 and 427 star 103 at 8.3; never-seen 712 star 75 at 182.9 beside a hot-pixel plateau, 712
+star 79 at 9.8, 721 star 181 at 9.1, 722 star 55 at 10.8), about 0.4 per all-sinusoidal run (6 in 16
+runs), not noise dips. On a pulsator guard (a) used to refuse the whole star, so a night with a
+flare in it never reached the per-night search; after the subtraction one box is left, guard (a)
+is satisfied and the flare or hot-pixel residue reads as a dip (the class this detector already
+reports on quiet stars, flare->transit 4). Follow-up: issue #54 (a flare-adjacent gate on the
+detrended path, in the style of #47). Of the 18 labels of PR #50's review, 16 are bounded (``bls`` with its repeat
 test on loses them, ``single_transit`` before: 0): the other two are seed 44 star 44 (the transit
 night reads 7.0 raw, so guard (a) never refuses the star and the subtraction is not tried) and
 the second label of puls-seed393 star 162 (the residual reads 4.0). Planet-free, all detections:
@@ -217,11 +225,24 @@ sinusoidal with ``planet_rate`` 0.5, 430-433 every star sinusoidal and planet-fr
 20 nights), ``main`` to this. ``single_transit``: transit labels bounded or touched 12 to 44
 (standard 12 to 15, all-sinusoidal 0 to 29), false positives 0 to 0, eclipse->transit 1 to 1,
 pulsation->transit 0 to 2, detections 16 to 50; the 34 new detections are 32 transits and the 2
-pulsation claims, noise dips of S/N 8.8 (seed424 star 41) and 8.3 (seed427 star 103), and no
+pulsation claims, both beside a flare in the same night (S/N 8.8, seed424 star 41, a flare label
+0.4 h after the box; 8.3, seed427 star 103, the box starts inside a flare label's tail), and no
 detection of ``main`` is lost. Union with ``bls`` (which does not change): transit labels
 bounded or touched 154 to 176, false positives 3 to 3, eclipse->transit 5 to 5, flare->transit 0
 to 0, pulsation->transit 6 to 8, detections 182 to 216. The planet-free all-sinusoidal runs
 430-433 have no detection from either detector, before or after.
+
+Never-seen check of the PR's review (seeds 700-711 standard, 712-715 every star sinusoidal with
+``planet_rate`` 0.5, 720-723 every star sinusoidal and planet-free; 20 runs), union with ``bls``,
+``main`` to this: transit labels bounded or touched 224 to 238 (standard 127 to 129, 712-715 97 to
+109, 720-723 0 to 0), false positives 20 to 20, pulsation->transit 7 to 11, detections 289 to 328;
+``single_transit`` alone bounds 25 to 60 labels and no detection of ``main`` (35) is lost. Planet-
+free pulsators: 0, 1, 1, 0 detections on 720-723 (S/N 9.1 and 10.8), inside the rule of 5 a run.
+
+Acceptance, pulsation->transit not higher: missed on both fresh sets, 6 to 8 held-out and 7 to 11
+never-seen. The detector ships on by default regardless (the owner's decision): the cost is one
+fixable class, the flare- or hot-pixel-adjacent claims above, and the gain is real finds (union
+transit labels 154 to 176 held-out, 224 to 238 never-seen, no detection lost, fp flat).
 
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
 the residual and fails the guard), a planet whose other events stand out of the residual is left
