@@ -409,12 +409,25 @@ Planned detectors, in order:
    e-foldings of every true flare leaves none). `single_transit` is identical span for span on 27
    runs; the time of `bls` is unchanged.
 
-   What opens a window. On five never-seen planet runs (1,000 stars) there are 2,142 flare-sized
-   runs: 40 percent have a flare under them, 39 percent only a hot pixel and 20 percent only a
-   cosmic ray; 800 of the 1,000 stars carry a window. The gate therefore detects a clip run, not a
-   flare, and taxes lost reference samples on marginal boxes (a box under local S/N 7.5 or so, on a
-   night with a window, can fall under 7.0 on weight alone). A decay-shaped run definition is issue
-   #48.
+   What opens a window (issue #48). PR #47's definition, ten consecutive clipped samples, opened a
+   window for every run, and the runs are mostly not flares. The 50 development 20-night runs (10,000
+   stars) hold 23,338 flare-sized runs on 7,901 stars (79 percent), and on 5,500 of those stars none
+   of the runs has a flare label under it: 42.4 percent of the runs have only a flare under them,
+   36.9 percent only a hot pixel (a flat plateau), 15.9 percent only a cosmic ray (a spike widened by
+   the clip and, by chance, 10 samples), 4.8 percent a mixture or none of the three
+   (`scripts/bls_flare_run_audit.py`). A flare is `A exp(-(t - t_peak) / tau)` with `tau` 120 to
+   1,800 s, so a run now opens a window only if the exponential fitted from its highest sample
+   (`decay_fit`, in units of the night's scatter) has a decay time in 60 to 3,600 s (`flare_tau_s`:
+   the world's range with a factor of 2 either side for the fit's scatter) and a residual of at most
+   3 per degree of freedom (`flare_fit_chi2`). The fitted decay time of the flare runs is 128 s (1st
+   percentile), 218 (5th), 898 (median), 1,681 (95th), 2,198 (99th) and their residual 0.79 per
+   degree of freedom (median; 95th percentile 1.61); a cosmic ray's decay time is 15 s (a quarter
+   of a cadence) at the median, a hot pixel's plateau has a residual of 648 (median; 5th percentile
+   5.4). 9,746 of 9,888 flare-only runs (98.6 percent) still open a window, 42 of 8,613 hot-pixel-only
+   and 14 of 3,712 cosmic-ray-only runs do. Stars carrying a window: 7,901 to 2,440 of 10,000. The
+   decay time alone lets 5,849 hot-pixel runs open one, "the peak is in the first four samples" alone
+   drops 26 percent of the flare runs and lets 761 hot-pixel and 1,292 cosmic-ray runs open one.
+   The window length and the minimum run are unchanged.
 
    Never seen (planets 261-266 and planet-free 271-274, 200 stars and 20 nights, simulated after
    the constants were fixed; the review of PR #47), `main` to the branch:

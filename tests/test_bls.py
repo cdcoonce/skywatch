@@ -14,6 +14,7 @@ from skywatch.detectors.bls import (
     _circular_runs,
     _is_alias,
     _renormalise_nights,
+    decay_fit,
     flare_windows,
     frequency_grid,
     in_box,
@@ -22,6 +23,7 @@ from skywatch.detectors.bls import (
     positive_outliers,
     refine,
 )
+from skywatch.detectors.bls import masked_runs as run_edges
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
 
@@ -2482,9 +2484,10 @@ def test_a_masked_run_of_eight_opens_no_window_and_one_of_twelve_does():
     # the same event, 20 to 30 minutes after a masked run. Runs of 8 or 9 samples (a cosmic ray
     # that the clip followed a little way, a hot pixel) leave the contrast alone; runs of 12 to 14
     # leave nothing of an event inside the 3 hours that follow. A run length of 5 refuses the first,
-    # one of 20 accepts the second
+    # one of 20 accepts the second. (Plateaus, so with the shape test of #48 off: `flare_tau_s`
+    # None, the definition of #43; with it on they open no window, see below)
     short, long_ = clipped_plateaus(4), clipped_plateaus(8)
-    det = BlsDetector()
+    det = BlsDetector(flare_tau_s=None)
     assert set(masked_runs(det, short)) <= {8, 9} and set(masked_runs(det, long_)) <= {12, 13, 14}
     cand = det.search(short, C)
     assert cand.rejected is None and cand.snr_clean == cand.snr_local > 30
@@ -2492,7 +2495,223 @@ def test_a_masked_run_of_eight_opens_no_window_and_one_of_twelve_does():
     cand = det.search(long_, C)
     assert cand.rejected == "flare tails" and cand.snr_local > 30 and math.isnan(cand.snr_clean)
     assert det.detect({0: long_}, C) == []
-    assert BlsDetector(flare_window_h=None).search(long_, C).rejected is None
+    assert BlsDetector(flare_tau_s=None, flare_window_h=None).search(long_, C).rejected is None
+
+
+def flared(amp, tau, seed=3, n_nights=12, at=60):
+    """A planet (P 1.0 d, a 30 minute event at sample 100 of every night, depth 1.2 percent) and a
+    flare of `amp` (a fraction of the flux) and decay time `tau` (samples) at sample `at` of every
+    night. The event begins 25 to 30 minutes after the flare's masked run ends (12 to 20 samples
+    for amp 0.1 and tau 3), inside the 3 hours of its window."""
+    rng = np.random.default_rng(seed)
+    t = night_times(n_nights)
+    prof = box_profile(t, DAY, 100 * C + 900, 1800.0, 0.012)
+    for k in range(n_nights):
+        dt = (t - (k * DAY + at * C)) / C
+        prof = prof + np.where(dt >= 0, amp * np.exp(-np.maximum(dt, 0.0) / tau), 0.0)
+    return curve(0, t, prof, 0.005, rng)
+
+
+def test_only_a_decaying_run_opens_a_window():
+    # the same event after a masked run of 12 to 20 samples. A flare (10 percent, a decay of 3
+    # minutes) leaves nothing of it in the 3 hours that follow; a plateau of the same length (a hot
+    # pixel) opens no window, so the event keeps its S/N. The definition of #43, every run of 10
+    # samples (`flare_tau_s` None), refuses both
+    flare, plateau = flared(0.1, 3.0), clipped_plateaus(8)
+    det = BlsDetector()
+    assert min(masked_runs(det, flare)) >= 12 and set(masked_runs(det, plateau)) <= {12, 13, 14}
+    cand = det.search(flare, C)
+    assert cand.rejected == "flare tails" and cand.snr_local > 30 and math.isnan(cand.snr_clean)
+    assert det.detect({0: flare}, C) == []
+    cand = det.search(plateau, C)
+    assert cand.rejected is None and cand.snr_clean == cand.snr_local > 30
+    assert len(det.detect({0: plateau}, C)) == 12
+    old = BlsDetector(flare_tau_s=None)
+    assert old.search(flare, C).rejected == "flare tails"
+    assert old.search(plateau, C).rejected == "flare tails"
+
+
+def test_the_decay_time_and_the_fit_decide_the_flare_run():
+    # the flare above fits a decay of 165 to 200 s with a residual of 0.4 to 1.7 per degree of freedom.
+    # A band that excludes it from above or from below, or a residual bar under it, leaves the event
+    # alone
+    cv = flared(0.1, 3.0)
+    assert BlsDetector().search(cv, C).rejected == "flare tails"
+    assert BlsDetector(flare_tau_s=(60.0, 150.0)).search(cv, C).rejected is None
+    assert BlsDetector(flare_tau_s=(230.0, 3600.0)).search(cv, C).rejected is None
+    assert BlsDetector(flare_tau_s=(150.0, 230.0)).search(cv, C).rejected == "flare tails"
+    assert BlsDetector(flare_fit_chi2=0.3).search(cv, C).rejected is None
+    assert BlsDetector(flare_fit_chi2=3.0).search(cv, C).rejected == "flare tails"
+    d = BlsDetector()
+    assert d.flare_tau_s == (60.0, 3600.0) and d.flare_fit_chi2 == 3.0
+
+
+def one_night(x_sigma, sigma=0.005, noise_seed=1):
+    """A night of 480 samples whose excess over 1 is `x_sigma` (in units of `sigma`, white noise of
+    1 added), as (t, night, flux, kept) with `kept` the one-sided clip's verdict."""
+    rng = np.random.default_rng(noise_seed)
+    t = np.arange(NIGHT_N) * float(C)
+    flux = 1.0 + sigma * (np.asarray(x_sigma) + rng.normal(0.0, 1.0, NIGHT_N))
+    flux = flux / np.median(flux)
+    return t, np.zeros(NIGHT_N, dtype=np.int64), flux, ~positive_outliers(flux, 4.0, 1.0)
+
+
+BAND = BlsDetector().flare_tau_s  # the detector's own band and residual bar
+BAR = BlsDetector().flare_fit_chi2
+
+
+def opens(x_sigma, band=BAND, sigma=0.005):
+    t, night, flux, kept = one_night(x_sigma, sigma)
+    return len(flare_windows(t, night, kept, 10, 3600.0, flux, float(C), band, BAR)) > 0
+
+
+@pytest.mark.parametrize(
+    "tau,expected", [(2, True), (10, True), (30, True), (45, True), (100, False)]
+)
+def test_the_decay_band_is_the_worlds_flare_range_with_a_factor_of_two_either_side(tau, expected):
+    # the world's flares decay in 120 to 1,800 s (2 to 30 samples). The band takes 60 to 3,600 s:
+    # a decay of 45 samples (2,700 s) is inside, one of 100 (6,000 s) is not
+    k = np.arange(NIGHT_N) - 100
+    assert opens(np.where(k >= 0, 60.0 * np.exp(-np.maximum(k, 0) / tau), 0.0)) is expected
+
+
+def test_the_lower_end_of_the_band_is_half_the_shortest_decay_the_world_makes():
+    k = np.arange(NIGHT_N) - 100
+    fast = np.where(k >= 0, 4000.0 * np.exp(-np.maximum(k, 0) / 1.5), 0.0)  # tau 90 s
+    assert opens(fast) and not opens(fast, band=(120.0, 3600.0))
+
+
+def test_a_plateau_a_spike_and_a_ramp_open_no_window():
+    k = np.arange(NIGHT_N)
+    plateau = np.where((k >= 100) & (k < 130), 100.0, 0.0)
+    assert not opens(plateau)
+    assert not opens(np.where((k >= 100) & (k < 108), 100.0, 0.0))  # a plateau under the bar
+    # a cosmic ray with the clip's tail: the spike, then a few samples of noise above the threshold
+    spike = np.zeros(NIGHT_N)
+    spike[100] = 300.0
+    t, night, flux, _ = one_night(spike)
+    kept = np.ones(NIGHT_N, dtype=bool)
+    kept[98:112] = False
+    assert len(flare_windows(t, night, kept, 10, 3600.0, flux, float(C), BAND, BAR)) == 0
+    assert len(flare_windows(t, night, kept, 10, 3600.0)) == 1  # the definition of #43
+    # a slow rise to a plateau and a fall to nothing in a step
+    rise = np.where((k >= 100) & (k < 140), (k - 100) * 3.0, 0.0)
+    assert not opens(rise)
+
+
+def test_two_flares_in_one_night_open_two_windows_and_a_plateau_between_them_none():
+    k = np.arange(NIGHT_N)
+    x = np.zeros(NIGHT_N)
+    for at in (60, 330):
+        x += np.where(k >= at, 50.0 * np.exp(-np.maximum(k - at, 0) / 8.0), 0.0)
+    x += np.where((k >= 190) & (k < 230), 100.0, 0.0)
+    t, night, flux, kept = one_night(x)
+    w = flare_windows(t, night, kept, 10, 3600.0, flux, float(C), BAND, BAR)
+    assert len(w) == 2 and t[58] <= w[0][0] <= t[70] and t[328] <= w[1][0] <= t[340]
+    assert len(flare_windows(t, night, kept, 10, 3600.0)) == 3
+
+
+def test_a_flare_on_a_noisy_night_is_read_against_that_nights_scatter():
+    # night 0 is quiet (0.2 percent), night 1 noisy (2 percent) with a flare of 15 sigma of its own
+    # night: 150 sigma of the quiet one, whose scatter a fit on the whole record would use
+    t0, night0, flux0, kept0 = one_night(np.zeros(NIGHT_N), sigma=0.002)
+    k = np.arange(NIGHT_N)
+    t1, _, flux1, kept1 = one_night(
+        np.where(k >= 100, 15.0 * np.exp(-np.maximum(k - 100, 0) / 8), 0.0), sigma=0.02
+    )
+    t = np.concatenate((t0, t1 + DAY))
+    night = np.concatenate((night0, night0 + 1))
+    flux = np.concatenate((flux0, flux1))
+    kept = np.concatenate((kept0, kept1))
+    w = flare_windows(t, night, kept, 10, 3600.0, flux, float(C), BAND, BAR)
+    assert len(w) == 1 and w[0][0] > DAY
+
+
+def test_decay_fit_recovers_an_exponential_from_its_peak_and_reads_its_time_in_seconds():
+    k = np.arange(40)
+    t = k * 60.0
+    tau, chi2 = decay_fit(t, 30.0 * np.exp(-k / 10.0), 60.0)
+    assert 540.0 < tau < 660.0 and chi2 < 0.05
+    # the same samples at a cadence of 30 s are half as long in time; a gap in the record (no
+    # samples at 5 and 6) is a longer interval, not a longer run
+    assert 270.0 < decay_fit(k * 30.0, 30.0 * np.exp(-k / 10.0), 30.0)[0] < 330.0
+    keep = (k != 5) & (k != 6)
+    assert 540.0 < decay_fit(t[keep], (30.0 * np.exp(-k / 10.0))[keep], 60.0)[0] < 660.0
+    # a rise before the peak is not part of the fit
+    x = np.concatenate(([1.0, 3.0, 8.0], 30.0 * np.exp(-k / 10.0)))
+    tau, chi2 = decay_fit(np.arange(len(x)) * 60.0, x, 60.0)
+    assert 540.0 < tau < 660.0 and chi2 < 0.05
+
+
+def test_decay_fit_is_the_least_squares_exponential_over_the_samples_less_two():
+    # compared with a brute-force search of a very fine grid on a short run, where the degrees of
+    # freedom (the samples less the amplitude and the decay time) are few
+    y = np.array([9.0, 5.5, 4.0, 1.0])
+    t = np.arange(4) * 60.0
+    taus = np.geomspace(0.1, 300.0, 200_000)
+    e = np.exp(-np.arange(4)[:, None] / taus[None, :])
+    amp = (y @ e) / np.sum(e * e, axis=0)
+    best = float(np.min(np.sum((y[:, None] - amp * e) ** 2, axis=0)))
+    tau, chi2 = decay_fit(t, y, 60.0)
+    assert chi2 == pytest.approx(best / 2, rel=1e-4)
+    assert tau == pytest.approx(
+        60.0 * float(taus[np.argmin(np.sum((y[:, None] - amp * e) ** 2, axis=0))]), rel=1e-3
+    )
+
+
+def test_decay_fit_rejects_a_plateau_and_reads_a_spike_as_shorter_than_a_cadence():
+    k = np.arange(40)
+    plateau = np.where((k >= 2) & (k < 38), 100.0, 0.0)
+    assert decay_fit(k * 60.0, plateau, 60.0)[1] > 100.0
+    spike = np.zeros(40)
+    spike[2] = 100.0
+    spike[3:8] = 0.5
+    assert decay_fit(k * 60.0, spike, 60.0)[0] < 60.0
+    assert decay_fit(k * 60.0, np.concatenate((np.zeros(38), [1.0, 5.0])), 60.0)[1] == math.inf
+    assert math.isnan(
+        decay_fit(k[:2] * 60.0, np.array([1.0, 5.0]), 60.0)[0]
+    )  # 1 sample from the peak
+    assert math.isnan(decay_fit(k[:4] * 60.0, np.array([1.0, 2.0, 5.0, 3.0]), 60.0)[0])  # 2
+
+
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"flare_tau_s": (0.0, 10.0)},
+        {"flare_tau_s": (100.0, 50.0)},
+        {"flare_tau_s": (-1.0, 50.0)},
+        {"flare_fit_chi2": 0},
+        {"flare_fit_chi2": -1},
+    ],
+)
+def test_the_shape_parameters_are_validated(kw):
+    with pytest.raises(ValueError):
+        BlsDetector(**kw)
+    assert BlsDetector(flare_tau_s=None).flare_tau_s is None
+    assert BlsDetector(flare_tau_s=(60.0, 60.0)).flare_tau_s == (60.0, 60.0)
+
+
+def test_masked_runs_are_the_half_open_stretches_of_a_mask():
+    m = np.array([1, 1, 0, 1, 0, 0, 1, 1, 1], dtype=bool)
+    assert run_edges(m) == [(0, 2), (3, 4), (6, 9)]
+    assert run_edges(m, 3) == [(6, 9)]
+    assert run_edges(np.zeros(4, dtype=bool)) == []
+
+
+def test_the_run_is_read_after_the_fields_common_mode_is_removed():
+    # twelve stars share a field-wide rise of 30 percent over 40 samples, from the flare's sample, in every
+    # night (a tracking drift's wing); one of them carries the planet and a flare. The common mode takes the rise out
+    # before the clip, so the flare's run is a clean decay and opens its window; read in the raw
+    # flux, the same run sits on a ramp of tens of sigma that no exponential fits
+    rng = np.random.default_rng(3)
+    t = night_times(12)
+    rise = 1.0 + 0.3 * np.clip(((t % DAY) / C - 60.0) / 40.0, 0.0, 1.0)
+    star = flared(0.1, 3.0).flux / 1000.0
+    curves = {0: curve(0, t, star * rise, 0.0, rng)}
+    for i in range(1, 12):
+        curves[i] = curve(i, t, rise, 0.005, rng)
+    assert [d for d in detect(curves) if d.star_id == 0] == []
+    assert [d for d in detect(curves, flare_window_h=None) if d.star_id == 0] != []
 
 
 def test_runs_do_not_merge_across_the_end_of_a_night():
