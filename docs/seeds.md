@@ -53,9 +53,9 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 700-711 | 20 | planets | development | review of PR #53 (never-seen check of `single_transit` on pulsating hosts, standard field; also `bls` with `trend_repeat_snr=5.0` for the #50 gate question); used |
 | 712-715 | 20 | planets | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers); used |
 | 720-723 | 20 | planet-free | development | review of PR #53 (never-seen check; every star sinusoidal, `planet_rate` 0, `scripts/bls_detrend_audit.py --simulate`); used |
-| 800-805 | 20 | planets | **held-out, reserved for the #44 flip PR** (standard field) | not yet scored |
-| 806-809 | 20 | planets | **held-out, reserved for the #44 flip PR** (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`) | not yet scored |
-| 810-813 | 20 | planet-free | **held-out, reserved for the #44 flip PR** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+| 800-805 | 20 | planets | development | held-out for the #44 flip PR #55 (standard field), scored once; PR closed unmerged (decision rule missed by one planet); used |
+| 806-809 | 20 | planets | development | held-out for PR #55 (every star sinusoidal, `planet_rate` 0.5), scored once; the lost planet is puls-seed809 star 185; used |
+| 810-813 | 20 | planet-free | development | held-out for PR #55 (every star sinusoidal, `planet_rate` 0), scored once; used |
 | 820-825 | 20 | planets | **held-out, reserved for #54** (standard field) | not yet scored |
 | 826-829 | 20 | planets | **held-out, reserved for #54** (every star sinusoidal, `planet_rate` 0.5) | not yet scored |
 | 830-833 | 20 | planet-free | **held-out, reserved for #54** (every star sinusoidal, `planet_rate` 0) | not yet scored |
