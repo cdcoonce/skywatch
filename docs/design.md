@@ -709,6 +709,43 @@ Planned detectors, in order:
    (`pulsator(0)`); puls-seed582 star 5 (20 events of 4.4 h) is accepted, 1.5 times its windows leaving
    about 1.4 h of each night for the guard. CPU of `single_transit` unchanged (standard
    28.0 s to 28.5 s, all-sinusoidal 102.8 s to 99.6 s).
+   Boxes near the bar on a pulsator (issue #63). A long event reads low: on 258 single-event planets at
+   matched-filter S/N 10 or more (74 standard, 184 all-sinusoidal; 139 development runs) the plain
+   form reads a median 0.98 of the matched filter and the contrast form 0.76 (0.82 where the box fills
+   under a fifth of its night, 0.67 where it fills half or more). Nothing in the statistic or the bar
+   was changed: the false claims sit where the factor is smallest (the 23 detections of `main` on 36
+   planet-free standard runs have a box share of the night, median 0.65, 90th percentile 0.82; the 115
+   detections on a transit label of the standard planet runs median 0.28, 90th percentile 0.58), a
+   reference level from the star's other nights moves the S/N by a median 0.99 to 1.00 of the
+   contrast value (offline, 23,672 raw boxes), and a bar of 7.0 gives 46 detections on 36 planet-free
+   runs against 23, up to 6 on one run. What the table supports is the prefilter: a pulsator's
+   pulsation is in its raw scatter, so a star whose raw best box is under 8 never reached the detrend.
+   `near_snr` (5) keeps each night's best box from 5 up, and a star with no box at the bar whose
+   strongest box guard (a) refuses goes to the detrend; the residual must reach 8 and pass the
+   same gates. Development: 8 stars of the 80 planet runs have a residual at 8 or more under a raw
+   best box of 5.97 to 7.93, 6 are reported; `single_transit` planets 97 to 98 (standard) and 306 to
+   311 (all-sinusoidal), single-event planets at S/N 10 or more bounded 54 to 54 and 140 to 142, fp
+   1 to 1 and 0 to 0, detections 141 to 142 and 557 to 562, nothing lost, nothing added on 59
+   planet-free runs; CPU 30.0 s to 30.1 s (standard), 94.9 s to 98.0 s (all-sinusoidal). Held-out
+   (450-459 standard, 490-499 all-sinusoidal, scored once): `single_transit` `cmp`-identical on all 20
+   runs, so planets 11 and 45, fp 0 and 0, union planets 25 and 62, and `bls` `cmp`-identical on
+   four runs: the change fired on none of them (development predicted about one). The #44 switch
+   (`bls` at `trend_repeat_snr=5.0`) on the held-out all-sinusoidal runs, with `main` and with the
+   branch alike: union planets 62 to 61, transit labels bounded 189 to 186, pulsation->transit 8 to 3,
+   detections 266 to 252; the planet it loses is puls-seed492 planet 101 (star 195), one event cut
+   by the end of a 160-sample night, which `single_transit` reads at 4.6 raw and 2.4 on the
+   residual; on the standard runs nothing changes. Never seen (review of PR #64; 548-555
+   all-sinusoidal with planets, 556-559 planet-free), `main` to branch: `single_transit` single-event
+   planets at S/N 10 or more bounded 29 to 30, transit labels bounded 94 to 96, planets 63 to 65, fp
+   0 to 0, pulsation->transit 0 to 0, detections 94 to 96 (two added, none lost: puls-seed548 star 89
+   at 9.31 and puls-seed549 star 13 at 10.45, both bounded on a transit label; the other six runs
+   `cmp`-identical), 0 detections on the four planet-free runs; union with `bls` planets 86 to 88,
+   detections 345 to 347, pulsation->transit 17 to 17. The #44 switch on those runs loses no planet
+   (86 to 86 on `main`, 88 to 88 on the branch), takes pulsation->transit 17 to 6 and two transit
+   labels, on planets another event still finds (puls-seed548 planet 8, puls-seed550 planet 65).
+   puls-seed585 star 16 (the single event that
+   motivated the issue) is not recovered: its residual reads 7.93 against 8 (raw 7.43), from the
+   realised depth (11.2 at the white scale), a sigma 10 percent over it and the contrast factor 0.785.
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
