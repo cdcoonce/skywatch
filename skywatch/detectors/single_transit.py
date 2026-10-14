@@ -377,12 +377,19 @@ runs that hold the refused sinusoidal stars (43 of the 138 differ, 8 of the 51 d
 488 to 509, fp 15 to 15, eclipse->transit 5 to 5, pulsation->transit 54 to 55, detections 1742 to
 2073; with the repeat test of issue #44 switched on in ``bls``: bounded or touched 1459 to 1502,
 planets 486 to 507, pulsation->transit 16 to 17. The seed 809 star 185 of PR #55 needed none of
-this: ``main`` already reports it (S/N 10.25, shape 0.87); with the plain median as common mode it
-was refused by the shape test (1.57), and #60 removed that.
+this: ``main`` finds it since PR #60 (S/N 10.25, shape 0.87). On the detector's own path, with the
+field's common mode, its residual holds one box, on night 3 (S/N 12.7), which passes guard (a) and
+was dropped by the shape test (1.57) until #60's pulsation-free median read it at 0.87. The "nights
+10, 12 and 15 at S/N 122-160" that PR #55 and issue #61 quote came from a replay that called
+``_prepare(c, None)``, without the field's common mode (reproduced: S/N 159.6, 122.2 and 152.6, and
+guard (a) refuses it); the simulation of seed 809 is byte-identical across the commits, so the run
+was the same and the replay was the difference.
 
 Held-out, scored once after the code was committed (seeds 560-565 standard, 566-571 every star
 sinusoidal with ``planet_rate`` 0.5, 572-575 every star sinusoidal and planet-free; 200 stars, 20
-nights), ``main`` to this. Standard: ``single_transit`` ``cmp``-identical on all six. Every star
+nights), ``main`` to this. Standard: ``single_transit`` ``cmp``-identical on all six (true of these
+six, not in general: 4 of the 60 development standard runs gain transit detections, seeds 421, 460,
+604 and 800). Every star
 sinusoidal with planets (6 runs): ``single_transit`` transit labels bounded 40 to 71, bounded or
 touched 42 to 73, planets 30 to 41, fp 0 to 0, pulsation->transit 1 to 1, detections 44 to 75 (the
 31 new detections are all on a transit label, none lost); union with ``bls`` (unchanged, ``cmp``
@@ -397,9 +404,27 @@ finds. CPU of ``single_transit`` on one run, ``main`` to this: seed 560 (standar
 puls-seed566 (every star sinusoidal) 102.8 s to 99.6 s (a second ``_pulsating`` read only on a
 residual of two boxes or more that the first read refused).
 
-Not changed: a periodic planet with many events on a pulsator (``pulsator(0)`` in the tests, four
-events of S/N 15 to 23) stays refused after the others are out and is left to ``bls``; 71 of the 171
-hosts, 8 of the 9 constant hosts and all 777 binaries stay refused.
+Never seen before the review of PR #62 (seeds 580-587, every star sinusoidal, ``planet_rate`` 0.5,
+and 588-591, planet-free; 200 stars, 20 nights), ``main`` to this: ``single_transit`` transit labels
+bounded 64 to 126, bounded or touched 66 to 129, planets 53 to 67, fp 0 to 0, pulsation->transit 0 to
+1, detections 66 to 130 (64 new: 62 on a transit label bounded, 1 touched, 1 a second box inside a
+transit's span that the one-to-one match gave to the pulsation label; none lost); union with ``bls``
+(unchanged, ``cmp``-identical on 580, 582, 585 and 588): bounded 249 to 270, planets 90 to 92, fp 0 to
+0, pulsation->transit 14 to 15, detections 308 to 372. Planet-free: 0 detections from
+``single_transit`` on the four runs, on both sides. With the repeat test of issue #44 on in ``bls``
+(``trend_repeat_snr=5.0``) against off, on this branch: union planets 92 to 90, bounded or touched 276
+to 273, pulsation->transit 15 to 3; the planets it loses are puls-seed585 star 16 and puls-seed586
+star 125, and the same three labels are lost on ``main`` (planets 90 to 88), so the branch neither
+costs nor rescues anything under the switch.
+
+Not changed: a periodic planet with many events on a pulsator stays refused when the cut windows
+leave the guard enough data: ``pulsator(0)`` in the tests (four events of S/N 15 to 23) is still read
+as a sinusoid once the others are out and is left to ``bls``. This is measured for four events only.
+A planet with many events is accepted when 1.5 times its windows leaves the guard too little data to
+read a sinusoid in: puls-seed582 star 5 (20 events of 4.4 h, one per night) keeps about 1.4 h of each
+8 h night, is accepted and reported on 21 boxes (S/N 10 to 25). That is the mechanism and not a bar:
+the guard is nearly blind there, which is harmless for a real planet. 71 of the 171 development hosts,
+8 of the 9 constant hosts and all 777 binaries stay refused.
 
 Limits
 ------

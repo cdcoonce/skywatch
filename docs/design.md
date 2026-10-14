@@ -686,16 +686,28 @@ Planned detectors, in order:
    planet-free runs have no detection before or after; union with `bls` (51 runs holding the refused
    stars) planets 488 to 509, fp 15 to 15, pulsation->transit 54 to 55, and with the #44 switch on in
    `bls` planets 486 to 507, pulsation->transit 16 to 17. Held-out, scored once (560-575): standard
-   `single_transit` `cmp`-identical, `bls` `cmp`-identical on four runs; every star sinusoidal with
+   `single_transit` `cmp`-identical on these six (not in general: 4 of the 60 development standard runs
+   gain transit detections, seeds 421, 460, 604 and 800), `bls` `cmp`-identical on four runs; every star sinusoidal with
    planets `single_transit` bounded 40 to 71, planets 30 to 41, fp 0 to 0, pulsation->transit 1 to 1,
    detections 44 to 75 (none lost); union planets 58 to 58, fp 0 to 0, pulsation->transit 6 to 6,
    detections 241 to 272 (`bls` already held what `single_transit` gains); planet-free 0, 0, 2, 0
    detections on both sides. With `bls` at `trend_repeat_snr=5.0` the union on the same runs holds
    planets 58 to 58 on `main` and on the branch, bounded or touched 202 and 202 (204 with the test
    off), pulsation->transit 1 and 1 (6 with it off); the two labels the switch costs are 31- and
-   27-sample remnants of a transit cut by a night's start, found by neither version. The planet of PR
-   #55 (puls-seed809 star 185) was already reported on `main` (S/N 10.25): with the plain median it was
-   refused by the shape test (1.57), which #60 removed. CPU of `single_transit` unchanged (standard
+   27-sample remnants of a transit cut by a night's start, found by neither version. Never seen before
+   the review of PR #62 (580-587 every star sinusoidal with planets, 588-591 planet-free): `single_transit`
+   bounded 64 to 126, planets 53 to 67, fp 0 to 0, pulsation->transit 0 to 1, detections 66 to 130 (none
+   lost); union planets 90 to 92, fp 0 to 0, pulsation->transit 14 to 15, detections 308 to 372; planet-free
+   0 detections from `single_transit`, both sides. The #44 switch on those runs (`bls` at 5.0 against off,
+   on the branch): union planets 92 to 90, pulsation->transit 15 to 3; the planets lost are puls-seed585
+   star 16 and puls-seed586 star 125, the same on `main`. The planet of PR #55 (puls-seed809 star 185)
+   is found on `main` since #60 (S/N 10.25). Its cause: PR #55's and issue #61's "nights 10, 12, 15 at S/N
+   122-160" came from a replay that called `_prepare(c, None)`, without the field's common mode; with
+   the detector's own path the residual has one box, on night 3 (S/N 12.7), which passes guard (a) and
+   was dropped by the shape test (1.57) until #60's pulsation-free median (0.87). The simulation is
+   byte-identical across the commits. The "many events stays refused" case is measured for four events
+   (`pulsator(0)`); puls-seed582 star 5 (20 events of 4.4 h) is accepted, 1.5 times its windows leaving
+   about 1.4 h of each night for the guard. CPU of `single_transit` unchanged (standard
    28.0 s to 28.5 s, all-sinusoidal 102.8 s to 99.6 s).
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
