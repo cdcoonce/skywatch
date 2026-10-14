@@ -3140,7 +3140,8 @@ def test_the_median_of_many_pulsators_is_a_wobble_and_subtracting_them_first_fla
 
 
 def test_without_a_cadence_or_with_the_switch_off_the_common_mode_is_the_plain_median():
-    # single_transit calls `_common_mode(cleaned)`: its field is the plain median, as before
+    # without the cadence (or with the share switched off) the field is the plain median; `detect`
+    # of both `bls` and `single_transit` passes the cadence, so this is the median of a standard field
     curves = _pulsator_field(n_stars=14)
     det = BlsDetector()
     cleaned = {k: det._clean(v, C) for k, v in curves.items()}

@@ -656,6 +656,20 @@ Planned detectors, in order:
    held-out gain is one planet in the union, against 21 on development: `single_transit` alone gained 2
    planets on seed 526 (3 to 5) and 1 on seed 529 (9 to 10), and the union moved only on 529 (11 to 12;
    526 stays at 7 planets, which `bls` already had).
+   Never-seen 540-547 (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`,
+   `main` against the branch, `bls` unchanged): `single_transit` planets 47 to 60, fp 0 to 0,
+   pulsation->transit 1 to 0; union planets 85 to 91, bounded 253 to 259, fp 0 to 0, pulsation->transit
+   10 to 9. The gain mechanism: 7 of the 8 union planets gained and 20 of the 24 `single_transit` label
+   gains are strong boxes (S/N 13 to 59) that the residual pulsation guard refused on `main`, because the
+   plain median's field-wide wobble survives each star's own sinusoid subtraction and reads as "still
+   pulsating"; the median over the freed stars has none. The loss mechanism: each loss (393, 480, 715
+   twice, 826; 543 star 148, 544 star 134) is the same box on the same samples with a statistic across a
+   bar, S/N across 8 (four times on development, twice here) and once the shape statistic across 1.0
+   (826 star 68, 0.866 to 1.02), caused by the field-wide difference between the two medians over the
+   box (0.0002 to 0.0009 of flux), not by the host star. Paired over 85 detections both sides have, the
+   S/N change is -0.12 +- 0.07, not significant. The three regimes are consistent within the noise of
+   about three changes per run: union planets per run +0.58 on development, +0.75 never-seen, +0.25
+   held-out.
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.

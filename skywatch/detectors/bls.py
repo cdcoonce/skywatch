@@ -55,8 +55,8 @@ when the median is taken over the stars with their own sinusoid subtracted. The 
 (``trend_repeat_snr``, below) is not the remedy: it reads 7.59 on star 133 and refuses 6 of the 139
 all-sinusoidal development boxes whose events are all on a planet.
 
-With ``cadence_s`` (``detect`` passes it; ``single_transit`` calls ``_common_mode`` without it and keeps
-the plain median) :meth:`BlsDetector._common_mode` finds the stars with a significant sinusoid
+With ``cadence_s`` (``detect`` passes it, and ``single_transit`` too since issue #59)
+:meth:`BlsDetector._common_mode` finds the stars with a significant sinusoid
 (:meth:`BlsDetector._pulsation_free`: the sinusoid of :meth:`BlsDetector._pulsation_trend`, fitted to the
 star with the plain median removed and clipped as the search does, subtracted from every clean sample,
 the nights divided by their median again) and, when they are more than the share

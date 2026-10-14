@@ -57,7 +57,7 @@ def audit(run_dir: Path, min_snr: float) -> tuple[list[str], Counter, Counter]:
         c = bls._clean(curves[star_id], cadence_s)
         if c is not None:
             cleaned[star_id] = c
-    common_mode = bls._common_mode(cleaned)
+    common_mode = bls._common_mode(cleaned, cadence_s)  # as `single_transit.detect` does
     durations = tuple(h * HOUR_S for h in det.durations_h)
     lines: list[str] = []
     hosts: Counter = Counter()
