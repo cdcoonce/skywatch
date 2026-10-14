@@ -25,8 +25,8 @@ night is exactly where the false claims on planet-free stars live, and a bar
 of 7 doubled those claims and broke the planet-free rule. The builder kept
 the statistic and the bar. It made a narrower change instead (PR #64): a
 pulsating star whose best raw box is between 5 and 8 now reaches the
-subtraction. That found six more real transits on development runs and one
-on two fresh ones, lost nothing, and left the original planet at 7.93, an
+subtraction. That found six more real transits on development runs and two
+on fresh ones, lost nothing, and left the original planet at 7.93, an
 honest near-miss.
 
 The other planet had two transits of about 7 sigma each, one sitting under a
