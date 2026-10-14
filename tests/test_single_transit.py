@@ -15,6 +15,7 @@ from tests.test_bls import (
     NIGHT_N,
     C,
     _pin_repeat_snr,
+    _pulsator_field,
     curve,
     eclipsing,
     make_field,
@@ -1017,10 +1018,11 @@ def test_the_bar_is_also_in_the_search_that_follows_the_eclipse_mask(seed, caplo
     assert any("eclipses masked" in r.getMessage() for r in caplog.records)
 
 
-def test_single_transit_takes_the_plain_median_of_the_stars_and_passes_no_cadence(monkeypatch):
-    # `bls` passes the cadence (the median over pulsation-free stars in a field of pulsators);
-    # `single_transit` does not: the plain median, as before. Passing it changes its results
-    # (480-483: planets 19 to 22), a change that is a follow-up (issue #59), not this one.
+def test_single_transit_passes_the_cadence_so_the_common_mode_is_the_pulsation_free_one(
+    monkeypatch,
+):
+    # issue #59: `single_transit` takes the same common mode as `bls` (it passed no cadence in
+    # #57, and so always the plain median); the share gate keeps a standard field on the plain one
     seen = []
     real = BlsDetector._common_mode
 
@@ -1031,4 +1033,27 @@ def test_single_transit_takes_the_plain_median_of_the_stars_and_passes_no_cadenc
     monkeypatch.setattr(BlsDetector, "_common_mode", spy)
     curves = make_field(n_stars=11)[2]
     detect(curves)
-    assert seen == [None]
+    assert seen == [C]
+
+
+def test_in_a_field_of_pulsators_single_transit_divides_by_the_median_of_the_freed_stars(
+    monkeypatch,
+):
+    # the field handed to every star is `bls`'s, not the plain median (a wobble of the 40 pulsators)
+    curves = _pulsator_field()
+    got = []
+    real = SingleTransitDetector._star
+
+    def spy(self, star_id, c, common_mode, cadence_s):
+        got.append(common_mode)
+        return real(self, star_id, c, common_mode, cadence_s)
+
+    monkeypatch.setattr(SingleTransitDetector, "_star", spy)
+    detect(curves)
+    bls = BlsDetector()
+    cleaned = {k: bls._clean(v, C) for k, v in curves.items()}
+    freed = bls._common_mode(cleaned, C)
+    plain = bls._common_mode(cleaned)
+    assert got and all(g is not None for g in got)
+    np.testing.assert_array_equal(got[0][1], freed[1])
+    assert not np.array_equal(freed[1], plain[1])

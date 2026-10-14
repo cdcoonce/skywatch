@@ -888,7 +888,7 @@ class SingleTransitDetector:
             c = bls._clean(curves[star_id], cadence_s)
             if c is not None:
                 cleaned[star_id] = c
-        common_mode = bls._common_mode(cleaned)
+        common_mode = bls._common_mode(cleaned, cadence_s)
         out: list[Detection] = []
         for star_id, c in cleaned.items():
             out.extend(self._star(star_id, c, common_mode, cadence_s))
