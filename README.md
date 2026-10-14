@@ -116,7 +116,12 @@ other events cut out lets `single_transit` find 106 more planets on
 development runs. The same review found that the cause recorded for an
 earlier closed PR came from a side script, not the detector.
 
-Open: issue #44.
+[0014](docs/log/0014-a-trade-not-taken.md): a gate that removes fast
+pulsators reported as transits was measured against a rule written before the
+last seeds existed. It cut those claims from 20 to 4 but lost two real planets
+where one was allowed, so it stays off.
+
+Nothing is open.
 
 ## Develop
 
