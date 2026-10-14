@@ -452,7 +452,8 @@ detections 141 to 142 / 557 to 562; no detection lost, and the 59 planet-free ru
 detections on both sides. CPU of ``single_transit`` on one run, ``main`` to this: seed700 (standard)
 30.0 s to 30.1 s, puls-seed585 (every star sinusoidal) 94.9 s to 98.0 s. The floor of 5 is the lowest
 raw reading that was measured: the records force a residual only for a star whose raw best box reads 5
-or more, and the lowest reading of a star that gains is 5.97. Nothing below 5 was measured.
+or more, and the lowest raw reading among the 8 stars whose residual reaches 8 is 5.97 (6.04 among the
+6 reported). Nothing below 5 was measured.
 
 Held-out, scored once after ``near_snr`` was committed (seeds 450-455 standard with planets, 456-459
 standard planet-free, 490-495 every star sinusoidal with ``planet_rate`` 0.5, 496-499 every star
