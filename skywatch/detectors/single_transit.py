@@ -356,6 +356,48 @@ Limits
   held-out seed25 star 121 (a constant host, true stacked S/N 15.2) has 56 observed samples on
   its night, 44 inside the label, so no box has ``n_out >= 30`` and the dip is missed.
 
+Short nights
+------------
+A night is searched only if it holds at least ``min_night_h`` (2) hours of samples (120 at 60 s) after
+the clip; ``0`` switches the bar off. A dropout or a flagged span splits an 8 h night, and a hot pixel
+(flux stuck at 1.5 to 4 times the star for 5 to 60 minutes in the world) can then cover most of what is
+left: the plateau is the night's median and the unaffected stretch reads as a 35 to 66 percent dip, with
+nothing above the level for any clip to see (issue #57; seed 712 star 75, S/N 182.9 on a 96-sample night,
+seed 375 star 80 on 53 samples, seed 376 star 37 on 67). The bar is twice the longest hot pixel. Measured
+on the 100 development runs (48 standard with planets, 28 all-sinusoidal with planets, 24 all-sinusoidal
+planet-free; 200 stars, 20 nights): 89 of the 2,122 nights (counted on the first star of each run) hold
+fewer than 120 samples, and `main` made 10 detections on such nights, none of them a transit (5 hot-pixel
+plateaus, 3 plateaus on pulsators, 2 dropouts); the 7 detections on nights of 120 to 239 samples (1
+transit, 3 flares, 2 dropouts, 1 cloud) are not touched. The deepest planet of the world is 3 percent, but
+5 detections matched to transit labels also read 12 to 37 percent, so a bar on depth would have cost
+labels where this costs none measured on those nights.
+
+`main` to the branch (``single_transit`` alone). Development: detections 316 to 305, transit labels
+bounded or touched 279 to 279, fp 1 to 1, pulsation->transit 5 to 1, eclipse->transit 9 to 9; 12
+detections removed (10 on nights under 120 samples, as above) and one added (seed800 star 73, S/N 8.3).
+Held-out, scored once (460-465 standard, 466-469 all-sinusoidal with planets, 470-473 planet-free):
+detections 49 to 44, transit labels bounded 42 to 41 (puls-seed466 star 14, S/N 8.7), fp 1 to 0,
+pulsation->transit 2 to 0, eclipse->transit 4 to 3. The bar also acts inside the searches that follow a
+guard rejection (the pulsation subtracted, the eclipse windows masked), where the mask can leave a
+fragment: 2 of the 12 removals on the development runs (seed601 star 64, an eclipse; puls-pf-seed510
+star 54, a pulsation) and 2 of the 5 held-out (puls-seed466 star 14, the transit label lost; seed460 star
+51, an eclipse) are on nights of 387 to 480 samples, on stars the guard rejected, whose boxes before the
+guard are the same with and without the bar.
+
+Why the bar sits where it does, and what it costs. The bar acts in every search of a star (the first,
+the pulsation-subtracted ones and the re-search after the eclipse mask); the tests pin the last two. The
+placement was compared on the development and held-out runs (on the never-seen 474-489 every variant is
+identical): the bar inside the pulsation-subtracted search is what keeps seed 375 star 80, seed 376 star
+37, seed 712 star 75 and seed 466 star 104 out, and the bar inside the mask re-search blocks one transit
+and four false boxes and lets one false box in. The transit is seed 466 star 14 (planet 4, S/N 8.7, a
+pulsator host the guard rejected), whose night holds 120 or more samples in the first search and 94 once
+the eclipse mask has removed a window; the false boxes are seed 460 star 51 and seed 601 star 64
+(eclipses), puls-pf-seed510 star 54 (a pulsation) and seed 804 star 78 (a hot pixel, S/N 135.2), and the
+one let in is seed 800 star 73 (an eclipse, S/N 8.3). A bar on the night as observed (before the mask)
+would keep seed 466 star 14 but also re-admit the three false boxes of 460, 601 and 510, so it is not
+better on these data. A night the mask leaves under two hours is not searched; one held-out planet host
+(seed 466 star 14, 94 samples left) was lost to it.
+
 Coupling with ``bls``
 ---------------------
 Guard (b) tests ``cand.rejected != "pulsation guard"``: a star whose periodic search is not
@@ -387,7 +429,13 @@ and 20 nights, 11, 12, 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 4
 and 104).
 The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
-of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it.
+of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it. It calls ``_common_mode`` without a
+cadence, so it keeps the plain median of the stars: the median over pulsation-free stars that ``bls``
+takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here (a test
+pins it). A lead, not a result: passing the cadence to this detector, the review of PR #58 measured on the
+all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, fp 0 to 0, and on 486 the last
+pulsation->transit goes (six runs); standard fields are unaffected by construction (the share). It is to
+be measured on the 52 development all-sinusoidal runs in issue #59.
 """
 
 from __future__ import annotations
@@ -520,6 +568,7 @@ class SingleTransitDetector:
         shape_threshold: float | None = 1.0,
         detrend_pulsation: bool = True,
         clip_residual: bool = True,
+        min_night_h: float = 2.0,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -531,6 +580,8 @@ class SingleTransitDetector:
             raise ValueError(f"min_out must be >= 1, got {min_out}")
         if mask_pad_h < 0:
             raise ValueError(f"mask_pad_h must be >= 0, got {mask_pad_h}")
+        if min_night_h < 0:
+            raise ValueError(f"min_night_h must be >= 0, got {min_night_h}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         self.snr_threshold = snr_threshold
@@ -543,6 +594,7 @@ class SingleTransitDetector:
         self.shape_threshold = shape_threshold
         self.detrend_pulsation = detrend_pulsation
         self.clip_residual = clip_residual
+        self.min_night_h = min_night_h
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -552,9 +604,12 @@ class SingleTransitDetector:
     ) -> list[NightBox]:
         """The best box of each night whose S/N reaches the threshold (night order)."""
         durations = tuple(h * HOUR_S for h in self.durations_h)
+        shortest = self.min_night_h * HOUR_S / cadence_s  # samples a night needs to be searched
         out: list[NightBox] = []
         for k in np.unique(night):
             idx = np.flatnonzero(night == k)
+            if len(idx) < shortest:
+                continue
             found = search_night(
                 t[idx], flux[idx], cadence_s, durations, self.min_in, self.min_out, self.contrast
             )

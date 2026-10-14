@@ -68,6 +68,7 @@ def test_registered_and_a_detector():
         {"mask_pad_h": -1},
         {"shape_threshold": 0},
         {"shape_threshold": -1.0},
+        {"min_night_h": -1.0},
     ],
 )
 def test_constructor_validation(kw):
@@ -86,6 +87,7 @@ def test_defaults_are_the_documented_ones():
     assert d.shape_threshold == 1.0
     assert d.detrend_pulsation is True
     assert d.clip_residual is True
+    assert d.min_night_h == 2.0
 
 
 def test_empty_and_tiny_curves():
@@ -889,3 +891,144 @@ def test_a_box_of_exactly_min_in_and_a_reference_of_exactly_min_out_stands():
     det = SingleTransitDetector()
     assert (det.min_in, det.min_out) == (15, 30)
     assert det._stands_unflared(t, x, night, box)
+
+
+# -- nights too short to have a reference (issue #57) ------------------------------------
+
+
+def _night_cut_short(n_short, depth=0.03, noise=0.002, seed=0, night=4):
+    """Ten nights, night `night` cut to its first `n_short` samples, a 40-sample dip in it.
+
+    The dip sits at samples 20 to 59 of the short night, so it is a clean dip with 30 or more
+    samples to spare outside it from 90 samples of night on: only the length of the night varies.
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(10)
+    t = t[~((t >= night * DAY + n_short * C) & (t < (night + 1) * DAY))]
+    prof = 1.0 - depth * ((t >= night * DAY + 20 * C) & (t < night * DAY + 60 * C))
+    return curve(0, t, prof, noise, rng)
+
+
+def test_a_plateau_that_fills_a_short_night_is_not_a_transit():
+    # a hot pixel (flux stuck at 2.2 times the star) covers the last 59 of 96 samples of a night:
+    # the night's median is the plateau, so the 37 normal samples before it read as a 55 percent
+    # "dip" that nothing above the level can flag (seed 712 star 75 of the development runs)
+    rng = np.random.default_rng(0)
+    t = night_times(10)
+    t = t[~((t >= 4 * DAY + 96 * C) & (t < 5 * DAY))]
+    prof = np.where((t >= 4 * DAY + 37 * C) & (t < 5 * DAY), 2.2, 1.0)
+    cv = curve(0, t, prof, 0.005, rng)
+    found = detect({0: cv}, min_night_h=0.0)
+    assert [(d.t_start, d.t_end) for d in found] == [(4 * DAY, 4 * DAY + 37 * C)]
+    assert found[0].score > 100
+    assert detect({0: cv}) == []
+
+
+def test_a_night_is_searched_from_two_hours_of_samples_on():
+    # the bar is the samples a night holds, not a clock span: 120 samples at 60 s is two hours
+    assert len(detect({0: _night_cut_short(120)})) == 1
+    assert detect({0: _night_cut_short(119)}) == []
+    # ... and the same dip on the same short night is found when the bar is switched off
+    assert len(detect({0: _night_cut_short(119)}, min_night_h=0.0)) == 1
+
+
+def test_the_short_night_bar_is_in_hours_at_any_cadence():
+    # at 120 s a night needs 60 samples for the same two hours
+    rng = np.random.default_rng(0)
+    cadence = 2 * C
+
+    def short(n_short):
+        t = np.concatenate(
+            [
+                k * DAY + np.arange(NIGHT_N // 2 if k != 4 else n_short, dtype=np.int64) * cadence
+                for k in range(10)
+            ]
+        )
+        prof = 1.0 - 0.03 * ((t >= 4 * DAY + 10 * cadence) & (t < 4 * DAY + 30 * cadence))
+        return curve(0, t, prof, 0.002, rng)
+
+    assert len(SingleTransitDetector().detect({0: short(60)}, cadence)) == 1
+    assert SingleTransitDetector().detect({0: short(59)}, cadence) == []
+
+
+def test_a_full_night_is_untouched_by_the_short_night_bar():
+    _, cv = one_dip()
+    assert detect({0: cv}) == detect({0: cv}, min_night_h=0.0) != []
+
+
+# -- the night bar acts in every search of a star, not only the first (issue #57) ------------
+
+
+def _pulsating_host_with_a_fragment(seed, depth=0.02):
+    """`pulsating_host` plus a night (9) cut to 96 samples whose first 40 hold a 2 percent dip.
+
+    The dip is a box on a night under the 120 samples the bar asks for. It is only a way to put
+    a box on a short night: the pulsator's raw nights are all refused by guard (a), so the box on
+    night 4 is found in the search that follows the sinusoid's subtraction.
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    t = t[~((t >= 9 * DAY + 96 * C) & (t < 10 * DAY))]
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof * dip_profile(t, 4, 2.5, 3.0, 0.01)
+    prof = prof * (1.0 - depth * ((t >= 9 * DAY + 20 * C) & (t < 9 * DAY + 60 * C)))
+    return curve(0, t, prof, 0.005, rng)
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_the_bar_is_also_in_the_search_that_follows_the_pulsation_subtraction(seed):
+    # seeds 375 star 80, 376 star 37, 712 star 75 and 466 star 104 of the development runs were
+    # pulsator hosts whose short-night plateau only this second search saw
+    cv = _pulsating_host_with_a_fragment(seed)
+    out = detect({0: cv})
+    assert [d.t_start // DAY for d in out] == [4]
+    # the fragment is a box that the same search reports when the bar is off
+    assert sorted(d.t_start // DAY for d in detect({0: cv}, min_night_h=0.0)) == [4, 9]
+
+
+def _eclipsing_binary_with_a_fragment(seed):
+    """An eclipsing binary (eclipse centred at hour 2 of every night) with night 6 cut to 360
+    samples and a 3 percent, 40-sample dip at samples 290 to 329 of it.
+
+    Night 6 holds 360 samples, so the first search reads it. The eclipse mask removes the first
+    4 to 5 hours of the night and leaves under two hours: the dip sits in what is left.
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    t = t[~((t >= 6 * DAY + 360 * C) & (t < 7 * DAY))]
+    prof = eclipsing(t, 2.0, 2.0 / 24.0, 5.0, 0.20, 0.08)
+    prof = prof * (1.0 - 0.03 * ((t >= 6 * DAY + 290 * C) & (t < 6 * DAY + 330 * C)))
+    return curve(0, t, prof, 0.005, rng)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_the_bar_is_also_in_the_search_that_follows_the_eclipse_mask(seed, caplog):
+    # a night the mask leaves under two hours is not searched (documented: puls-seed466 star 14,
+    # a planet host, lost 94 samples left; the same placement keeps seed 804 star 78, a hot pixel
+    # at S/N 135, and four false boxes out)
+    cv = _eclipsing_binary_with_a_fragment(seed)
+    with caplog.at_level("INFO", logger="skywatch.detectors.single_transit"):
+        assert detect({0: cv}) == []
+    assert not any("eclipses masked" in r.getMessage() for r in caplog.records)  # no box stood
+    # ... and without the bar the fragment is searched (after the mask) and reports the dip
+    with caplog.at_level("INFO", logger="skywatch.detectors.single_transit"):
+        found = detect({0: cv}, min_night_h=0.0)
+    assert [d.t_start // DAY for d in found] == [6]
+    assert any("eclipses masked" in r.getMessage() for r in caplog.records)
+
+
+def test_single_transit_takes_the_plain_median_of_the_stars_and_passes_no_cadence(monkeypatch):
+    # `bls` passes the cadence (the median over pulsation-free stars in a field of pulsators);
+    # `single_transit` does not: the plain median, as before. Passing it changes its results
+    # (480-483: planets 19 to 22), a change that is a follow-up (issue #59), not this one.
+    seen = []
+    real = BlsDetector._common_mode
+
+    def spy(self, cleaned, cadence_s=None):
+        seen.append(cadence_s)
+        return real(self, cleaned, cadence_s)
+
+    monkeypatch.setattr(BlsDetector, "_common_mode", spy)
+    curves = make_field(n_stars=11)[2]
+    detect(curves)
+    assert seen == [None]

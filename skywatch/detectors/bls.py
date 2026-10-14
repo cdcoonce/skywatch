@@ -22,7 +22,8 @@ flagged span ends and a cloud's wings are not flagged, so a field-wide step of 5
 survives the quality flag on a few nights and, for a BLS, is the deepest "transit" on every
 star. Each star's night-normalised flux is divided by the per-time median over all stars
 (times seen by fewer than ``common_mode_min_stars`` = 10 stars are left alone) and
-renormalised per night. Fewer than 10 stars in the field switches this off. Then per star:
+renormalised per night. Fewer than 10 stars in the field switches this off. When most of the stars
+pulsate the median is taken over the stars with their pulsation subtracted (below). Then per star:
 
 3. Positive outliers are masked one-sidedly (:func:`positive_outliers`). With ``s =
    1.4826 * MAD`` of the night's normalised flux, samples above ``1 + clip_sigma * s``
@@ -38,6 +39,74 @@ renormalised per night. Fewer than 10 stars in the field switches this off. Then
    (the first-pass median includes the transit, which pulls it low on a night with a long
    event), and ``sigma``, the scatter used for the S/N, is ``1.4826 * MAD`` of the
    normalised flux outside the box.
+
+Common mode of a field of pulsators
+-----------------------------------
+The per-time median over the stars is a pulsator's flux too (issue #57). The median of a field of
+pulsators is not flat, and dividing it out writes its wobble into every star, where a quiet pulsator's
+detrending finds it as a box. Measured on the all-sinusoidal development runs (every star sinusoidal):
+on quiet nights the 2 hour block scatter of the common mode is 0.034 percent on puls-pf-seed830 and 831,
+against 0.021 to 0.022 percent on the standard runs 800, 821 and pf-seed41. The 10 claims of puls-pf-seed830
+(twice the planet-free rule of 5) are that: the box of star 133 (8 events, 4 h, 0.164 percent) is still
+there when the *injected* sinusoid is subtracted instead of the fitted one (S/N 11.8 against 13.7), the
+other 179 stars of the run read in its windows a median local S/N of 1.22 (8.4 percent of them above 3)
+against -0.18 to 0.63 (at most 1.1 percent) for the same box at four other epochs, and the claim is gone
+when the median is taken over the stars with their own sinusoid subtracted. The repeat test
+(``trend_repeat_snr``, below) is not the remedy: it reads 7.59 on star 133 and refuses 6 of the 139
+all-sinusoidal development boxes whose events are all on a planet.
+
+With ``cadence_s`` (``detect`` passes it; ``single_transit`` calls ``_common_mode`` without it and keeps
+the plain median) :meth:`BlsDetector._common_mode` finds the stars with a significant sinusoid
+(:meth:`BlsDetector._pulsation_free`: the sinusoid of :meth:`BlsDetector._pulsation_trend`, fitted to the
+star with the plain median removed and clipped as the search does, subtracted from every clean sample,
+the nights divided by their median again) and, when they are more than the share
+``common_mode_pulsators`` (0.5; ``None`` never) of the field's stars, takes the median a second time over
+the field with them subtracted. The share is the median's own majority, not a fitted number: on the 54
+standard runs of the development and held-out seeds 0.115 to 0.28 of the stars carry a sinusoid (flares
+and the harmonics of binaries included), on 58 of the 60 all-sinusoidal runs 0.875 to 0.98. The cost is
+one pulsation fit for each star of the field (user CPU on one 20-night run 90.4 s to 95.7 s on seed800,
+142.8 s to 142.5 s on puls-pf-seed830).
+
+What this is for. The fix is for the planet-free rule (at most 5 ``bls`` detections on an all-sinusoidal
+planet-free run), not a planet gain. ``main`` breaks that rule on 3 of the 34 all-sinusoidal planet-free runs
+read so far (seeds 371 with 7, 830 with 10 and held-out 472 with 14); the clean held-out evidence is seed 472
+(14 to 2). The planets the development runs gained (below) did not replicate on never-seen seeds: 474-489
+(16 runs, checked in the review of PR #58) union planets 56 to 55, ``bls`` planets 40 to 39, within the one
+planet the issue allows. Seeds 474-479 (standard field) ``bls`` is byte-identical to ``main`` (``cmp`` on all
+six); 484-489 (all-sinusoidal, planet-free) are 0 detections on ``main`` and on the branch, so the rule was not
+at risk there and they do not test it. Seeds 460-465 are not clean for the share (it was added after reading
+them).
+
+Measured, ``main`` to the branch. Nothing was fitted: the share and the sinusoid are existing numbers.
+Development (100 runs of 200 stars and 20 nights: 24 all-sinusoidal planet-free 370-373, 430-433, 510-513,
+720-723, 810-813 and 830-833; 28 all-sinusoidal with planets 374-377, 392-395, 426-429, 506-509, 712-715,
+806-809 and 826-829; 48 standard with planets 420-425, 500-505, 600-611, 700-711, 800-805 and 820-825):
+``bls`` alone on the 28 all-sinusoidal runs with planets, transit labels bounded 724 to 781, bounded or
+touched 739 to 799, planets with a transit event bounded or touched 186 to 199, fp 0 to 0,
+pulsation->transit 55 to 46, detections 798 to 847; on the 24 planet-free runs detections 21 to 8 (``main``
+7, 4 and 10 on seeds 371, 811 and 830 and 0 elsewhere; the branch 4 on seed 371 and 2 on each of seeds 431
+and 810 and 0 elsewhere: 830 and 811 go, 371 keeps 4 of its 7 events, and two boxes appear that a
+different median made, seed 431 star 43 and seed 810 star 87, 2 events each); the 48 standard runs are
+the plain median (identical to ``main`` by construction, ``cmp`` on the six held-out standard runs and on
+three development ones). Held-out, scored once
+(seeds 460-465 standard, 466-469 all-sinusoidal with planets, 470-473 all-sinusoidal planet-free): ``bls``
+detections 0, 0, 14, 0 to 0, 0, 2, 0 on the planet-free runs (seed 472: a 12-event box on star 157 goes,
+star 195 with 2 events stays); on 466-469 transit labels bounded 120 to 130, planets 34 to 37, fp 0 to 0,
+pulsation->transit 5 to 4; 460-465 identical to ``main`` (``cmp``).
+
+What was tried and left. The median over pulsation-free stars for *every* field (``common_mode_pulsators``
+below the standard share), the variant scored first on the held-out seeds: planets and transit labels
+rose on the development standard runs (``bls`` planets 107 to 112, fp 66 to 56) and on 460-465 fp rose
+from 3 to 10 (two flare stars whose borderline boxes the shifted median moved: seed 460 star 141 with 7
+events and seed 461 star 149 with 3), so its effect on a standard field is of either sign and is not
+claimed; it is the share that leaves a standard field as it was.
+
+Limits: the fits are one sinusoid per star, so a multi-mode pulsator leaves a mode in the median; a field
+with a minority of pulsators keeps their wobble (measured only at 0.115 to 0.28 and 0.875 to 0.98; the range
+0.28 to 0.875 has never been exercised, so the 0.5 share is a majority argument and not a measured cliff); a
+different noise realisation of the median creates and removes borderline boxes (two new on the development
+planet-free runs) and the planet-free claims that remain are ``bls`` boxes of 2 to 4 events with a repeat
+S/N under 4.5, which the repeat test would refuse (at a cost, below).
 
 Grid
 ----
@@ -1498,6 +1567,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         trend_repeat_snr: float | None = None,
+        common_mode_pulsators: float | None = 0.5,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
         guard_night_ratio: float | None = 0.81,
@@ -1541,6 +1611,10 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if trend_repeat_snr is not None and not trend_repeat_snr > 0:
             raise ValueError(f"trend_repeat_snr must be > 0 or None, got {trend_repeat_snr}")
+        if common_mode_pulsators is not None and not 0 <= common_mode_pulsators < 1:
+            raise ValueError(
+                f"common_mode_pulsators must be in [0, 1) or None, got {common_mode_pulsators}"
+            )
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if shape_chi2 is not None and not shape_chi2 > 0:
@@ -1579,6 +1653,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.trend_repeat_snr = trend_repeat_snr
+        self.common_mode_pulsators = common_mode_pulsators
         self.shape_threshold = shape_threshold
         self.shape_chi2 = shape_chi2
         self.guard_night_ratio = guard_night_ratio
@@ -1606,14 +1681,73 @@ class BlsDetector:
             t, _divide_by_night_median(flux, night_of), night_of, _night_medians(flux, night_of)
         )
 
-    def _common_mode(self, cleaned: Mapping[int, _Clean]) -> tuple[np.ndarray, np.ndarray] | None:
+    def _common_mode(
+        self, cleaned: Mapping[int, _Clean], cadence_s: int | None = None
+    ) -> tuple[np.ndarray, np.ndarray] | None:
         """(time grid, per-time median over stars of the night-normalised flux), or None.
 
         Field-wide offsets the quality flag does not cover (a tracking drift holds its new
         level after the flagged span; a cloud's wings) hit every star alike and would
         otherwise be the deepest "transit" on every star. Times seen by fewer than
         `common_mode_min_stars` stars get no correction.
+
+        With `cadence_s` (``detect`` passes it) the stars with a significant sinusoid are found
+        (:meth:`_pulsation_free`) and, when they are more than the share ``common_mode_pulsators``
+        of the field (a majority by default; ``None`` never), the median is taken a second time
+        over the stars with their own pulsation subtracted: a pulsator's flux is part of the median,
+        and the median of a field of pulsators is a smooth, field-wide wobble that dividing it out
+        writes into every star. Below that share, and without `cadence_s`, the median is the plain
+        one.
         """
+        plain = self._median_over_stars(cleaned)
+        if (
+            plain is None
+            or cadence_s is None
+            or self.common_mode_pulsators is None
+            or not self._can_detrend()
+        ):
+            return plain
+        freed = self._pulsation_free(cleaned, plain, cadence_s)
+        if not len(freed) > self.common_mode_pulsators * len(cleaned):
+            return plain
+        again = self._median_over_stars({**cleaned, **freed})
+        return plain if again is None else again
+
+    def _pulsation_free(
+        self,
+        cleaned: Mapping[int, _Clean],
+        common_mode: tuple[np.ndarray, np.ndarray],
+        cadence_s: int,
+    ) -> dict[int, _Clean]:
+        """The stars whose pulsation :meth:`_pulsation_trend` finds, with it subtracted.
+
+        The sinusoid is fitted to the star's flux with the plain `common_mode` removed and
+        clipped, as the search does, and subtracted from every clean sample (the clipped ones
+        too); the nights are divided by their median again. Stars with no significant
+        sinusoid are not in the result.
+        """
+        out: dict[int, _Clean] = {}
+        for star_id, c in cleaned.items():
+            t, flux, night, level = self._prepare(c, common_mode)
+            if len(t) < 4:
+                continue
+            fit = self._pulsation_trend(_Arrays(t, flux, night, level, c.t, c.night_of), cadence_s)
+            if fit is None:
+                continue
+            f = fit[1][0]
+            k = np.unique(night, return_inverse=True)[1]
+            sin_a, cos_a, _ = _sine_fit(
+                (t - float(t[0])) / DAY_S, _demean_by_night(flux - 1.0, k), k, f
+            )
+            arg = 2.0 * np.pi * f * (c.t - float(t[0])) / DAY_S
+            trend = sin_a * np.sin(arg) + cos_a * np.cos(arg)
+            out[star_id] = replace(c, flux=_divide_by_night_median(c.flux - trend, c.night_of))
+        return out
+
+    def _median_over_stars(
+        self, cleaned: Mapping[int, _Clean]
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """(time grid, per-time median of the stars' night-normalised flux), or None."""
         if self.common_mode_min_stars <= 0 or len(cleaned) < self.common_mode_min_stars:
             return None
         grid = np.unique(np.concatenate([c.t for c in cleaned.values()]))
@@ -2446,7 +2580,7 @@ class BlsDetector:
             c = self._clean(curves[star_id], cadence_s)
             if c is not None:
                 cleaned[star_id] = c
-        common_mode = self._common_mode(cleaned)
+        common_mode = self._common_mode(cleaned, cadence_s)
         out: list[Detection] = []
         for star_id, c in cleaned.items():
             out.extend(self._star(star_id, c, common_mode, cadence_s))
