@@ -109,6 +109,13 @@ is itself a pulsation; both detectors now take it with the pulsations removed
 first, which ended the false planet claims on such fields and found more
 single transits there.
 
+[0013](docs/log/0013-the-planets-own-events-and-a-cause-the-instrument-invented.md):
+a pulsating star's leftover failed the guard because the planet's own
+evenly spaced transits look like a sinusoid; reading the guard again with the
+other events cut out lets `single_transit` find 106 more planets on
+development runs. The same review found that the cause recorded for an
+earlier closed PR came from a side script, not the detector.
+
 Open: issue #44.
 
 ## Develop
