@@ -86,8 +86,11 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 840-851 | 20 | planets | development | held-out for the #44 switch PR #65 (every star sinusoidal, `planet_rate` 0.5), scored once: union planets 121 -> 119 against an allowance of one, so the PR closed unmerged and #44 closed as a measured trade not taken; used |
 | 852-855 | 20 | planet-free | development | held-out for PR #65 (every star sinusoidal, `planet_rate` 0), scored once: 0 detections on every run, both sides; used |
 | 856-861 | 20 | planets | development | held-out for PR #65 (standard field), scored once: union planets 22 -> 22, `bls` byte-identical; used |
+| 862-873 | 20 | planets | **held-out, reserved for #66** (every star sinusoidal, `planet_rate` 0.5) | not yet scored |
+| 874-879 | 20 | planets | **held-out, reserved for #66** (standard field) | not yet scored |
+| 880-883 | 20 | planet-free | **held-out, reserved for #66** (every star sinusoidal, `planet_rate` 0) | not yet scored |
 
-Next unused range: 514-519, 576-579 and 592-599 (free), and 862 and up. (440-449 are #52's design seeds; 450-459 and 490-499 are #63's held-out seeds, scored once; 460-489, 520-559, 560-575 and 580-591 are used; 600-623 and 700-723 are review seeds; 800-833 are used.)
+Next unused range: 514-519, 576-579 and 592-599 (free), and 884 and up. (440-449 are #52's design seeds; 450-459 and 490-499 are #63's held-out seeds, scored once; 460-489, 520-559, 560-575 and 580-591 are used; 600-623 and 700-723 are review seeds; 800-833 are used.)
 
 Also read for #48 (every flare-sized masked run of `bls`, 23,338 of them on 10,000 stars, with the truth under it, to read the shape of a flare, a hot pixel and a cosmic ray and to set the decay-time band and the residual bar; `scripts/bls_flare_run_audit.py`): seeds 7, 42, 21-26, 31-40, 61-66 and 71-76 with planets and planet-free 41-44, 51-58, 81-84 and 101-104 (all 20 nights, 200 stars). `main` against the branch was scored on all of these but 31-40 (40 runs), and on 12, 261, 440-445 and planet-free 446-449.
 
