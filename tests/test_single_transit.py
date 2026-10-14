@@ -70,6 +70,8 @@ def test_registered_and_a_detector():
         {"shape_threshold": 0},
         {"shape_threshold": -1.0},
         {"min_night_h": -1.0},
+        {"near_snr": 0},
+        {"near_snr": -1.0},
     ],
 )
 def test_constructor_validation(kw):
@@ -90,6 +92,7 @@ def test_defaults_are_the_documented_ones():
     assert d.clip_residual is True
     assert d.min_night_h == 2.0
     assert d.leave_out_events is True
+    assert d.near_snr == 5.0
 
 
 def test_empty_and_tiny_curves():
@@ -1287,3 +1290,103 @@ def test_the_cadence_handed_on_is_the_one_detect_was_given(monkeypatch):
     monkeypatch.setattr(BlsDetector, "_common_mode", spy)
     SingleTransitDetector().detect(_mixed_field(0, 12), 120)
     assert seen == [120]
+
+
+# -- a pulsator whose raw box is near the bar (issue #63) -----------------------------------
+
+
+def fast_pulsator(seed=0, amp=0.03, dip=(4, 2.5, 3.0, 0.01)):
+    """An 86 minute pulsator: its pulsation sits in the raw scatter, so a 1 percent dip reads low."""
+    return pulsating_host(seed, dip=dip, amp=amp, period_d=0.06)
+
+
+def _raw_best(cv):
+    """The strongest raw box of one star at any S/N, as the first search of the detector sees it."""
+    det = SingleTransitDetector()
+    t, flux, night, _ = det._bls._prepare(det._bls._clean(cv, C), None)
+    return max(b.snr for b in det._boxes(t, flux, night, C, floor=1.0))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_pulsator_whose_raw_box_is_under_the_bar_is_still_detrended(seed):
+    # the raw box reads 6.3 (the pulsation is in the scatter the S/N is measured against), under
+    # the bar of 8 and over the floor of 5; the residual reads 20 or more
+    _t, cv = fast_pulsator(seed)
+    assert 5.0 < _raw_best(cv) < 8.0
+    assert detect({0: cv}, near_snr=None) == []
+    out = detect({0: cv})
+    assert len(out) == 1 and out[0].score >= 8.0 and out[0].kind_guess == "transit"
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert span_iou(out[0].t_start, out[0].t_end, lo, hi) >= 0.6
+
+
+def test_the_floor_is_the_raw_s_n_a_star_needs_to_be_given_to_the_detrend():
+    _t, cv = fast_pulsator(0)
+    assert 6.0 < _raw_best(cv) < 7.0
+    assert len(detect({0: cv}, near_snr=6.0)) == 1
+    assert detect({0: cv}, near_snr=7.0) == []  # the raw box is under the floor: not tried
+    assert detect({0: cv}, near_snr=8.0) == []  # the floor at the bar is the old behaviour
+    # a floor over the bar is the bar: a dip of 8.7 on a quiet star is found as before
+    _t, quiet = one_dip(depth=0.0042)
+    assert 8.0 < _raw_best(quiet) < 9.0
+    assert len(detect({0: quiet}, near_snr=9.0)) == 1
+    assert detect({0: quiet}, near_snr=9.0) == detect({0: quiet}, near_snr=None)
+
+
+def test_the_floor_cannot_lower_the_bar_the_residual_has_to_reach():
+    # a 0.36 percent dip reads 7.7 on the residual of a pulsator: under the bar however low the
+    # floor, and found only when the bar itself is lowered
+    _t, cv = fast_pulsator(0, dip=(4, 2.5, 3.0, 0.0036))
+    assert detect({0: cv}, near_snr=1.0) == []
+    assert len(detect({0: cv}, near_snr=1.0, snr_threshold=7.0)) == 1
+
+
+def test_a_quiet_star_with_a_box_near_the_bar_is_not_detrended():
+    # guard (a) accepts a quiet star's box: there is nothing to subtract and the fit is not tried
+    _t, cv = one_dip(depth=0.0034)
+    assert 5.0 < _raw_best(cv) < 8.0
+    tried: list[int] = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        tried.append(1)
+        return real(self, a, cadence_s, box)
+
+    det = SingleTransitDetector()
+    det._bls._pulsation_trend = spy.__get__(det._bls)
+    assert det.detect({0: cv}, C) == []
+    assert tried == []
+
+
+def test_a_star_with_a_box_at_the_bar_reads_as_before():
+    # the floor only matters for a star with no box at the bar: the detections of a host whose raw
+    # box reaches 8 do not depend on it
+    _t, cv = pulsating_host(0)
+    assert _raw_best(cv) >= 8.0
+    assert detect({0: cv}) == detect({0: cv}, near_snr=None)
+    _t, cv = one_dip()
+    assert detect({0: cv}) == detect({0: cv}, near_snr=None) and len(detect({0: cv})) == 1
+
+
+def test_the_floor_is_off_without_the_guards_or_the_detrend():
+    _t, cv = fast_pulsator(0)
+    assert detect({0: cv}, guards=False) == detect({0: cv}, guards=False, near_snr=None)
+    assert detect({0: cv}, detrend_pulsation=False) == []
+
+
+def test_the_near_floor_costs_no_second_search_of_a_night(monkeypatch):
+    # the first search reads every night once, at the floor, and the bar is applied to its result
+    _t, cv = fast_pulsator(0)
+    calls: list[int] = []
+    real = st.search_night
+
+    def spy(*a, **kw):
+        calls.append(1)
+        return real(*a, **kw)
+
+    monkeypatch.setattr(st, "search_night", spy)
+    detect({0: cv}, near_snr=None, detrend_pulsation=False)
+    plain = len(calls)
+    calls.clear()
+    detect({0: cv}, detrend_pulsation=False)
+    assert len(calls) == plain

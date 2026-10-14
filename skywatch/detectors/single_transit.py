@@ -689,6 +689,7 @@ class SingleTransitDetector:
         clip_residual: bool = True,
         min_night_h: float = 2.0,
         leave_out_events: bool = True,
+        near_snr: float | None = 5.0,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -704,6 +705,8 @@ class SingleTransitDetector:
             raise ValueError(f"min_night_h must be >= 0, got {min_night_h}")
         if shape_threshold is not None and not shape_threshold > 0:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
+        if near_snr is not None and not near_snr > 0:
+            raise ValueError(f"near_snr must be > 0 or None, got {near_snr}")
         self.snr_threshold = snr_threshold
         self.durations_h = tuple(sorted(durations_h))
         self.min_in = min_in
@@ -716,14 +719,21 @@ class SingleTransitDetector:
         self.clip_residual = clip_residual
         self.min_night_h = min_night_h
         self.leave_out_events = leave_out_events
+        self.near_snr = near_snr
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
 
     def _boxes(
-        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, cadence_s: int
+        self,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        cadence_s: int,
+        floor: float | None = None,
     ) -> list[NightBox]:
-        """The best box of each night whose S/N reaches the threshold (night order)."""
+        """The best box of each night whose S/N reaches the threshold, or `floor` (night order)."""
+        bar = self.snr_threshold if floor is None else floor
         durations = tuple(h * HOUR_S for h in self.durations_h)
         shortest = self.min_night_h * HOUR_S / cadence_s  # samples a night needs to be searched
         out: list[NightBox] = []
@@ -734,7 +744,7 @@ class SingleTransitDetector:
             found = search_night(
                 t[idx], flux[idx], cadence_s, durations, self.min_in, self.min_out, self.contrast
             )
-            if found is None or found[0] < self.snr_threshold:
+            if found is None or found[0] < bar:
                 continue
             snr, depth, n_in, n_out, sigma, first, last = found
             out.append(
@@ -961,6 +971,26 @@ class SingleTransitDetector:
             return None
         return boxes, resid
 
+    def _near_detrended(
+        self,
+        c: _Clean,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        level: np.ndarray,
+        near: list[NightBox],
+        cadence_s: int,
+    ) -> tuple[list[NightBox], np.ndarray] | None:
+        """The detrended boxes of a star whose raw boxes are all under the bar, or None.
+
+        Only a star whose strongest raw box (`near`, at least ``near_snr``) guard (a) refuses is
+        detrended: a quiet star has nothing to subtract, and the boxes that come out must reach
+        the bar on the residual like any other.
+        """
+        if not near or not self._pulsating(t, flux, night, near, cadence_s):
+            return None
+        return self._detrended(c, t, flux, night, level, cadence_s)
+
     def _star_boxes(
         self,
         star_id: int,
@@ -973,10 +1003,27 @@ class SingleTransitDetector:
         none: list[NightBox] = []
         if len(t) < self.min_in + self.min_out:
             return none, (t, flux, night)
-        boxes = self._boxes(t, flux, night, cadence_s)
-        if not boxes:
+        floor = None
+        if self.near_snr is not None and self.guards and self.detrend_pulsation:
+            floor = min(self.near_snr, self.snr_threshold)
+        if floor is None:
+            seen = self._boxes(t, flux, night, cadence_s)
+        else:
+            seen = self._boxes(t, flux, night, cadence_s, floor=floor)
+        if not seen:
             return none, (t, flux, night)
-        refused = self.guards and self._pulsating(t, flux, night, boxes, cadence_s)
+        boxes = [b for b in seen if b.snr >= self.snr_threshold]
+        refused = False
+        if not boxes:
+            # a pulsator's raw scatter holds its pulsation, so its raw boxes read low: the star
+            # is given to the detrend when its best box is near the bar and guard (a) refuses it
+            found = self._near_detrended(c, t, flux, night, level, seen, cadence_s)
+            if found is None:
+                return none, (t, flux, night)
+            log.info("single_transit star %s: pulsation subtracted (raw box near the bar)", star_id)
+            boxes, flux = found
+        else:
+            refused = self.guards and self._pulsating(t, flux, night, boxes, cadence_s)
         if refused and self.detrend_pulsation:
             found = self._detrended(c, t, flux, night, level, cadence_s)
             if found is not None:
