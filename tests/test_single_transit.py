@@ -792,6 +792,7 @@ def test_the_night_of_a_cut_box_is_levelled_again():
     flux[1, 100:200] = 0.97  # night 1: the strongest box
     flux[2, 100:400] = 0.95  # night 2: a dip over 300 of 480 samples
     flux /= np.median(flux, axis=1)[:, None]
+    flux[1] *= 1.01  # an uncut night at a level other than 1: dividing it again would show
     flux = flux.ravel()
     assert float(np.median(flux[night == 2][:60])) > 1.04  # the rest of night 2, before the cut
     boxes = [
@@ -811,6 +812,46 @@ def test_the_night_of_a_cut_box_is_levelled_again():
     assert float(np.median(f2[n2 == 2])) == pytest.approx(1.0, abs=1e-12)
     assert np.array_equal(f2[n2 == 1], flux[night == 1])  # nothing cut from night 1
     assert np.array_equal(f2[n2 == 0], flux[night == 0])
+
+
+def test_a_two_box_residual_the_plain_read_accepts_is_read_once():
+    # a star the guard accepted is accepted as before: the plain read decides, and the second
+    # read (the other box left out) is made only for a residual the plain read refuses
+    det = SingleTransitDetector()
+    n = 480
+    t = (np.arange(n * 3, dtype=np.int64) * C).reshape(3, n) + (np.arange(3) * DAY)[:, None]
+    t, night = t.ravel(), np.repeat(np.arange(3), n)
+    flux = np.ones(3 * n)
+    boxes = [
+        st.NightBox(1, int(t[n + 100]), int(t[n + 199]), 0.03, 100, 380, 0.005, 20.0),
+        st.NightBox(2, int(t[2 * n + 100]), int(t[2 * n + 199]), 0.03, 100, 380, 0.005, 9.0),
+    ]
+    reads: list[int] = []
+
+    def spy(t_, flux_, night_, boxes_, cadence_s):
+        reads.append(len(boxes_))
+        return False
+
+    det._pulsating = spy
+    assert det._residual_pulsating(t, flux, night, boxes, C) is False
+    assert reads == [2]  # one read, of both boxes
+    # ... and a refused one is read again, with the strongest box alone
+    reads.clear()
+    det._pulsating = lambda *a: reads.append(len(a[3])) is None
+    assert det._residual_pulsating(t, flux, night, boxes, C) is True
+    assert reads == [2, 1]
+
+
+def test_a_binary_with_several_planted_events_is_left_to_bls_after_the_eclipse_mask():
+    # the leave-out is for the residual of a pulsator only: the guard that follows the eclipse
+    # mask reads the star as it is, or an eclipsing binary with a few dips is claimed as a planet
+    for seed in (0, 1, 2):
+        rng = np.random.default_rng(seed)
+        t = night_times(20)
+        prof = eclipsing(t, *EB)
+        for night in (3, 9, 15):
+            prof = prof * dip_profile(t, night, 0.3, 2.5, 0.02)
+        assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
 
 
 def test_an_eclipsing_binary_still_gives_nothing_with_the_detrend():
