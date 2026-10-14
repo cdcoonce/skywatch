@@ -250,7 +250,7 @@ Issue #54 is that fix (the section below).
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
 the residual and fails the guard), a planet whose other events still stand out of the residual once
 the boxes are left out (below) is left to ``bls`` (its periodic search), and a star whose raw
-nights never reach 8 is not tried.
+nights never reach ``near_snr`` (5; see Boxes near the bar on a pulsator) is not tried.
 
 Flares on a pulsator's residual
 -------------------------------
@@ -425,6 +425,66 @@ read a sinusoid in: puls-seed582 star 5 (20 events of 4.4 h, one per night) keep
 8 h night, is accepted and reported on 21 boxes (S/N 10 to 25). That is the mechanism and not a bar:
 the guard is nearly blind there, which is harmless for a real planet. 71 of the 171 development hosts,
 8 of the 9 constant hosts and all 777 binaries stay refused.
+
+Boxes near the bar on a pulsator
+--------------------------------
+The first search reads the raw curve, where a pulsator's pulsation is in the scatter the S/N is
+measured against, so its raw boxes read low. Until issue #63 a star with no raw box at the bar (8)
+returned before guard (a), and the detrend never ran on it, whatever its residual read. The first
+search now keeps each night's best box from ``near_snr`` (5; ``None`` is the old behaviour) up, and a
+star with no box at the bar whose strongest box guard (a) refuses goes to the detrend
+(:meth:`_near_detrended`); the boxes that come out must reach the bar (8) on the residual and pass guard
+(a), the flare gate and the shape test like any other. A star whose strongest box guard (a) accepts is
+not detrended (a quiet star's output does not change), a star with a box at the bar is read exactly as
+before, and each night is still searched once, so the change can only add detections. It adds no bar
+and no statistic.
+
+Measured on 139 development runs of 200 stars and 20 nights (45 standard with planets, 40 standard
+planet-free, 35 every star sinusoidal with ``planet_rate`` 0.5, 19 every star sinusoidal and
+planet-free; ``scripts/single_transit_edge_audit.py``, whose records are the detector's own searches).
+The residual that the detector's own ``_residual`` gives reaches 8 for 8 stars whose raw best box is
+under it (raw 5.97 to 7.93, residual 8.08 to 12.26; 7 on the all-sinusoidal runs, 1 on a standard
+run), and 6 of them are reported. ``single_transit`` alone, ``main`` to this (standard with planets /
+all-sinusoidal with planets): single-event planets at S/N 10 or more bounded 54 to 54 / 140 to 142,
+transit labels bounded 115 to 116 / 551 to 556, planets 97 to 98 / 306 to 311, fp 1 to 1 / 0 to 0,
+pulsation->transit 0 to 0 / 1 to 1, eclipse->transit 10 to 10 / 0 to 0, flare->transit 6 to 6 / 0 to 0,
+detections 141 to 142 / 557 to 562; no detection lost, and the 59 planet-free runs hold 24 and 0
+detections on both sides. CPU of ``single_transit`` on one run, ``main`` to this: seed700 (standard)
+30.0 s to 30.1 s, puls-seed585 (every star sinusoidal) 94.9 s to 98.0 s. The floor of 5 is the lowest
+raw reading that was measured: the records force a residual only for a star whose raw best box reads 5
+or more, and the lowest reading of a star that gains is 5.97. Nothing below 5 was measured.
+
+Held-out, scored once after ``near_snr`` was committed (seeds 450-455 standard with planets, 456-459
+standard planet-free, 490-495 every star sinusoidal with ``planet_rate`` 0.5, 496-499 every star
+sinusoidal and planet-free; 200 stars, 20 nights): the detections of ``single_transit`` are
+``cmp``-identical to ``main``'s on all 20 runs (102 on both sides), so every count is unchanged:
+single-event planets at S/N 10 or more bounded 6 and 19, transit labels bounded 13 and 80, planets 11
+and 45, fp 0 and 0, detections 16 and 82 (standard and all-sinusoidal with planets), and 4 and 0 on
+the planet-free runs (at most 2 on one run). The change fired on none of them; development gave 0.2
+gains per all-sinusoidal planet run and 0.02 per standard one, about one expected in these twelve
+planet runs. ``bls`` is unchanged (``cmp`` on four runs); the union with it is unchanged too.
+
+Not changed, and measured on the development runs above: the contrast statistic and the bar. On 258
+single-event planets of S/N 10 or more (74 standard, 184 all-sinusoidal) the plain form reads a median
+0.98 of the matched filter and the contrast form 0.76 (0.82 where the box fills under 20 percent of its
+night, 0.67 where it fills half or more): a long event reads low, as issue #63 says. The false claims sit
+where the factor is smallest. The 23 detections of ``main`` on 36 planet-free standard runs have a box
+share of the night with median 0.65 (90th percentile 0.82), the 115 detections on a transit label of the
+standard planet runs median 0.28 (90th percentile 0.58), so a reading that forgave a large box share
+would add them first. A reference level from the star's other nights (offline, the same boxes, 23,672
+raw boxes of S/N 5 or more on the 45 standard planet runs) moves the S/N by a median 0.99 to 1.00 of
+the contrast value (405 boxes cross 8 upwards, 23 on a transit label; 733 downwards, 17 on one): the
+levels of a star's nights scatter by about as much as the error of one night's own reference. A bar of
+7.0 gives 46 detections on 36 planet-free standard runs against 23 at 8, up to 6 on one run (the rule
+allows 5).
+
+puls-seed585 star 16 (planet 6, one event of S/N 13.0 cut by the night's end) stays missed. On the
+detector's own path its night-8 box reads 7.43 raw (n_in 178, n_out 285 of 463 samples, depth 0.0252,
+sigma 0.0355) and 7.93 on the residual (sigma 0.0331), non-contrast 9.26 and 9.92; the step from 13.0
+is the box's realised depth against the matched filter's (0.0251 against 0.0282, 11.2 at the white
+scale 0.0300), sigma of the night's out-of-box samples 10 percent over that white scale (10.1) and the
+contrast factor sqrt(285/463) = 0.785 (7.93). The star's other nights are white. The residual reading
+is 0.07 under the bar, so the change above does not reach it.
 
 Limits
 ------
