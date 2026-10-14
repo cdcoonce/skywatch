@@ -279,8 +279,8 @@ Planned detectors, in order:
    of the run as a median local S/N of 1.22 where the same box at four other epochs reads -0.18 to
    0.63. When more than half the stars carry a significant sinusoid (`common_mode_pulsators` = 0.5;
    standard runs 0.115 to 0.28, all-sinusoidal 0.875 to 0.98) the median is taken a second time over the
-   stars with their own sinusoid subtracted; below that, and for `single_transit`, it is the plain
-   one. This is a fix for the planet-free rule (at most 5 `bls` detections on an all-sinusoidal
+   stars with their own sinusoid subtracted; below that it is the plain one (`single_transit` takes the
+   same common mode since issue #59). This is a fix for the planet-free rule (at most 5 `bls` detections on an all-sinusoidal
    planet-free run), not a planet gain. `main` breaks the rule on 3 of the 34 all-sinusoidal planet-free
    runs read so far (seeds 371, 830 and held-out 472); the clean held-out evidence is seed 472 (14 to 2).
    Development (100 runs), `main` to the branch, `bls` alone: all-sinusoidal planet-free detections 21 to
@@ -638,11 +638,24 @@ Planned detectors, in order:
    pulsation-subtracted search it keeps seeds 375/80, 376/37, 712/75 and 466/104 out; inside the
    eclipse-mask re-search it loses one transit (seed 466 star 14: the mask leaves its night at 94 samples)
    and keeps four false boxes out (460/51, 601/64, 510/54 and the hot pixel 804/78) while one false box
-   gets in (800/73), so it stays. The `bls` common mode over pulsation-free stars is not applied to
-   `single_transit` (a test pins that). A lead, not a result: with it, the review measured on the
-   all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, and the last
-   pulsation->transit on 486 removed (six runs); issue #59 measures it on the 52 development
-   all-sinusoidal runs.
+   gets in (800/73), so it stays.
+   Common mode (issue #59). `single_transit` passes the cadence to `bls`'s `_common_mode`, so on a
+   field where more than half the stars carry a significant sinusoid it divides by the median over the
+   pulsation-free stars, as `bls` does (issue #57); on a standard field it is the plain median, byte for
+   byte. The lead of PR #58's review (480-483, planets 19 to 22) held on 36 development runs where every
+   star is sinusoidal and `planet_rate` is 0.5: `single_transit` transit labels bounded 204 to 253, planets
+   179 to 217, fp 0 to 0, pulsation->transit 1 to 0, detections 207 to 255; union with `bls` (unchanged)
+   planets 355 to 376, bounded 1079 to 1099, fp 0 to 0, pulsation->transit 55 to 54, four runs losing
+   planets (393, 480, 715, 826: 5 in all against 26 gained). 34 planet-free runs: `single_transit`
+   detections 1 to 0, the largest run of the union 4 detections on both sides. Standard 420-425:
+   `cmp`-identical. Held-out, scored once (520-533), `main` against the branch: standard 520-525
+   `single_transit` identical on all six (`cmp`), `bls` identical (`cmp` on 520, 521, 526 and 528);
+   all-sinusoidal with planets 526-529 `single_transit` bounded 25 to 30, planets 21 to 24, fp 0 to 0,
+   detections 25 to 30, union planets 32 to 33, bounded 75 to 76, fp 0 to 0, pulsation->transit 9 to 9,
+   detections 106 to 111; planet-free 530-533 no detection from either detector before or after. The
+   held-out gain is one planet in the union, against 21 on development: `single_transit` alone gained 2
+   planets on seed 526 (3 to 5) and 1 on seed 529 (9 to 10), and the union moved only on 529 (11 to 12;
+   526 stays at 7 planets, which `bls` already had).
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.

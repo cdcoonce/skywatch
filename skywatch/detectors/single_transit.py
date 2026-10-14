@@ -427,15 +427,21 @@ it on some flare stars; guard (b) reads only whether the reason is ``"pulsation 
 Measured: identical detections, span for span and score for score, on 27 runs (seeds 7 and 42 at 3
 and 20 nights, 11, 12, 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 43, 51, 52, 55-58, 82
 and 104).
-The module also uses ``BlsDetector._clean``,
-``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
-of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it. It calls ``_common_mode`` without a
-cadence, so it keeps the plain median of the stars: the median over pulsation-free stars that ``bls``
-takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here (a test
-pins it). A lead, not a result: passing the cadence to this detector, the review of PR #58 measured on the
-all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, fp 0 to 0, and on 486 the last
-pulsation->transit goes (six runs); standard fields are unaffected by construction (the share). It is to
-be measured on the 52 development all-sinusoidal runs in issue #59.
+The module also uses ``BlsDetector._clean``, ``_common_mode``, ``_prepare``, ``_pulsating``,
+``_search``, ``_shape_excess`` and the fields of ``Box`` and ``Candidate.mask``; a rename in ``bls``
+breaks it. It calls ``_common_mode`` with the cadence, as ``bls`` does, so in a field where most
+stars carry a significant sinusoid (``common_mode_pulsators`` = 0.5) it divides by the median over
+the stars with their own pulsation subtracted (issue #59, :meth:`BlsDetector._common_mode`); on any
+other field it is the plain median (the standard fields carry 0.115 to 0.28 of stars with a
+sinusoid), byte for byte: ``cmp`` of the detections on six held-out standard runs, 520-525. Until
+#59 it passed no cadence (#57 changed only ``bls``). Measured, ``main`` against this, on 36
+development runs where every star is sinusoidal and ``planet_rate`` is 0.5 (200 stars, 20 nights):
+transit labels bounded 204 to 253, planets 179 to 217, fp 0 to 0, pulsation->transit 1 to 0,
+detections 207 to 255; with ``bls`` (unchanged) the union has planets 355 to 376, bounded 1079 to
+1099, fp 0 to 0, pulsation->transit 55 to 54; four union runs lose planets (one each on 393, 480 and
+826, two on 715). On 34 planet-free runs the detections of this module go from 1 to 0. Held-out
+(520-533, scored once): all-sinusoidal with planets (526-529) planets 21 to 24 here and 32 to 33 in
+the union, fp 0 to 0; planet-free (530-533) no detection before or after.
 """
 
 from __future__ import annotations
