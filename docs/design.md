@@ -280,14 +280,24 @@ Planned detectors, in order:
    0.63. When more than half the stars carry a significant sinusoid (`common_mode_pulsators` = 0.5;
    standard runs 0.115 to 0.28, all-sinusoidal 0.875 to 0.98) the median is taken a second time over the
    stars with their own sinusoid subtracted; below that, and for `single_transit`, it is the plain
-   one. Development (100 runs), `main` to the branch, `bls` alone: all-sinusoidal planet-free
-   detections 21 to 8 (seeds 830 and 811 go, 371 keeps 4 of 7, two small boxes appear), on the 28
-   all-sinusoidal runs with planets planets 186 to 199, transit labels bounded 724 to 781, pulsation->
-   transit 55 to 46; standard runs identical. Held-out, scored once (460-473): planet-free detections
-   0, 0, 14, 0 to 0, 0, 2, 0, all-sinusoidal with planets planets 34 to 37, transit labels bounded 120 to
-   130, standard identical. The first variant took the second median in every field and raised
-   standard-field fp on 460-465 from 3 to 10 (two borderline flare-star boxes), having lowered it on
-   the development runs 66 to 56: a standard field's effect is of either sign, so it is left as it was.
+   one. This is a fix for the planet-free rule (at most 5 `bls` detections on an all-sinusoidal
+   planet-free run), not a planet gain. `main` breaks the rule on 3 of the 34 all-sinusoidal planet-free
+   runs read so far (seeds 371, 830 and held-out 472); the clean held-out evidence is seed 472 (14 to 2).
+   Development (100 runs), `main` to the branch, `bls` alone: all-sinusoidal planet-free detections 21 to
+   8 (seeds 830 and 811 go, 371 keeps 4 of 7, two small boxes appear). The 28 all-sinusoidal runs with
+   planets gained planets 186 to 199 (transit labels bounded 724 to 781, pulsation->transit 55 to 46), but
+   that gain did not replicate on never-seen seeds. Never-seen 474-489 (16 runs, the review of PR #58):
+   union planets 56 to 55 (within the one-planet allowance), `bls` planets 40 to 39; on the 480-483 runs
+   with planets `bls` planets 23 to 22; 474-479 (standard field) `bls` is byte-identical to `main` (`cmp`
+   on all six); 484-489 (all-sinusoidal, planet-free) are 0 detections on `main` and on the branch, so they
+   do not test the rule. Held-out, scored once (460-473): planet-free detections 0, 0, 14, 0 to 0, 0, 2,
+   0, all-sinusoidal with planets planets 34 to 37, transit labels bounded 120 to 130, standard identical.
+   Seeds 460-465 are not clean for the share gate (the share was added after reading them); the gate's
+   clean evidence is 466-473 and the 16 never-seen runs, all on one side of the cliff: the share range
+   0.28 to 0.875 has never been exercised, so 0.5 is a majority argument and not a measured cliff. The
+   first variant took the second median in every field and raised standard-field fp on 460-465 from 3 to
+   10 (two borderline flare-star boxes), having lowered it on the development runs 66 to 56: a standard
+   field's effect is of either sign, so it is left as it was.
    The grid, statistic, guard, detrending and
    second pass are in the `skywatch/detectors/bls.py` docstring.
 
@@ -623,6 +633,16 @@ Planned detectors, in order:
    transit; detections 316 to 305, fp 1 to 1, pulsation->transit 5 to 1, no transit label lost.
    Held-out (460-473, scored once): detections 49 to 44, transit labels bounded 42 to 41 (puls-seed466
    star 14), fp 1 to 0, pulsation->transit 2 to 0.
+   The bar acts in every search of a star, and the placement was compared on the development and
+   held-out runs (the never-seen 474-489 cannot tell the variants apart): inside the
+   pulsation-subtracted search it keeps seeds 375/80, 376/37, 712/75 and 466/104 out; inside the
+   eclipse-mask re-search it loses one transit (seed 466 star 14: the mask leaves its night at 94 samples)
+   and keeps four false boxes out (460/51, 601/64, 510/54 and the hot pixel 804/78) while one false box
+   gets in (800/73), so it stays. The `bls` common mode over pulsation-free stars is not applied to
+   `single_transit` (a test pins that). A lead, not a result: with it, the review measured on the
+   all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, and the last
+   pulsation->transit on 486 removed (six runs); issue #59 measures it on the 52 development
+   all-sinusoidal runs.
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.

@@ -67,6 +67,16 @@ and the harmonics of binaries included), on 58 of the 60 all-sinusoidal runs 0.8
 one pulsation fit for each star of the field (user CPU on one 20-night run 90.4 s to 95.7 s on seed800,
 142.8 s to 142.5 s on puls-pf-seed830).
 
+What this is for. The fix is for the planet-free rule (at most 5 ``bls`` detections on an all-sinusoidal
+planet-free run), not a planet gain. ``main`` breaks that rule on 3 of the 34 all-sinusoidal planet-free runs
+read so far (seeds 371 with 7, 830 with 10 and held-out 472 with 14); the clean held-out evidence is seed 472
+(14 to 2). The planets the development runs gained (below) did not replicate on never-seen seeds: 474-489
+(16 runs, checked in the review of PR #58) union planets 56 to 55, ``bls`` planets 40 to 39, within the one
+planet the issue allows. Seeds 474-479 (standard field) ``bls`` is byte-identical to ``main`` (``cmp`` on all
+six); 484-489 (all-sinusoidal, planet-free) are 0 detections on ``main`` and on the branch, so the rule was not
+at risk there and they do not test it. Seeds 460-465 are not clean for the share (it was added after reading
+them).
+
 Measured, ``main`` to the branch. Nothing was fitted: the share and the sinusoid are existing numbers.
 Development (100 runs of 200 stars and 20 nights: 24 all-sinusoidal planet-free 370-373, 430-433, 510-513,
 720-723, 810-813 and 830-833; 28 all-sinusoidal with planets 374-377, 392-395, 426-429, 506-509, 712-715,
@@ -92,7 +102,8 @@ events and seed 461 star 149 with 3), so its effect on a standard field is of ei
 claimed; it is the share that leaves a standard field as it was.
 
 Limits: the fits are one sinusoid per star, so a multi-mode pulsator leaves a mode in the median; a field
-with a minority of pulsators keeps their wobble (measured only at 0.115 to 0.28 and 0.875 to 0.98); a
+with a minority of pulsators keeps their wobble (measured only at 0.115 to 0.28 and 0.875 to 0.98; the range
+0.28 to 0.875 has never been exercised, so the 0.5 share is a majority argument and not a measured cliff); a
 different noise realisation of the median creates and removes borderline boxes (two new on the development
 planet-free runs) and the planet-free claims that remain are ``bls`` boxes of 2 to 4 events with a repeat
 S/N under 4.5, which the repeat test would refuse (at a cost, below).

@@ -384,6 +384,20 @@ star 54, a pulsation) and 2 of the 5 held-out (puls-seed466 star 14, the transit
 51, an eclipse) are on nights of 387 to 480 samples, on stars the guard rejected, whose boxes before the
 guard are the same with and without the bar.
 
+Why the bar sits where it does, and what it costs. The bar acts in every search of a star (the first,
+the pulsation-subtracted ones and the re-search after the eclipse mask); the tests pin the last two. The
+placement was compared on the development and held-out runs (on the never-seen 474-489 every variant is
+identical): the bar inside the pulsation-subtracted search is what keeps seed 375 star 80, seed 376 star
+37, seed 712 star 75 and seed 466 star 104 out, and the bar inside the mask re-search blocks one transit
+and four false boxes and lets one false box in. The transit is seed 466 star 14 (planet 4, S/N 8.7, a
+pulsator host the guard rejected), whose night holds 120 or more samples in the first search and 94 once
+the eclipse mask has removed a window; the false boxes are seed 460 star 51 and seed 601 star 64
+(eclipses), puls-pf-seed510 star 54 (a pulsation) and seed 804 star 78 (a hot pixel, S/N 135.2), and the
+one let in is seed 800 star 73 (an eclipse, S/N 8.3). A bar on the night as observed (before the mask)
+would keep seed 466 star 14 but also re-admit the three false boxes of 460, 601 and 510, so it is not
+better on these data. A night the mask leaves under two hours is not searched; one held-out planet host
+(seed 466 star 14, 94 samples left) was lost to it.
+
 Coupling with ``bls``
 ---------------------
 Guard (b) tests ``cand.rejected != "pulsation guard"``: a star whose periodic search is not
@@ -417,8 +431,11 @@ The module also uses ``BlsDetector._clean``,
 ``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
 of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it. It calls ``_common_mode`` without a
 cadence, so it keeps the plain median of the stars: the median over pulsation-free stars that ``bls``
-takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here, and
-its effect on this detector was not measured.
+takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here (a test
+pins it). A lead, not a result: passing the cadence to this detector, the review of PR #58 measured on the
+all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, fp 0 to 0, and on 486 the last
+pulsation->transit goes (six runs); standard fields are unaffected by construction (the share). It is to
+be measured on the 52 development all-sinusoidal runs in issue #59.
 """
 
 from __future__ import annotations
