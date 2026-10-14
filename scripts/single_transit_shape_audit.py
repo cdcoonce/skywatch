@@ -37,7 +37,7 @@ def audit(run_dir: Path) -> list[tuple[float, str]]:
         c = bls._clean(curves[star_id], cadence_s)
         if c is not None:
             cleaned[star_id] = c
-    common_mode = bls._common_mode(cleaned)
+    common_mode = bls._common_mode(cleaned, cadence_s)  # as `single_transit.detect` does
     found = []  # (detection, box, touches the night's edge)
     for star_id, c in cleaned.items():
         boxes, (t, _flux, night) = detector._star_boxes(star_id, c, common_mode, cadence_s)

@@ -55,8 +55,8 @@ when the median is taken over the stars with their own sinusoid subtracted. The 
 (``trend_repeat_snr``, below) is not the remedy: it reads 7.59 on star 133 and refuses 6 of the 139
 all-sinusoidal development boxes whose events are all on a planet.
 
-With ``cadence_s`` (``detect`` passes it; ``single_transit`` calls ``_common_mode`` without it and keeps
-the plain median) :meth:`BlsDetector._common_mode` finds the stars with a significant sinusoid
+With ``cadence_s`` (``detect`` passes it, and ``single_transit`` too since issue #59)
+:meth:`BlsDetector._common_mode` finds the stars with a significant sinusoid
 (:meth:`BlsDetector._pulsation_free`: the sinusoid of :meth:`BlsDetector._pulsation_trend`, fitted to the
 star with the plain median removed and clipped as the search does, subtracted from every clean sample,
 the nights divided by their median again) and, when they are more than the share
@@ -66,6 +66,17 @@ standard runs of the development and held-out seeds 0.115 to 0.28 of the stars c
 and the harmonics of binaries included), on 58 of the 60 all-sinusoidal runs 0.875 to 0.98. The cost is
 one pulsation fit for each star of the field (user CPU on one 20-night run 90.4 s to 95.7 s on seed800,
 142.8 s to 142.5 s on puls-pf-seed830).
+
+The share check has two stages (issue #60), and the one above is the second. The first
+(:meth:`BlsDetector._pulsator_majority_possible`) reads each star's strongest Fourier peak in the guard band
+(one transform, no sinusoid placed): the exact stage's ratio is at most ``_SHARE_HEADROOM`` (3) times the peak's
+power over the false-alarm level (measured 0.8 to 1.9 over the 3,000 stars of 15 standard and all-pulsating runs),
+so a star below a third of ``trend_min_ratio`` cannot carry a significant sinusoid, and when the stars at or
+above it are not more than the share the exact stage is skipped, with the plain median as the result it would
+have returned. Anywhere else (counting stops as soon as the share is passed) the exact stage runs and decides, so
+the two stages together return what the exact stage alone returns: the detections of ``bls`` and
+``single_transit`` are byte-identical on 8 runs, standard, all-sinusoidal and 3-night. A standard 60-star,
+20-night field of ``single_transit`` falls from 2.2 s to 0.65 s of CPU (``main`` 0.5 s).
 
 What this is for. The fix is for the planet-free rule (at most 5 ``bls`` detections on an all-sinusoidal
 planet-free run), not a planet gain. ``main`` breaks that rule on 3 of the 34 all-sinusoidal planet-free runs
@@ -969,6 +980,7 @@ _DIP_CORE_MIN_BINS = 0.5  # half-width floor (in bins) of the box core in the di
 _RENORMALISE_MIN_SAMPLES = 5  # a night of fewer samples is not divided by its median again
 _TREND_SLOW_F_MIN = 0.1  # cycles/day: the slowest sinusoid tried when asking if one is slower
 _TREND_SLOW_STEP = 0.01  # ... and the step between the frequencies tried
+_SHARE_HEADROOM = 3.0  # the exact sinusoid ratio is at most this multiple of the Fourier peak's
 _TREND_PEAKS = 6  # Fourier peaks placed by least squares, the best of which is the sinusoid
 _TREND_REFINE_STEPS = 14  # golden-section steps that place a pulsation's frequency
 _SHAPE_BOX_STEPS = 15  # box widths tried by the shape test: a geometric ladder of this many
@@ -1707,11 +1719,57 @@ class BlsDetector:
             or not self._can_detrend()
         ):
             return plain
+        if not self._pulsator_majority_possible(cleaned, plain, cadence_s):
+            return plain
         freed = self._pulsation_free(cleaned, plain, cadence_s)
         if not len(freed) > self.common_mode_pulsators * len(cleaned):
             return plain
         again = self._median_over_stars({**cleaned, **freed})
         return plain if again is None else again
+
+    def _pulsator_majority_possible(
+        self,
+        cleaned: Mapping[int, _Clean],
+        common_mode: tuple[np.ndarray, np.ndarray],
+        cadence_s: int,
+    ) -> bool:
+        """False only when the stars with a significant sinusoid cannot be more than the share.
+
+        The first of the two stages of the share check. The exact stage (:meth:`_pulsation_free`)
+        places a sinusoid by least squares on every star, six peaks and a golden-section search
+        each, which is most of the time of ``detect`` on a field without pulsators. This stage
+        reads each star's strongest Fourier peak in the guard band instead
+        (:meth:`_band_power`, one transform): the peak's power over the false-alarm level is
+        what the exact stage's ratio is made of, and the exact one is never more than
+        ``_SHARE_HEADROOM`` times it (measured: 1.9 at most, over the 3,000 stars of 15 standard and
+        all-pulsating runs; 0.8 to 1.0 at the least). A star whose peak is below
+        ``trend_min_ratio / _SHARE_HEADROOM`` of the level therefore cannot have a significant
+        sinusoid, and when the stars at or above it are not more than the share the exact stage
+        cannot find more either. Then the answer is False and no sinusoid is placed. Otherwise
+        (counting stops as soon as the share is passed) it is True and the exact stage decides,
+        so the stage never changes what the exact one finds, only skips it when it is certain.
+        """
+        assert self.common_mode_pulsators is not None
+        floor = self.trend_min_ratio / _SHARE_HEADROOM
+        limit = self.common_mode_pulsators * len(cleaned)
+        possible = 0
+        for c in cleaned.values():
+            t, flux, night, _ = self._prepare(c, common_mode)
+            if len(t) < 4:
+                continue
+            sigma = self._white_sigma(flux, night)
+            if not sigma > 0:
+                continue
+            k = np.unique(night, return_inverse=True)[1]
+            spectrum = self._band_power(t, _demean_by_night(flux - 1.0, k), sigma, cadence_s)
+            if spectrum is None:
+                continue
+            _, power, level, _ = spectrum
+            if float(power.max()) >= floor * level:
+                possible += 1
+                if possible > limit:
+                    return True
+        return False
 
     def _pulsation_free(
         self,

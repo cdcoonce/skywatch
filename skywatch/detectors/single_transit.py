@@ -427,15 +427,38 @@ it on some flare stars; guard (b) reads only whether the reason is ``"pulsation 
 Measured: identical detections, span for span and score for score, on 27 runs (seeds 7 and 42 at 3
 and 20 nights, 11, 12, 21-26, 61, 62, 94, 96, 114 and the planet-free runs 42, 43, 51, 52, 55-58, 82
 and 104).
-The module also uses ``BlsDetector._clean``,
-``_common_mode``, ``_prepare``, ``_pulsating``, ``_search``, ``_shape_excess`` and the fields
-of ``Box`` and ``Candidate.mask``; a rename in ``bls`` breaks it. It calls ``_common_mode`` without a
-cadence, so it keeps the plain median of the stars: the median over pulsation-free stars that ``bls``
-takes in a field of pulsators (issue #57, :meth:`BlsDetector._common_mode`) is not applied here (a test
-pins it). A lead, not a result: passing the cadence to this detector, the review of PR #58 measured on the
-all-sinusoidal 480-483 transit labels bounded 20 to 23, planets 19 to 22, fp 0 to 0, and on 486 the last
-pulsation->transit goes (six runs); standard fields are unaffected by construction (the share). It is to
-be measured on the 52 development all-sinusoidal runs in issue #59.
+The module also uses ``BlsDetector._clean``, ``_common_mode``, ``_prepare``, ``_pulsating``,
+``_search``, ``_shape_excess`` and the fields of ``Box`` and ``Candidate.mask``; a rename in ``bls``
+breaks it. It calls ``_common_mode`` with the cadence, as ``bls`` does, so in a field where most
+stars carry a significant sinusoid (``common_mode_pulsators`` = 0.5) it divides by the median over
+the stars with their own pulsation subtracted (issue #59, :meth:`BlsDetector._common_mode`); on any
+other field it is the plain median (the standard fields carry 0.115 to 0.28 of stars with a
+sinusoid), byte for byte: ``cmp`` of the detections on six held-out standard runs, 520-525. Until
+#59 it passed no cadence (#57 changed only ``bls``). Measured, ``main`` against this, on 36
+development runs where every star is sinusoidal and ``planet_rate`` is 0.5 (200 stars, 20 nights):
+transit labels bounded 204 to 253, planets 179 to 217, fp 0 to 0, pulsation->transit 1 to 0,
+detections 207 to 255; with ``bls`` (unchanged) the union has planets 355 to 376, bounded 1079 to
+1099, fp 0 to 0, pulsation->transit 55 to 54; four union runs lose planets (one each on 393, 480 and
+826, two on 715). On 34 planet-free runs the detections of this module go from 1 to 0. Held-out
+(520-533, scored once): all-sinusoidal with planets (526-529) planets 21 to 24 here and 32 to 33 in
+the union, fp 0 to 0; planet-free (530-533) no detection before or after.
+Why planets are gained: on the never-seen 540-547 (every star sinusoidal, ``planet_rate`` 0.5; ``main``
+against this: union planets 85 to 91, bounded 253 to 259, fp 0 to 0, pulsation->transit 10 to 9;
+``single_transit`` planets 47 to 60), 7 of the 8 union planets gained, and 20 of the 24
+``single_transit`` label gains, are strong boxes (S/N 13 to 59) that the residual pulsation guard
+refused on ``main``: the plain median's field-wide wobble survives each star's own sinusoid
+subtraction and reads as "still pulsating"; the median over the freed stars has none. Why planets are
+lost: every loss traced (393, 480, 715 twice and 826 on development; 543 star 148 and 544 star 134 on
+the never-seen runs) is a box on the same samples whose statistic crossed a bar, not a box that moved:
+S/N across the bar of 8 (8.08 to 8.71 down to 7.78 to 7.87) and, once, the shape statistic across 1.0
+(826 star 68, 0.866 to 1.02, read as an eclipse). The cause is the field-wide difference between the two
+medians over the box (the wobble, 0.0002 to 0.0009 of flux against depths of 0.013 to 0.028), not the
+host star (leaving it out of the freed median moves the wobble ten times less); the same difference lifts
+boxes over the bar on other stars. Paired over the 85 detections both have, the mean S/N change is
+-0.12 +- 0.07 (sd 0.6), not significant. The three regimes agree within the noise of about three changes
+per run: union planets per run +0.58 on development, +0.75 on the never-seen runs, +0.25 on the held-out
+526-529 (1 planet in 4 runs against an expected 2 to 3; `bls` already held 79 percent of their union
+planets, against 69 to 70 percent elsewhere).
 """
 
 from __future__ import annotations
@@ -888,7 +911,7 @@ class SingleTransitDetector:
             c = bls._clean(curves[star_id], cadence_s)
             if c is not None:
                 cleaned[star_id] = c
-        common_mode = bls._common_mode(cleaned)
+        common_mode = bls._common_mode(cleaned, cadence_s)
         out: list[Detection] = []
         for star_id, c in cleaned.items():
             out.extend(self._star(star_id, c, common_mode, cadence_s))
