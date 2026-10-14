@@ -1375,8 +1375,11 @@ def test_the_floor_is_off_without_the_guards_or_the_detrend():
 
 
 def test_the_near_floor_costs_no_second_search_of_a_night(monkeypatch):
-    # the first search reads every night once, at the floor, and the bar is applied to its result
-    _t, cv = fast_pulsator(0)
+    # the first search reads every night once, at the floor, and the bar is applied to its result.
+    # The floor is on (guards and the detrend on, the defaults) and a quiet star with a box near
+    # the bar goes through it without a detrend, so a second search of a night would show here
+    _t, cv = one_dip(depth=0.0034)
+    assert 5.0 < _raw_best(cv) < 8.0
     calls: list[int] = []
     real = st.search_night
 
@@ -1385,8 +1388,35 @@ def test_the_near_floor_costs_no_second_search_of_a_night(monkeypatch):
         return real(*a, **kw)
 
     monkeypatch.setattr(st, "search_night", spy)
-    detect({0: cv}, near_snr=None, detrend_pulsation=False)
+    assert detect({0: cv}, near_snr=None) == []
     plain = len(calls)
+    assert plain == 10
     calls.clear()
-    detect({0: cv}, detrend_pulsation=False)
+    assert detect({0: cv}) == []
     assert len(calls) == plain
+
+
+def test_a_floor_of_4_would_detrend_a_pulsator_the_floor_of_5_leaves_alone():
+    # a 53 minute pulsator whose raw best box reads 4.6 to 4.8: under the floor of 5, so not
+    # given to the detrend; a floor of 4 hands it over and finds the dip
+    for seed in (0, 1, 2):
+        _t, cv = pulsating_host(seed, amp=0.03, period_d=0.037)
+        assert 4.0 < _raw_best(cv) < 5.0
+        assert detect({0: cv}) == []
+        out = detect({0: cv}, near_snr=4.0)
+        assert len(out) == 1 and out[0].score >= 8.0
+
+
+def fast_two_mode_pulsator(seed=0):
+    """An 86 minute pulsator with a second, weaker mode, and a 1 percent dip on night 4."""
+    return two_event_host([(4, 2.5, 3.0, 0.01)], seed, mode2=(0.004, 0.11), amp=0.03, period_d=0.06)
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_near_miss_pulsator_whose_residual_guard_refuses_it_gives_nothing(seed):
+    # the raw box reads 6.5 (near the bar), so the star is detrended; the second mode is left in
+    # the residual and guard (a) refuses it there, as it does on the path of a box at the bar
+    _t, cv = fast_two_mode_pulsator(seed)
+    assert 5.0 < _raw_best(cv) < 8.0
+    assert detect({0: cv}) == []
+    assert detect({0: cv}, near_snr=None) == []
