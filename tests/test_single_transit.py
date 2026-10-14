@@ -89,6 +89,7 @@ def test_defaults_are_the_documented_ones():
     assert d.detrend_pulsation is True
     assert d.clip_residual is True
     assert d.min_night_h == 2.0
+    assert d.leave_out_events is True
 
 
 def test_empty_and_tiny_curves():
@@ -685,6 +686,172 @@ def test_a_planet_with_several_events_on_a_pulsating_host_is_left_to_bls():
     # search is the one that finds this planet (see the bls tests of pulsating hosts)
     _t, cv = pulsator(0)
     assert detect({0: cv}) == []
+
+
+# -- the other events of a planet on a pulsating host (issue #61) ------------------------------
+
+
+def two_event_host(dips, seed=0, mode2=None, amp=0.015, period_d=0.9):
+    """A sinusoidal star with one dip on each of several nights (`dips`: night, start_h, dur_h,
+    depth), and optionally a second sinusoid `mode2` = (amplitude, period_d)."""
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    prof = 1.0 + amp * np.sin(2 * np.pi * t / (period_d * DAY) + 0.7)
+    if mode2 is not None:
+        prof = prof + mode2[0] * np.sin(2 * np.pi * t / (mode2[1] * DAY) + 1.0)
+    for dip in dips:
+        prof = prof * dip_profile(t, *dip)
+    return t, curve(0, t, prof, 0.005, rng)
+
+
+TWO_DIPS = [(4, 2.5, 3.0, 0.01), (11, 3.0, 3.0, 0.01)]
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_two_events_on_a_pulsating_host_are_both_found(seed):
+    # the residual holds both dips: the guard read the second as a sinusoid and refused the
+    # star (it was left to bls); with the other box's window left out each is a one-event box
+    _t, cv = two_event_host(TWO_DIPS, seed)
+    out = detect({0: cv})
+    assert [d.t_start // DAY for d in out] == [4, 11]
+    for d, (night, start_h, dur_h, _) in zip(out, TWO_DIPS, strict=True):
+        lo, hi = clipped_window(night, start_h, dur_h)
+        assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6
+        assert d.score >= 8.0 and d.kind_guess == "transit"
+    assert detect({0: cv}, leave_out_events=False) == []
+
+
+def test_three_events_on_a_pulsating_host_are_found():
+    _t, cv = two_event_host(TWO_DIPS + [(15, 2.0, 3.0, 0.012)])
+    assert [d.t_start // DAY for d in detect({0: cv})] == [4, 11, 15]
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_second_pulsation_mode_in_the_residual_still_refuses_the_star(seed):
+    # leaving the events out does not blind the guard: the second mode is in what is left
+    _t, cv = two_event_host(TWO_DIPS, seed, mode2=(0.004, 0.37))
+    assert detect({0: cv}) == []
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+def test_two_v_shaped_events_on_a_pulsating_host_are_refused_by_the_shape_test(seed):
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof * v_profile(t, 4, 4.0, 3.0, 0.03) * v_profile(t, 11, 4.0, 3.0, 0.03)
+    cv = curve(0, t, prof, 0.005, rng)
+    assert len(detect({0: cv}, shape_threshold=None)) == 2
+    assert detect({0: cv}) == []
+
+
+def _residual_guard_calls(det, cv):
+    """(samples, boxes) of every `_pulsating` call made on the detrended path's residual."""
+    calls: list[tuple[int, int]] = []
+    real = SingleTransitDetector._pulsating
+
+    def spy(t, flux, night, boxes, cadence_s):
+        calls.append((len(t), len(boxes)))
+        return real(det, t, flux, night, boxes, cadence_s)
+
+    det._pulsating = spy
+    det.detect({0: cv}, C)
+    return calls
+
+
+def test_a_residual_the_guard_accepts_is_read_once():
+    # one box: nothing to leave out, and a star the first read accepts is not read again
+    _t, cv = pulsating_host(0)
+    calls = _residual_guard_calls(SingleTransitDetector(), cv)
+    assert len(calls) == 2  # the raw star, then its residual
+    assert calls[1][1] == 1
+
+
+def test_the_other_events_are_left_out_of_the_second_read_only():
+    # two boxes whose first read refuses: the second read holds the strongest box alone, with
+    # the other box's 1.5-times window (4.5 h of 60 s samples) cut out
+    _t, cv = two_event_host(TWO_DIPS)
+    kept = SingleTransitDetector()
+    refused = SingleTransitDetector(leave_out_events=False)
+    full = _residual_guard_calls(refused, cv)
+    cut = _residual_guard_calls(kept, cv)
+    assert full[1][1] == 2 and cut[1][1] == 2  # the first read sees both boxes
+    assert cut[2][1] == 1  # the second one the strongest alone
+    assert cut[2][0] == cut[1][0] - 270  # 1.5 x (3 h + 60 s) of samples: 270 of 271 cut
+    assert len(full) == 2
+
+
+def test_the_night_of_a_cut_box_is_levelled_again():
+    # a dip over most of a night is that night's median; with its window cut out the rest of the
+    # night sits above 1, a step the guard would read as a sinusoid, so the night is divided by
+    # its median again; a night nothing was cut from is left as it is
+    det = SingleTransitDetector()
+    n = 480
+    t = (np.arange(n * 3, dtype=np.int64) * C).reshape(3, n) + (np.arange(3) * DAY)[:, None]
+    t, night = t.ravel(), np.repeat(np.arange(3), n)
+    flux = np.ones((3, n))
+    flux[1, 100:200] = 0.97  # night 1: the strongest box
+    flux[2, 100:400] = 0.95  # night 2: a dip over 300 of 480 samples
+    flux /= np.median(flux, axis=1)[:, None]
+    flux[1] *= 1.01  # an uncut night at a level other than 1: dividing it again would show
+    flux = flux.ravel()
+    assert float(np.median(flux[night == 2][:60])) > 1.04  # the rest of night 2, before the cut
+    boxes = [
+        st.NightBox(1, int(t[n + 100]), int(t[n + 199]), 0.03, 100, 380, 0.005, 20.0),
+        st.NightBox(2, int(t[2 * n + 100]), int(t[2 * n + 399]), 0.05, 300, 180, 0.005, 9.0),
+    ]
+    reads: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+
+    def spy(t_, flux_, night_, boxes_, cadence_s):
+        reads.append((t_, flux_, night_))
+        return True
+
+    det._pulsating = spy
+    assert det._residual_pulsating(t, flux, night, boxes, C) is True
+    (_, _, _), (t2, f2, n2) = reads
+    assert len(t2) == 3 * n - (450 - 0)  # night 2 loses 1.5 x 300 samples
+    assert float(np.median(f2[n2 == 2])) == pytest.approx(1.0, abs=1e-12)
+    assert np.array_equal(f2[n2 == 1], flux[night == 1])  # nothing cut from night 1
+    assert np.array_equal(f2[n2 == 0], flux[night == 0])
+
+
+def test_a_two_box_residual_the_plain_read_accepts_is_read_once():
+    # a star the guard accepted is accepted as before: the plain read decides, and the second
+    # read (the other box left out) is made only for a residual the plain read refuses
+    det = SingleTransitDetector()
+    n = 480
+    t = (np.arange(n * 3, dtype=np.int64) * C).reshape(3, n) + (np.arange(3) * DAY)[:, None]
+    t, night = t.ravel(), np.repeat(np.arange(3), n)
+    flux = np.ones(3 * n)
+    boxes = [
+        st.NightBox(1, int(t[n + 100]), int(t[n + 199]), 0.03, 100, 380, 0.005, 20.0),
+        st.NightBox(2, int(t[2 * n + 100]), int(t[2 * n + 199]), 0.03, 100, 380, 0.005, 9.0),
+    ]
+    reads: list[int] = []
+
+    def spy(t_, flux_, night_, boxes_, cadence_s):
+        reads.append(len(boxes_))
+        return False
+
+    det._pulsating = spy
+    assert det._residual_pulsating(t, flux, night, boxes, C) is False
+    assert reads == [2]  # one read, of both boxes
+    # ... and a refused one is read again, with the strongest box alone
+    reads.clear()
+    det._pulsating = lambda *a: reads.append(len(a[3])) is None
+    assert det._residual_pulsating(t, flux, night, boxes, C) is True
+    assert reads == [2, 1]
+
+
+def test_a_binary_with_several_planted_events_is_left_to_bls_after_the_eclipse_mask():
+    # the leave-out is for the residual of a pulsator only: the guard that follows the eclipse
+    # mask reads the star as it is, or an eclipsing binary with a few dips is claimed as a planet
+    for seed in (0, 1, 2):
+        rng = np.random.default_rng(seed)
+        t = night_times(20)
+        prof = eclipsing(t, *EB)
+        for night in (3, 9, 15):
+            prof = prof * dip_profile(t, night, 0.3, 2.5, 0.02)
+        assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
 
 
 def test_an_eclipsing_binary_still_gives_nothing_with_the_detrend():

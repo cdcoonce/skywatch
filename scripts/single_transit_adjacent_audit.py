@@ -9,6 +9,10 @@ Usage::
     uv run python scripts/single_transit_adjacent_audit.py detect --detector single_transit \\
         --out scratch/branch --jobs 6 runs/seed420-200s-20n ...
 
+    # the same for `bls` with the repeat test of issue #44 switched on (trend_repeat_snr=5.0)
+    uv run python scripts/single_transit_adjacent_audit.py detect --detector bls --repeat-snr 5.0 \\
+        --out scratch/bls5 --jobs 6 runs/seed420-200s-20n ...
+
     # the headline counts of `single_transit` alone and of its union with `bls`
     uv run python scripts/single_transit_adjacent_audit.py tally --single scratch/branch \\
         --bls scratch/bls runs/seed420-200s-20n ...
@@ -54,20 +58,24 @@ DET_FIELDS = ("detector", "det_id", "star_id", "t_start", "t_end", "score", "kin
 # -- detect ----------------------------------------------------------------------------------
 
 
-def _make(detector: str):  # type: ignore[no-untyped-def]
+def _make(detector: str, repeat_snr: float | None = None):  # type: ignore[no-untyped-def]
     from skywatch.detectors import REGISTRY, load_all
 
     load_all()
+    if repeat_snr is not None:
+        if detector != "bls":
+            raise SystemExit("--repeat-snr is a `bls` parameter (trend_repeat_snr)")
+        return REGISTRY[detector](trend_repeat_snr=repeat_snr)
     return REGISTRY[detector]()
 
 
-def _detect_one(args: tuple[str, str, str]) -> str:
-    run, detector, out = args
+def _detect_one(args: tuple[str, str, str, float | None]) -> str:
+    run, detector, out, repeat_snr = args
     run_dir = Path(run)
     dest = Path(out) / f"{run_dir.name}.{detector}.json"
     curves = store.read_curves(run_dir)
     cadence_s = store.read_manifest(run_dir)["config"]["cadence_s"]
-    dets = _make(detector).detect(curves, cadence_s)
+    dets = _make(detector, repeat_snr).detect(curves, cadence_s)
     dest.write_text(json.dumps([{f: getattr(d, f) for f in DET_FIELDS} for d in dets]))
     return f"{run_dir.name} {detector} {len(dets)}"
 
@@ -75,7 +83,7 @@ def _detect_one(args: tuple[str, str, str]) -> str:
 def cmd_detect(args: argparse.Namespace) -> None:
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    jobs = [(str(r), args.detector, str(out)) for r in args.runs]
+    jobs = [(str(r), args.detector, str(out), args.repeat_snr) for r in args.runs]
     if args.jobs > 1:
         with ProcessPoolExecutor(args.jobs) as pool:
             for line in pool.map(_detect_one, jobs):
@@ -325,6 +333,9 @@ def main() -> None:
     p.add_argument("--detector", required=True, choices=("bls", "single_transit"))
     p.add_argument("--out", required=True)
     p.add_argument("--jobs", type=int, default=1)
+    p.add_argument(
+        "--repeat-snr", type=float, default=None, help="`bls` trend_repeat_snr (issue #44's switch)"
+    )
     p.add_argument("runs", nargs="+")
     p.set_defaults(fn=cmd_detect)
     p = sub.add_parser("tally")
