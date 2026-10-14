@@ -734,7 +734,16 @@ Planned detectors, in order:
    branch alike: union planets 62 to 61, transit labels bounded 189 to 186, pulsation->transit 8 to 3,
    detections 266 to 252; the planet it loses is puls-seed492 planet 101 (star 195), one event cut
    by the end of a 160-sample night, which `single_transit` reads at 4.6 raw and 2.4 on the
-   residual; on the standard runs nothing changes. puls-seed585 star 16 (the single event that
+   residual; on the standard runs nothing changes. Never seen (review of PR #64; 548-555
+   all-sinusoidal with planets, 556-559 planet-free), `main` to branch: `single_transit` single-event
+   planets at S/N 10 or more bounded 29 to 30, transit labels bounded 94 to 96, planets 63 to 65, fp
+   0 to 0, pulsation->transit 0 to 0, detections 94 to 96 (two added, none lost: puls-seed548 star 89
+   at 9.31 and puls-seed549 star 13 at 10.45, both bounded on a transit label; the other six runs
+   `cmp`-identical), 0 detections on the four planet-free runs; union with `bls` planets 86 to 88,
+   detections 345 to 347, pulsation->transit 17 to 17. The #44 switch on those runs loses no planet
+   (86 to 86 on `main`, 88 to 88 on the branch), takes pulsation->transit 17 to 6 and two transit
+   labels, on planets another event still finds (puls-seed548 planet 8, puls-seed550 planet 65).
+   puls-seed585 star 16 (the single event that
    motivated the issue) is not recovered: its residual reads 7.93 against 8 (raw 7.43), from the
    realised depth (11.2 at the white scale), a sigma 10 percent over it and the contrast factor 0.785.
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`

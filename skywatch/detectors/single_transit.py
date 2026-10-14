@@ -465,6 +465,18 @@ the planet-free runs (at most 2 on one run). The change fired on none of them; d
 gains per all-sinusoidal planet run and 0.02 per standard one, about one expected in these twelve
 planet runs. ``bls`` is unchanged (``cmp`` on four runs); the union with it is unchanged too.
 
+Never seen, in the review of the pull request (seeds 548-555 every star sinusoidal with
+``planet_rate`` 0.5, 556-559 the same planet-free; 200 stars, 20 nights), ``main`` to this:
+``single_transit`` single-event planets at S/N 10 or more bounded 29 to 30, transit labels bounded 94
+to 96, planets 63 to 65, fp 0 to 0, pulsation->transit, eclipse->transit and flare->transit 0 to 0,
+detections 94 to 96, and 0 detections on the four planet-free runs on both sides. The change fired on
+2 of the 8 planet runs (puls-seed548 star 89 at 9.31 and puls-seed549 star 13 at 10.45, both bounded
+on a transit label; 0.25 a run against 0.2 in development); the other six runs are ``cmp``-identical
+and no detection is lost. The union with ``bls`` (unchanged): planets 86 to 88, detections 345 to 347,
+pulsation->transit 17 to 17. The #44 switch (``bls`` at ``trend_repeat_snr=5.0``) on the same runs
+loses no planet (86 to 86 on ``main``, 88 to 88 here), takes pulsation->transit 17 to 6 and two transit
+labels, both on planets another event still finds (puls-seed548 planet 8, puls-seed550 planet 65).
+
 Not changed, and measured on the development runs above: the contrast statistic and the bar. On 258
 single-event planets of S/N 10 or more (74 standard, 184 all-sinusoidal) the plain form reads a median
 0.98 of the matched filter and the contrast form 0.76 (0.82 where the box fills under 20 percent of its
