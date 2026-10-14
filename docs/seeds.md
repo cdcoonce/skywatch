@@ -83,9 +83,9 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 820-825 | 20 | planets | development | held-out for #54 (the second clip on a pulsator's residual), scored once, `main` against the branch (standard field: nothing changed, `single_transit` 17 detections on both); used |
 | 826-829 | 20 | planets | development | held-out for #54 (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers), scored once (`single_transit` pulsation->transit 1 to 0; union planets 38 to 38); used |
 | 830-833 | 20 | planet-free | development | held-out for #54 (every star sinusoidal, `planet_rate` 0), scored once (`single_transit` detections 3 to 0; `bls` 10 on seed 830, unchanged); used |
-| 840-851 | 20 | planets | **held-out, reserved for the #44 switch PR** (every star sinusoidal, `planet_rate` 0.5) | not yet scored |
-| 852-855 | 20 | planet-free | **held-out, reserved for the #44 switch PR** (every star sinusoidal, `planet_rate` 0) | not yet scored |
-| 856-861 | 20 | planets | **held-out, reserved for the #44 switch PR** (standard field) | not yet scored |
+| 840-851 | 20 | planets | development | held-out for the #44 switch PR #65 (every star sinusoidal, `planet_rate` 0.5), scored once: union planets 121 -> 119 against an allowance of one, so the PR closed unmerged and #44 closed as a measured trade not taken; used |
+| 852-855 | 20 | planet-free | development | held-out for PR #65 (every star sinusoidal, `planet_rate` 0), scored once: 0 detections on every run, both sides; used |
+| 856-861 | 20 | planets | development | held-out for PR #65 (standard field), scored once: union planets 22 -> 22, `bls` byte-identical; used |
 
 Next unused range: 514-519, 576-579 and 592-599 (free), and 862 and up. (440-449 are #52's design seeds; 450-459 and 490-499 are #63's held-out seeds, scored once; 460-489, 520-559, 560-575 and 580-591 are used; 600-623 and 700-723 are review seeds; 800-833 are used.)
 
