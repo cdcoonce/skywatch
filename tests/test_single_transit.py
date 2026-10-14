@@ -599,10 +599,31 @@ def test_a_detrended_box_the_repeat_test_refuses_leaves_the_star_to_the_eclipse_
     # read as "not a pulsation guard rejection" and the star dropped, with one search.
     _, cv = pulsator(0, period_d=0.5)
     _pin_repeat_snr(monkeypatch, 0.0)
-    off = _boxes_calls(BlsDetector(), cv)
+    off = _boxes_calls(BlsDetector(trend_repeat_snr=None), cv)
     assert len(off) == 1
     on = _boxes_calls(BlsDetector(trend_repeat_snr=5.0), cv)
     assert len(on) == 2 and on[1] < on[0] == off[0]
+
+
+def test_single_transit_pins_its_own_bls_to_the_repeat_test_off(monkeypatch):
+    # `bls` defaults the repeat test of a detrended box on (issue #44); `single_transit` reads the
+    # "pulsation guard" candidate of the stars `bls` would refuse and must keep seeing the detrended
+    # box as before (PR #55's finding). Without the pin a box that does not repeat is refused here.
+    assert SingleTransitDetector()._bls.trend_repeat_snr is None
+    _, cv = pulsator(0, period_d=0.5)
+    _pin_repeat_snr(monkeypatch, 0.0)
+    det = SingleTransitDetector(detrend_pulsation=False)
+    calls: list[int] = []
+    real = det._boxes
+
+    def spy(t, flux, night, cadence_s):
+        calls.append(len(t))
+        return real(t, flux, night, cadence_s)
+
+    det._boxes = spy
+    c = det._bls._clean(cv, C)
+    det._star_boxes(0, c, det._bls._common_mode({0: c}), C)
+    assert len(calls) == 1  # the detrended box was accepted: the star is not searched again
 
 
 # -- pulsating hosts (issue #51) ---------------------------------------------------------

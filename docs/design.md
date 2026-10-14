@@ -248,7 +248,7 @@ Planned detectors, in order:
    guard. A pulsator with one real transit can borrow a noise dip as the second
    event `min_events` asks for (dev seed 44 star 44; about 1 in 120 such stars on 240
    synthetic cases, and nothing on `main`). A detrended box can be made to repeat (issue #44, `trend_repeat_snr`,
-   **off by default**): its S/N over the nights other than its strongest must reach 5. The fast
+   **on by default** since the #44 switch, `None` turns it off; `single_transit`'s own `bls` is pinned to `None`): its S/N over the nights other than its strongest must reach 5. The fast
    pulsators the issue named (seed 112 star 62 at 20.65 cycles/day, seed 13 star 130 at 15.71)
    were not subtraction residue: on 5,254 pulsators the power left at the fundamental and at
    twice it is a median 0.2 of the false-alarm level in every band from 2 to 25 cycles/day, and

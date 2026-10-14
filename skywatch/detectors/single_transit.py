@@ -793,7 +793,9 @@ class SingleTransitDetector:
         self.min_night_h = min_night_h
         self.leave_out_events = leave_out_events
         self.near_snr = near_snr
-        self._bls = BlsDetector()
+        # pinned off: `bls` defaults the repeat test of a detrended box (issue #44) on, and this
+        # detector calls `_search` on stars its own guard refuses; the pin keeps it as measured
+        self._bls = BlsDetector(trend_repeat_snr=None)
 
     # -- search ----------------------------------------------------------------------------
 

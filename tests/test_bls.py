@@ -1562,17 +1562,19 @@ def test_the_repeat_bar_sits_at_five_whatever_its_literal(monkeypatch):
     assert gate.search(cv, C).rejected is None
 
 
-def test_the_repeat_test_is_off_by_default(monkeypatch):
-    # a box that repeats at 4.9 is refused at the bar of 5 and kept by the default detector
+def test_the_repeat_test_is_on_by_default(monkeypatch):
+    # a box that repeats at 4.9 is refused by the default detector (bar 5) and kept with the test off
     _, cv = pulsator(0)
-    assert BlsDetector().trend_repeat_snr is None
+    assert BlsDetector().trend_repeat_snr == 5.0
     _pin_repeat_snr(monkeypatch, 4.9)
-    assert BlsDetector(trend_repeat_snr=5.0).search(cv, C).rejected == "pulsation guard"
-    cand = BlsDetector().search(cv, C)
-    assert cand.rejected is None and cand.trend is not None
-    assert len(detect({0: cv})) == 4
-    _pin_repeat_snr(monkeypatch, 0.0)  # even a box that does not repeat at all
-    assert BlsDetector().search(cv, C).rejected is None
+    assert BlsDetector().search(cv, C).rejected == "pulsation guard"
+    assert len(detect({0: cv})) == 0
+    off = BlsDetector(trend_repeat_snr=None).search(cv, C)
+    assert off.rejected is None and off.trend is not None
+    assert len(detect({0: cv}, trend_repeat_snr=None)) == 4
+    _pin_repeat_snr(monkeypatch, 0.0)  # even a box that does not repeat at all is kept with it off
+    assert BlsDetector(trend_repeat_snr=None).search(cv, C).rejected is None
+    assert BlsDetector().search(cv, C).rejected == "pulsation guard"
 
 
 def test_the_repeat_bar_is_a_parameter_and_none_switches_it_off(monkeypatch):
