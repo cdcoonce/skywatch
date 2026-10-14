@@ -103,7 +103,13 @@ ones, and a second clip removed the claims that came with it. A change to
 flare windows and a switch-on of an earlier gate were both measured and
 not taken.
 
-Open: issues #44 and #57.
+[0012](docs/log/0012-the-median-of-a-field-of-pulsators-is-a-pulsation.md):
+on a field where most stars pulsate, the median `bls` divides every star by
+is itself a pulsation; both detectors now take it with the pulsations removed
+first, which ended the false planet claims on such fields and found more
+single transits there.
+
+Open: issue #44.
 
 ## Develop
 
