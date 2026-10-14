@@ -3223,6 +3223,9 @@ def test_the_common_mode_is_taken_over_pulsation_free_stars_only_when_they_are_a
         return real(self, cleaned)
 
     monkeypatch.setattr(BlsDetector, "_median_over_stars", spy)
+    # the cheap first stage of the share check (below) would stop a field of stars no one pulsates
+    # in before the stubbed `_pulsation_free`: it is switched to "cannot rule it out" here
+    monkeypatch.setattr(BlsDetector, "_pulsator_majority_possible", lambda self, cl, cm, cad: True)
 
     def with_k(k, share=0.5):
         det = BlsDetector(common_mode_pulsators=share)
@@ -3245,3 +3248,65 @@ def test_the_common_mode_is_taken_over_pulsation_free_stars_only_when_they_are_a
     assert with_k(1, share=0.0) == (2, False)  # a share of 0: as soon as one star pulsates
     assert with_k(14, share=None) == (1, True)  # None: never
     assert with_k(14, share=0.9) == (2, False) and with_k(12, share=0.9) == (1, True)
+
+
+# -- the share check is decided cheaply when the field is clearly not pulsator-dominated (#60) ----
+
+
+def _count_fits(monkeypatch):
+    """Counters of the exact stage's work: `_pulsation_free` calls and sinusoids placed."""
+    n = {"free": 0, "placed": 0}
+    free, placed = BlsDetector._pulsation_free, BlsDetector._strongest_sinusoid
+
+    def spy_free(self, *a, **kw):
+        n["free"] += 1
+        return free(self, *a, **kw)
+
+    def spy_placed(self, *a, **kw):
+        n["placed"] += 1
+        return placed(self, *a, **kw)
+
+    monkeypatch.setattr(BlsDetector, "_pulsation_free", spy_free)
+    monkeypatch.setattr(BlsDetector, "_strongest_sinusoid", spy_placed)
+    return n
+
+
+def test_a_clearly_standard_field_never_runs_the_exact_share_fits(monkeypatch):
+    # no star is within a factor of 3 of the bar, so the cheap stage rules out a majority: the
+    # sinusoid is placed on no star (it is most of the time of `detect` on such a field) and the
+    # common mode is the plain median, as the exact stage would have left it
+    curves = make_field(n_stars=14)[2]
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    n = _count_fits(monkeypatch)
+    got = det._common_mode(cleaned, C)
+    assert n == {"free": 0, "placed": 0}
+    np.testing.assert_array_equal(got[1], det._common_mode(cleaned)[1])
+    detect(curves)  # `detect` itself places no sinusoid either, but for the stars the guard refuses
+    assert n["free"] == 0
+
+
+def test_a_field_of_pulsators_reaches_the_exact_stage(monkeypatch):
+    curves = _pulsator_field(n_stars=14)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    n = _count_fits(monkeypatch)
+    assert det._pulsator_majority_possible(cleaned, det._common_mode(cleaned), C)
+    det._common_mode(cleaned, C)
+    assert n["free"] == 1 and n["placed"] == 14
+
+
+def test_the_cheap_stage_does_not_rule_out_a_majority_of_weak_pulsators():
+    # 0.4 percent sinusoids in 0.5 percent noise sit a little above the bar of `trend_min_ratio`:
+    # the cheap stage has to let them through (its floor is a third of the bar), and they are the
+    # majority the exact stage finds
+    curves = make_field(n_stars=14)[2]
+    for i in range(9):
+        _, cv = pulsator(i, n_nights=10, transit=False, amp=0.004)
+        curves[i] = LightCurve(i, cv.t, cv.flux, cv.flux_err, cv.quality)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    cm = det._common_mode(cleaned)
+    assert len(det._pulsation_free(cleaned, cm, C)) > 7
+    assert det._pulsator_majority_possible(cleaned, cm, C)
+    assert not np.array_equal(det._common_mode(cleaned, C)[1], cm[1])
