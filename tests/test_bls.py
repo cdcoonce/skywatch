@@ -691,10 +691,9 @@ def test_second_pass_is_deterministic():
 
 
 def test_second_pass_finds_the_planet_in_a_field_with_common_mode_removal():
-    # a field of a dozen stars of white noise over 20 nights is not quiet once the (noisy) common
-    # mode is divided out (and the median of so few stars is itself too noisy for the planet to
-    # stand), so use two dozen and compare against the same field without the second pass
-    _, _, curves = make_field(n_stars=24, n_nights=20)
+    # a 12-star field of white noise over 20 nights is not quiet once the (noisy) common mode is
+    # divided out, so compare against the same field without the second pass
+    _, _, curves = make_field(n_stars=12, n_nights=20)
     _, eb = eb_curve(EB_HALF_PERIOD, (6.1, 0.14))
     curves[5] = LightCurve(5, eb.t, eb.flux, eb.flux_err, eb.quality)
     off = detect(curves, second_pass=False)
@@ -1216,9 +1215,7 @@ def test_performance_with_re_searches_20_stars_10_nights(caplog):
         out = detect(curves, second_pass=True)
         elapsed = time.perf_counter() - t0
     searched = [r for r in caplog.records if "re-search" in r.getMessage()]
-    # four, and at most one more: a noise star whose best box is refused for a reason other than
-    # S/N (what the common mode divided out leaves in 20 stars of white noise)
-    assert 4 <= len(searched) <= 5, "the fixture must fire re-searches or it guards nothing"
+    assert len(searched) == 4, "the fixture must fire re-searches or it guards nothing"
     assert {d.star_id for d in out} == {0, 5, 10, 15}
     # 2.1-2.7 s measured (three runs); four times the slowest, as above
     assert elapsed < 11.0, (
@@ -1381,14 +1378,14 @@ def test_a_short_box_still_leaves_the_transit_out_of_the_fit():
 
 
 def test_performance_with_pulsating_hosts_20_stars_10_nights(caplog):
-    # two of the 20 stars pulsate (1.5 percent, 0.8 and 0.6 d) and carry the 3 h transit of
+    # two of the 20 stars pulsate (1.5 percent, 0.9 and 0.6 d) and carry the 3 h transit of
     # `pulsator`: the guard rejects each, so each is detrended and searched twice more
     t = night_times(10)
     rng = np.random.default_rng(0)
     curves = {}
     for i in range(20):
         if i in (0, 10):
-            curves[i] = pulsator(i, period_d={0: 0.8, 10: 0.6}[i], n_nights=10)[1]
+            curves[i] = pulsator(i, period_d={0: 0.9, 10: 0.6}[i], n_nights=10)[1]
         else:
             curves[i] = curve(i, t, np.ones(len(t)), 0.005, rng)
     with caplog.at_level("INFO", logger="skywatch.detectors.bls"):
@@ -3170,6 +3167,23 @@ def test_only_stars_with_a_significant_sinusoid_are_subtracted():
     assert np.std(before) > 0.0075 and np.std(after) == pytest.approx(0.005, rel=0.05)
     for k in range(10):
         assert np.median(after[freed[5].night_of == k]) == pytest.approx(1.0)
+
+
+def test_a_weak_pulsator_is_subtracted_too_the_bar_is_the_guards_not_a_stricter_one():
+    # a 0.25 percent sinusoid in 0.5 percent noise has a power 9 times the false-alarm level: above
+    # the bar of `trend_min_ratio` (3) and far under a "clearly pulsating" 30, and it is freed
+    curves = make_field(n_stars=12)[2]
+    _, cv = pulsator(0, n_nights=10, transit=False, amp=0.0025)
+    curves[5] = LightCurve(5, cv.t, cv.flux, cv.flux_err, cv.quality)
+    det = BlsDetector()
+    cleaned = {k: det._clean(v, C) for k, v in curves.items()}
+    cm = det._common_mode(cleaned)
+    t, flux, night, level = det._prepare(cleaned[5], cm)
+    fit = det._pulsation_trend(
+        bls._Arrays(t, flux, night, level, cleaned[5].t, cleaned[5].night_of), C
+    )
+    assert fit is not None and 3.0 < fit[1][2] < 30.0
+    assert set(det._pulsation_free(cleaned, cm, C)) == {5}
 
 
 def test_a_field_without_pulsators_has_the_same_common_mode_either_way():
