@@ -472,6 +472,7 @@ import numpy as np
 
 from skywatch.detectors import register
 from skywatch.detectors.bls import (
+    _GUARD_MASK_WIDTH,
     _MAD_SCALE,
     BlsDetector,
     Box,
@@ -592,6 +593,7 @@ class SingleTransitDetector:
         detrend_pulsation: bool = True,
         clip_residual: bool = True,
         min_night_h: float = 2.0,
+        leave_out_events: bool = True,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -618,6 +620,7 @@ class SingleTransitDetector:
         self.detrend_pulsation = detrend_pulsation
         self.clip_residual = clip_residual
         self.min_night_h = min_night_h
+        self.leave_out_events = leave_out_events
         self._bls = BlsDetector()
 
     # -- search ----------------------------------------------------------------------------
@@ -796,6 +799,47 @@ class SingleTransitDetector:
         snr = (float(out.mean()) - float(box.mean())) * math.sqrt(n_in * n_out / (n_in + n_out))
         return snr / sigma >= self.snr_threshold
 
+    def _residual_pulsating(
+        self,
+        t: np.ndarray,
+        resid: np.ndarray,
+        night: np.ndarray,
+        boxes: list[NightBox],
+        cadence_s: int,
+    ) -> bool:
+        """Guard (a) on the residual of a pulsator, with the star's other events left out.
+
+        The guard reads the strongest box as a one-event box and looks for a sinusoid in what is
+        left once that box's window is out. On a pulsator's residual the rest of the planet is
+        still there: the other boxes the search found, each a night's best box at the threshold.
+        Several events of one planet are a periodic signal that the guard reads as a sinusoid, so
+        a planet with two events or more was refused for them (issue #61). With ``leave_out_events``
+        the samples of every other box, in the window the guard leaves out round its own box
+        (``_GUARD_MASK_WIDTH`` times the box), are removed from the data first and the guard reads
+        the strongest box alone. The star is refused only when both reads refuse it, so a star the
+        guard accepted is accepted as before. No bar is added: the boxes are the ones the search
+        already reports, and a sinusoid that stays in the data once they are out still refuses.
+        """
+        if not self._pulsating(t, resid, night, boxes, cadence_s):
+            return False
+        if not self.leave_out_events or len(boxes) < 2:
+            return True
+        best = max(boxes, key=lambda b: b.snr)
+        drop = np.zeros(len(t), dtype=bool)
+        for b in boxes:
+            if b is not best:
+                event = self._event_box(b, cadence_s, len(t))
+                drop |= in_box(t, replace(event, duration_s=_GUARD_MASK_WIDTH * event.duration_s))
+        cut = np.unique(night[drop])
+        t, resid, night = t[~drop], resid[~drop].copy(), night[~drop]
+        for k in cut:  # the median of a night held the dip that was cut out: level it again
+            on = night == k
+            if on.sum() >= _MIN_OUT_FOR_LEVEL:
+                med = float(np.median(resid[on]))
+                if med > 0:
+                    resid[on] /= med
+        return self._pulsating(t, resid, night, [best], cadence_s)
+
     def _detrended(
         self,
         c: _Clean,
@@ -818,7 +862,7 @@ class SingleTransitDetector:
         boxes = self._boxes(t, resid, night, cadence_s)
         if boxes and self.clip_residual:
             boxes = [b for b in boxes if self._stands_unflared(t, resid, night, b)]
-        if not boxes or self._pulsating(t, resid, night, boxes, cadence_s):
+        if not boxes or self._residual_pulsating(t, resid, night, boxes, cadence_s):
             return None
         return boxes, resid
 
