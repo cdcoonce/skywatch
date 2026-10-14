@@ -186,10 +186,10 @@ refuses, the search now runs on the star with its pulsation subtracted
    divided again.
 3. **Gates.** A box that falls under the threshold once the residual's own flares are left out
    is refused first (Flares on a pulsator's residual, below). The boxes at the threshold (8) on that
-   residual must pass guard (a) again as one-event boxes: a residual that still holds a sinusoid
-   (the pulsation was not removed), another event of a periodic planet, or an eclipsing binary's
-   eclipses fails it, and the star goes on to guard (b) unchanged. The shape test then runs on the
-   residual like on any other star.
+   residual must pass guard (a) again as one-event boxes, with the star's other boxes left out of
+   the guard's data (Other events of a planet, below): a residual that still holds a sinusoid
+   (the pulsation was not removed) or an eclipsing binary's eclipses fails it, and the star goes on
+   to guard (b) unchanged. The shape test then runs on the residual like on any other star.
 
 No threshold or bar was added or changed: the subtraction is ``bls``'s, imported unchanged, the
 gates are this detector's own.
@@ -248,8 +248,9 @@ transit labels 154 to 176 held-out, 224 to 238 never-seen, no detection lost, fp
 Issue #54 is that fix (the section below).
 
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
-the residual and fails the guard), a planet whose other events stand out of the residual is left
-to ``bls`` (its periodic search), and a star whose raw nights never reach 8 is not tried.
+the residual and fails the guard), a planet whose other events still stand out of the residual once
+the boxes are left out (below) is left to ``bls`` (its periodic search), and a star whose raw
+nights never reach 8 is not tried.
 
 Flares on a pulsator's residual
 -------------------------------
@@ -332,10 +333,79 @@ clip the residual before the search, so that it can only remove claims; a night 
 flare and a real dip still has the flare in the residual that guard (a) reads, and the star is
 refused as before (a transit and a short flare on one pulsator are both kept).
 
+Other events of a planet on a pulsator's residual
+-------------------------------------------------
+Guard (a) reads the strongest box of the residual as a one-event box and looks for a sinusoid in
+what is left once that box's window is out. On the residual of a pulsator the rest of the planet is
+still there: the other boxes the search found, and the events under the threshold. Together they are
+a periodic signal that the guard reads as a sinusoid, and the star was refused and left to ``bls``
+(issue #61). Measured on the development runs of docs/seeds.md (138 runs of 200 stars and 20 nights:
+44 all-sinusoidal with ``planet_rate`` 0.5, 34 all-sinusoidal planet-free, 60 standard;
+``scripts/single_transit_residual_audit.py``) the stars guard (a) refused on the raw flux and whose
+residual then failed it again were 171 sinusoidal hosts, 777 eclipsing binaries, 9 constant hosts and
+3 flare stars; none of the 34 planet-free runs has one. The 171 hold 243 planets and 1,101 transit
+events (169 of the 171 hold a transit label; the best residual night is on a transit on 169, on a hot
+pixel plateau on 1 and on nothing on 1); the simulated pulsators have one mode, and the sinusoid the
+guard found in the residual is the planet's own events, not a second mode, a harmonic or a missed
+flare. The residual-sinusoid test refused 140 of them alone and 31 with the box-versus-sine test; the
+residual's power over the false-alarm level has median 2.3 (quartiles 1.3 and 7.6). Of the 243 planets
+``bls`` found 137, and the union of the two detectors lost 106 (43 of them with one observable event);
+the repeat test of issue #44 (``trend_repeat_snr=5.0``) does not change that number.
+
+The guard is therefore read a second time (``leave_out_events``, on by default; ``False`` is the old
+read), by :meth:`SingleTransitDetector._residual_pulsating`, when the plain read refuses a residual
+with two boxes or more: the samples of every box but the strongest, in the window the guard leaves
+out round its own box (``_GUARD_MASK_WIDTH`` = 1.5 times the box), are removed, each night that lost
+samples is divided by the median of what is left (the median held the dip that was cut out, and
+without the division the rest of the night is a step the guard reads as a sinusoid: a first version
+without it refused puls-seed467 star 193, whose two boxes the plain read accepts), and the guard
+reads the strongest box alone. The star is refused only when both reads refuse it, so a star the plain read accepts is
+accepted as before. No bar is added: the boxes are the ones the search already reports, and a
+sinusoid that stays in the data without them (a second mode, an eclipsing binary's eclipses) still
+refuses the star. The shape test still runs on every box afterwards, on the unmasked residual.
+
+Measured, ``main`` to this, development (the 138 runs; the stars the change touches are the
+refused ones above, so 43 runs differ and 95 are ``cmp``-identical). Guard (a) on the residual
+accepts 100 of the 171 sinusoidal hosts and 1 of the 9 constant hosts, none of the 777 binaries and
+none of the 3 flare stars. ``single_transit`` alone, all 138 runs: transit labels bounded 471 to
+801, bounded or touched 473 to 803, planets with a transit event bounded or touched 399 to 505, false
+positives 1 to 1, eclipse->transit 13 to 13, flare->transit 7 to 7, pulsation->transit 0 to 1,
+detections 503 to 834; the 331 new detections are 330 on a transit label and 1 pulsation claim
+(puls-seed467 star 26, S/N 8.2), and no detection of ``main`` is lost. The 34 planet-free runs have
+no detection from ``single_transit``, before or after. Union with ``bls`` (unchanged) on the 51
+runs that hold the refused sinusoidal stars (43 of the 138 differ, 8 of the 51 do not): transit labels bounded 1434 to 1477, bounded or touched 1467 to 1510, planets
+488 to 509, fp 15 to 15, eclipse->transit 5 to 5, pulsation->transit 54 to 55, detections 1742 to
+2073; with the repeat test of issue #44 switched on in ``bls``: bounded or touched 1459 to 1502,
+planets 486 to 507, pulsation->transit 16 to 17. The seed 809 star 185 of PR #55 needed none of
+this: ``main`` already reports it (S/N 10.25, shape 0.87); with the plain median as common mode it
+was refused by the shape test (1.57), and #60 removed that.
+
+Held-out, scored once after the code was committed (seeds 560-565 standard, 566-571 every star
+sinusoidal with ``planet_rate`` 0.5, 572-575 every star sinusoidal and planet-free; 200 stars, 20
+nights), ``main`` to this. Standard: ``single_transit`` ``cmp``-identical on all six. Every star
+sinusoidal with planets (6 runs): ``single_transit`` transit labels bounded 40 to 71, bounded or
+touched 42 to 73, planets 30 to 41, fp 0 to 0, pulsation->transit 1 to 1, detections 44 to 75 (the
+31 new detections are all on a transit label, none lost); union with ``bls`` (unchanged, ``cmp``
+-identical on 560, 561, 566 and 567): bounded 201 to 201, planets 58 to 58, fp 0 to 0,
+pulsation->transit 6 to 6, detections 241 to 272, because ``bls`` already held the planets
+``single_transit`` gains. Planet-free (4 runs): 0, 0, 2 and 0 detections on both sides. With the
+repeat test of issue #44 on in ``bls``: union planets 58 to 58 on ``main`` and on this, bounded or
+touched 202 and 202 (against 204 with the test off), pulsation->transit 1 and 1 (against 6); the two
+labels the test costs are the 31- and 27-sample remnants of a transit cut by a night's start
+(puls-seed569 star 120 and puls-seed571 star 116), which neither version of ``single_transit``
+finds. CPU of ``single_transit`` on one run, ``main`` to this: seed 560 (standard) 28.0 s to 28.5 s,
+puls-seed566 (every star sinusoidal) 102.8 s to 99.6 s (a second ``_pulsating`` read only on a
+residual of two boxes or more that the first read refused).
+
+Not changed: a periodic planet with many events on a pulsator (``pulsator(0)`` in the tests, four
+events of S/N 15 to 23) stays refused after the others are out and is left to ``bls``; 71 of the 171
+hosts, 8 of the 9 constant hosts and all 777 binaries stay refused.
+
 Limits
 ------
-* A second strong event stays in the residual of the guard: a star with two single events of
-  S/N 10 or more each is read as a sinusoid and not searched (the residual power of a dip grows
+* Off the detrended path, a second strong event stays in the residual of the guard: a star with
+  two single events of S/N 10 or more each is read as a sinusoid and not searched (the residual
+  power of a dip grows
   with its S/N squared; at S/N 9 it is at the level of the false-alarm limit). A periodic
   planet's other events do the same.
 * A planet whose transit overlaps or abuts the masked eclipses of its binary host is lost with

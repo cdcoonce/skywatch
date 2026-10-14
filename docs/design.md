@@ -670,6 +670,33 @@ Planned detectors, in order:
    S/N change is -0.12 +- 0.07, not significant. The three regimes are consistent within the noise of
    about three changes per run: union planets per run +0.58 on development, +0.75 never-seen, +0.25
    held-out.
+   Other events of a planet on a pulsator (issue #61). Guard (a) on the residual of a pulsator read the
+   planet's other events, still in the residual, as a sinusoid, and refused the star (left to `bls`).
+   Measured on 138 development runs: 171 sinusoidal hosts failed it (169 of them hold a transit label:
+   243 planets, 1,101 events; no second mode, harmonic or missed flare, the simulated pulsators having one
+   mode), `bls` found 137 of the 243 and the union lost 106 (43 with one observable event), with or
+   without the repeat test of #44. When the plain read refuses a residual with two boxes or more, the
+   guard is read again on the strongest box with the windows of the other boxes (1.5 times each, the
+   guard's own window) cut out and their nights divided by their medians again; the star is refused
+   only when both reads refuse it (`leave_out_events`, on by default). No bar was added. Development
+   (138 runs; 43 differ, 95 `cmp`-identical): the residual guard accepts 100 of the 171 sinusoidal hosts
+   and 1 of the 9 constant ones, none of the 777 binaries or 3 flare stars; `single_transit` alone
+   transit labels bounded 471 to 801, planets 399 to 505, fp 1 to 1, eclipse->transit 13 to 13,
+   pulsation->transit 0 to 1 (puls-seed467 star 26, S/N 8.2), detections 503 to 834, none lost; the 34
+   planet-free runs have no detection before or after; union with `bls` (51 runs holding the refused
+   stars) planets 488 to 509, fp 15 to 15, pulsation->transit 54 to 55, and with the #44 switch on in
+   `bls` planets 486 to 507, pulsation->transit 16 to 17. Held-out, scored once (560-575): standard
+   `single_transit` `cmp`-identical, `bls` `cmp`-identical on four runs; every star sinusoidal with
+   planets `single_transit` bounded 40 to 71, planets 30 to 41, fp 0 to 0, pulsation->transit 1 to 1,
+   detections 44 to 75 (none lost); union planets 58 to 58, fp 0 to 0, pulsation->transit 6 to 6,
+   detections 241 to 272 (`bls` already held what `single_transit` gains); planet-free 0, 0, 2, 0
+   detections on both sides. With `bls` at `trend_repeat_snr=5.0` the union on the same runs holds
+   planets 58 to 58 on `main` and on the branch, bounded or touched 202 and 202 (204 with the test
+   off), pulsation->transit 1 and 1 (6 with it off); the two labels the switch costs are 31- and
+   27-sample remnants of a transit cut by a night's start, found by neither version. The planet of PR
+   #55 (puls-seed809 star 185) was already reported on `main` (S/N 10.25): with the plain median it was
+   refused by the shape test (1.57), which #60 removed. CPU of `single_transit` unchanged (standard
+   28.0 s to 28.5 s, all-sinusoidal 102.8 s to 99.6 s).
    The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
    docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
