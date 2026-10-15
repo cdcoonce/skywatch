@@ -915,6 +915,24 @@ count like any other, so the S/N reads as an upper bound for a detector that dro
 always counts the whole run. It is how a periodic detector's acceptance targets are named
 from the run itself rather than estimated.
 
+### The public page
+
+`skywatch site --spec docs/site.json` writes `docs/index.html` and the pictures beside it.
+The spec is data (which runs, which views, the captions, the findings and the honesty
+text); the generator is code; the page has no script, no external asset and no timestamp,
+so two generations from the same runs are byte-identical. In order, the page has: the
+header; "What you are looking at" with the headline view; **"What it found"**; **"How it
+keeps itself honest"**; the scoreboards; the other views; the regenerate commands.
+
+- `findings` is a list of `{text, log}`: one plain sentence each, and the file name of the
+  build log under `docs/log/` that measures it. The page links each to that file on GitHub.
+  A number a finding quotes must appear verbatim in its log (`tests/test_site.py` reads
+  every linked log and checks). With no findings the section is omitted.
+- `honesty` is a list of `{text, link?}` (three or four sentences): how the project keeps
+  its numbers honest. `link` is `{label, path}`, a file in the repository such as
+  `docs/seeds.md`. With none the section is omitted.
+- Every string is escaped; a bad entry fails before anything is written.
+
 ## Non-goals for v0
 
 No real catalogs, no real survey data, no deployment, no dashboard. The
