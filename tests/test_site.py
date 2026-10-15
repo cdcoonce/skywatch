@@ -433,3 +433,127 @@ def test_site_module_does_not_import_matplotlib(tiny, tmp_path):
         [sys.executable, "-I", "-c", code], capture_output=True, text=True, check=False
     )
     assert proc.returncode == 0, proc.stderr
+
+
+# ------------------------------------------------------------------ findings and honesty
+
+LOG_URL = "https://github.com/cdcoonce/skywatch/blob/main/docs/log/"
+FINDINGS = [
+    {"text": "first finding, 12 of 34", "log": "0002-the-first.md"},
+    {"text": "second finding", "log": "0007-the-second.md"},
+]
+HONESTY = [
+    {"text": "truth is written at injection"},
+    {
+        "text": "seeds are scored once",
+        "link": {"label": "the seed ledger", "path": "docs/seeds.md"},
+    },
+]
+
+
+def _hrefs(path: Path) -> list[str]:
+    return [a["href"] for t, a in _parse(path).tags if t == "a" and "href" in a]
+
+
+def test_findings_section_sits_between_the_explainer_and_the_scoreboard(tmp_path, tiny):
+    out = site.generate(_write_spec(tmp_path, tiny, findings=FINDINGS, honesty=HONESTY))
+    text = out.read_text()
+    order = [
+        text.index("What you are looking at"),
+        text.index("the pick"),
+        text.index(">What it found<"),
+        text.index("first finding"),
+        text.index("second finding"),
+        text.index(">How it keeps itself honest<"),
+        text.index("truth is written at injection"),
+        text.index("seeds are scored once"),
+        text.index(">Scoreboard<"),
+    ]
+    assert order == sorted(order)
+    assert text.count(">What it found<") == 1 and text.count(">How it keeps itself honest<") == 1
+
+
+def test_each_finding_links_to_its_log_on_github(tmp_path, tiny):
+    out = site.generate(_write_spec(tmp_path, tiny, findings=FINDINGS))
+    text = out.read_text()
+    hrefs = _hrefs(out)
+    assert LOG_URL + "0002-the-first.md" in hrefs and LOG_URL + "0007-the-second.md" in hrefs
+    assert hrefs.index(LOG_URL + "0002-the-first.md") < hrefs.index(LOG_URL + "0007-the-second.md")
+    first = text[text.index("first finding") : text.index("second finding")]
+    assert f'<a href="{LOG_URL}0002-the-first.md">Build log 0002</a>' in first
+    assert "0007-the-second.md" not in first
+
+
+def test_honesty_item_links_into_the_repo(tmp_path, tiny):
+    out = site.generate(_write_spec(tmp_path, tiny, honesty=HONESTY))
+    text = out.read_text()
+    assert "https://github.com/cdcoonce/skywatch/blob/main/docs/seeds.md" in _hrefs(out)
+    assert ">the seed ledger</a>" in text
+    assert "truth is written at injection" in text
+
+
+def test_findings_and_honesty_text_is_escaped(tmp_path, tiny):
+    findings = [{"text": "a <b>bold</b> & more", "log": "0002-x.md"}]
+    honesty = [{"text": "<i>no</i> & yes", "link": {"label": "<u>l</u> & m", "path": "docs/s.md"}}]
+    text = site.generate(
+        _write_spec(tmp_path, tiny, findings=findings, honesty=honesty)
+    ).read_text()
+    assert "a &lt;b&gt;bold&lt;/b&gt; &amp; more" in text
+    assert "&lt;i&gt;no&lt;/i&gt; &amp; yes" in text
+    assert "&lt;u&gt;l&lt;/u&gt; &amp; m" in text
+    for raw in ("<b>bold</b>", "<i>no</i>", "<u>l</u>"):
+        assert raw not in text
+
+
+@pytest.mark.parametrize("extra", [{}, {"findings": []}])
+def test_no_findings_omits_the_section(tmp_path, tiny, extra):
+    text = site.generate(_write_spec(tmp_path, tiny, honesty=HONESTY, **extra)).read_text()
+    assert "What it found" not in text
+    assert "How it keeps itself honest" in text
+
+
+@pytest.mark.parametrize("extra", [{}, {"honesty": []}])
+def test_no_honesty_omits_the_section(tmp_path, tiny, extra):
+    text = site.generate(_write_spec(tmp_path, tiny, findings=FINDINGS, **extra)).read_text()
+    assert "How it keeps itself honest" not in text
+    assert "What it found" in text
+
+
+def test_spec_without_either_section_has_neither_heading(built):
+    _, out = built
+    text = out.read_text()
+    assert "What it found" not in text and "How it keeps itself honest" not in text
+
+
+def test_findings_page_is_byte_identical_across_generations(tmp_path, tiny):
+    spec = _write_spec(tmp_path, tiny, findings=FINDINGS, honesty=HONESTY)
+    out = site.generate(spec)
+    first = out.read_bytes()
+    site.generate(spec)
+    assert out.read_bytes() == first
+    assert "<script" not in out.read_text().lower()
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"findings": "nope"}, "findings must be a list"),
+        ({"findings": ["nope"]}, "finding 1: must be an object"),
+        ({"findings": [{"log": "0002-x.md"}]}, "finding 1: text"),
+        ({"findings": [{"text": "", "log": "0002-x.md"}]}, "finding 1: text"),
+        ({"findings": [{"text": "t"}]}, "finding 1: log"),
+        ({"findings": [{"text": "t", "log": "../x.md"}]}, "finding 1: log"),
+        ({"findings": [{"text": "t", "log": "a/b.md"}]}, "finding 1: log"),
+        ({"findings": [{"text": "t", "log": "x.txt"}]}, "finding 1: log"),
+        ({"findings": [{"text": "t", "log": "http:x.md"}]}, "finding 1: log"),
+        ({"honesty": "nope"}, "honesty must be a list"),
+        ({"honesty": [{}]}, "honesty 1: text"),
+        ({"honesty": [{"text": "t", "link": "docs/seeds.md"}]}, "honesty 1: link"),
+        ({"honesty": [{"text": "t", "link": {"label": "", "path": "docs/s.md"}}]}, "label"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "../s.md"}}]}, "path"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "/s.md"}}]}, "path"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "https://x/s.md"}}]}, "path"),
+    ],
+)
+def test_bad_findings_or_honesty_fail_before_writing(tmp_path, tiny, capsys, extra, message):
+    _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, **extra), capsys, message)

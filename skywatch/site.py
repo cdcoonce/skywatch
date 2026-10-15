@@ -55,10 +55,26 @@ class ViewSpec:
 
 
 @dataclass(frozen=True)
+class Finding:
+    text: str
+    log: str
+    """File name of the build log (under `docs/log/`) that measures the finding."""
+
+
+@dataclass(frozen=True)
+class HonestyItem:
+    text: str
+    link: tuple[str, str] | None = None
+    """Optional (label, repo-relative path) rendered as a link to that file on GitHub."""
+
+
+@dataclass(frozen=True)
 class Spec:
     path: Path
     runs: tuple[Path, ...]
     views: tuple[ViewSpec, ...]
+    findings: tuple[Finding, ...] = ()
+    honesty: tuple[HonestyItem, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -144,6 +160,57 @@ def _parse_view(n: int, raw: object) -> ViewSpec:
     )
 
 
+def _text(where: str, key: str, value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise SpecError(f"{where}: {key} must be non-empty text")
+    return value
+
+
+def _plain_path(where: str, key: str, value: object) -> str:
+    """A relative path inside the repo: no scheme, no backslash, no leading slash, no `..`."""
+    if not isinstance(value, str) or not value:
+        raise SpecError(f"{where}: {key} must be a non-empty relative path")
+    if ":" in value or "\\" in value or value.startswith("/"):
+        raise SpecError(f"{where}: {key} {value!r} must be a plain relative path")
+    if any(part in ("", ".", "..") for part in value.split("/")):
+        raise SpecError(f"{where}: {key} {value!r} must stay inside the repository")
+    return value
+
+
+def _parse_finding(n: int, raw: object) -> Finding:
+    where = f"finding {n}"
+    if not isinstance(raw, dict):
+        raise SpecError(f"{where}: must be an object")
+    log = _plain_path(where, "log", raw.get("log"))
+    if "/" in log or not log.endswith(".md"):
+        raise SpecError(f"{where}: log {log!r} must be a build log file name ending in .md")
+    return Finding(_text(where, "text", raw.get("text")), log)
+
+
+def _parse_honesty(n: int, raw: object) -> HonestyItem:
+    where = f"honesty {n}"
+    if not isinstance(raw, dict):
+        raise SpecError(f"{where}: must be an object")
+    text = _text(where, "text", raw.get("text"))
+    link = raw.get("link")
+    if link is None:
+        return HonestyItem(text)
+    if not isinstance(link, dict):
+        raise SpecError(f"{where}: link must be an object with a label and a path")
+    where = f"{where}: link"
+    return HonestyItem(
+        text,
+        (_text(where, "label", link.get("label")), _plain_path(where, "path", link.get("path"))),
+    )
+
+
+def _parse_list(path: Path, raw: dict, key: str, parse) -> tuple:
+    items = raw.get(key, [])
+    if not isinstance(items, list):
+        raise SpecError(f"{path}: {key} must be a list")
+    return tuple(parse(i + 1, item) for i, item in enumerate(items))
+
+
 def load_spec(path: Path) -> Spec:
     """Read and validate a site spec; raises before anything is written."""
     path = Path(path)
@@ -171,7 +238,9 @@ def load_spec(path: Path) -> Spec:
         raise SpecError(f"{path}: two views write the same file")
     for run_dir in dict.fromkeys([*runs, *(v.run for v in views)]):
         _check_run(run_dir)
-    return Spec(path, runs, views)
+    findings = _parse_list(path, raw, "findings", _parse_finding)
+    honesty = _parse_list(path, raw, "honesty", _parse_honesty)
+    return Spec(path, runs, views, findings, honesty)
 
 
 # ---------------------------------------------------------------------------- assembly
@@ -251,6 +320,8 @@ table.kinds th:nth-child(2), table.kinds td:nth-child(2) { text-align: left; }
 tr.all-kind td { font-weight: 600; }
 details { margin: 12px 0; }
 summary { cursor: pointer; padding: 4px 0; }
+ul.findings, ul.honest { margin: 8px 0; padding-left: 1.2rem; }
+ul.findings li, ul.honest li { margin: 8px 0; }
 .legend { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
 pre { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
   padding: 12px 14px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; }
@@ -292,6 +363,36 @@ def _figure(data: SiteData, fig: Figure, out_dir: Path) -> str:
         f'<span class="meta">{escape(where)}</span></figcaption>\n'
         "</figure>"
     )
+
+
+def _blob_url(path: str) -> str:
+    return f"{REPO_URL}/blob/main/{path}"
+
+
+def _findings(findings: tuple[Finding, ...]) -> list[str]:
+    if not findings:
+        return []
+    items = []
+    for f in findings:
+        url = _blob_url(f"docs/log/{f.log}")
+        number = f.log.split("-")[0]
+        items.append(
+            f'<li>{escape(f.text)} <a href="{escape(url)}">Build log {escape(number)}</a></li>'
+        )
+    return ["<h2>What it found</h2>", '<ul class="findings">', *items, "</ul>"]
+
+
+def _honesty(honesty: tuple[HonestyItem, ...]) -> list[str]:
+    if not honesty:
+        return []
+    items = []
+    for h in honesty:
+        link = ""
+        if h.link:
+            label, path = h.link
+            link = f' <a href="{escape(_blob_url(path))}">{escape(label)}</a>'
+        items.append(f"<li>{escape(h.text)}{link}</li>")
+    return ["<h2>How it keeps itself honest</h2>", '<ul class="honest">', *items, "</ul>"]
 
 
 def _simulate_command(run: RunSection) -> str:
@@ -374,6 +475,8 @@ def render_html(data: SiteData, out_path: Path | None = None) -> str:
         "<h2>What you are looking at</h2>",
         f"<p>{escape(HOW_TO_READ)}</p>",
         _figure(data, head, out_dir),
+        *_findings(data.spec.findings),
+        *_honesty(data.spec.honesty),
         "<h2>Scoreboard</h2>",
         *[_scoreboard(r) for r in data.runs],
     ]
