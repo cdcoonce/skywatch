@@ -819,6 +819,51 @@ Planned detectors, in order:
    18 standard runs overall. Named planets: 844 p41 and 845 p29 found by default; 841 p93 found only with the
    reread (opt-in for its eclipse cost); 843 p53, 845 p61 and 861 p4 with causes stated. The statistic, threshold, guards and limits are in the
    `skywatch/detectors/single_transit.py` docstring.
+   The pulsation subtracted before the first search (issue #69). Where a transit's S/N goes, against the
+   truth matched filter, on the detectors' own code paths (16 development runs, 216 planets and 505 events
+   at truth S/N 5 or more; median step factors):
+
+   | step | `bls` planet | `single_transit` event |
+   |---|---|---|
+   | box vs ramped transit | 0.97 | 0.97 |
+   | detector's duration grid and phase | 0.99 | 1.00 |
+   | samples kept after clipping | 0.98 | (in grid) |
+   | **contrast form (own-night reference)** | **0.79** | **0.84** |
+   | depth read, noise estimate (constant hosts) | 1.00 | 1.00 |
+   | **total, after pulsation subtraction** | **0.72** | **0.75** |
+   | **total, first pass (no subtraction)** | **0.57** | **0.61** |
+
+   The contrast factor is `sqrt(1 - n_in / n_night)`, the honest variance when each night's level is free; a
+   cross-night reference measured on 499 planet-free constant stars did worse (night levels jitter 1.7 times
+   the white noise), so it is not the target. The avoidable loss is the first pass on pulsating stars: 0.52
+   of truth with a realised scatter about 5 times the stated sigma, against 0.73 with honest sigma after the
+   detector's own subtraction. Measured on the detector's own path (34 development runs, spies on a real
+   `detect`, `scripts/single_transit_presub_audit.py`), the order was not the loss: a pulsator reaches the
+   detrend through guard (a) on some other night, so subtracting first at the detrending's own bar (3
+   false-alarm levels) is `cmp`-identical to `main` on all 34 runs, and of the 117 transit events (truth S/N 8
+   or more) whose subtracted box reaches 8 and that `main` does not report, 103 are planets with 6 to 15
+   events that guard (a) reads as a sinusoid in the residual (`bls`'s), 13 have no box at 8 on the
+   residual in the path and 1 is another night's; none was lost to the order. What is lost is the bar: a
+   star whose fitted sinusoid stands at 1 to 3 levels (270 of the 4,552 stars whose strongest Fourier peak
+   reaches the guard's level) is subtracted by nothing, and a star whose fit with the box left out falls
+   under 3 loses its residual. `subtract_first` (on by default) runs the detrend before the raw search for a
+   star whose strongest Fourier peak reaches the guard's false-alarm level, with the sinusoid counted from
+   `subtract_ratio` (1) instead of `trend_min_ratio` (3); the refit round the best box, the flare gate,
+   guard (a) on the residual and the shape test are the existing ones, a star the detrend gives nothing for
+   is read as before, and a flare star (masked share of 3 percent or more) keeps the bar of 3 (without that
+   rule: one fp and one cosmic-ray box on the development runs). No S/N bar, shape threshold or gate
+   was added. Development (34 runs), `main` to this, `single_transit` alone: labels bounded 432 to 445,
+   planets 214 to 222, single-event planets at S/N 10 or more bounded 93 to 97, fp 1 to 1,
+   pulsation->transit 3 to 3, eclipse->transit 7 to 7, flare->transit 2 to 2, detections 452 to 465 (13
+   added, none lost); union planets 277 to 282, fp 12 to 12. CPU: 52 ms a star with a fitted sinusoid for
+   the subtraction plus 7 ms for the search of the residual; whole `detect` 30.2 to 30.6 s (standard) and
+   97.1 to 97.5 s (every star sinusoidal). Held-out, scored once (956-977, `main` to branch, `bls`
+   `cmp`-identical on four runs): every star sinusoidal with planets `single_transit` planets 113 to 116,
+   labels bounded 192 to 197, fp 0 to 0, pulsation->transit 3 to 3, eclipse->transit 0 to 0,
+   flare->transit 0 to 0, detections 195 to 200; union planets 138 to 139, fp 0 to 0, pulsation->transit
+   30 to 30; standard (968-973) `single_transit` `cmp`-identical to `main` on all six runs; planet-free
+   (974-977) no detection from either detector. The statistic, threshold, guards and limits are in the
+   `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring

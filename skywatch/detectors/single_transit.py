@@ -687,6 +687,22 @@ subtraction costs 52 ms a star with a fitted sinusoid (4,414 stars) plus 7 ms fo
 whole ``detect``, serial CPU seconds, ``main`` to this: seed1020 (standard) 30.2 to 30.6, puls-seed1000 (every
 star sinusoidal) 97.1 to 97.5.
 
+Held-out, scored once after the code was committed (3df36d2; seeds 956-967 every star sinusoidal with
+``planet_rate`` 0.5, 968-973 standard, 974-977 every star sinusoidal and planet-free; 200 stars, 20 nights),
+``main`` to this. Every star sinusoidal with planets (12 runs), ``single_transit``: transit labels bounded 192
+to 197, bounded or touched 192 to 197, planets 113 to 116, single-event planets at S/N 10 or more bounded 52
+to 53, fp 0 to 0, pulsation->transit 3 to 3, eclipse->transit 0 to 0, flare->transit 0 to 0, detections 195
+to 200; union with ``bls`` (``cmp``-identical to ``main``'s on puls-seed956, puls-seed960, seed968 and
+seed970): planets 138 to 139, labels bounded 337 to 338, bounded or touched 345 to 346, fp 0 to 0,
+pulsation->transit 30 to 30, detections 513 to 518. Standard (6 runs): ``single_transit`` ``cmp``-identical
+to ``main`` on all six whole runs (and on the 139 to 155 stars of each without a Fourier peak at the
+guard's level), 34 detections, planets 22, fp 0; the union is therefore unchanged (planets 28, fp 3,
+eclipse->transit 4, flare->transit 1, detections 84). Planet-free (4 runs): no detection from
+``single_transit`` or ``bls``, before or after. The five added detections are on three sinusoidal hosts and
+all on transit labels (puls-seed957 star 29, 9.0, sinusoid ratio 3.52; puls-seed960 star 190, 16.1, ratio
+5.11; puls-seed966 star 19, three events at 9.5, 9.2 and 14.0, ratio 2.48); none of ``main``'s is lost.
+CPU, serial CPU seconds, ``main`` to this: puls-seed956 94.0 to 94.2, seed968 36.0 to 36.4.
+
 Limits
 ------
 * Off the detrended path, a second strong event stays in the residual of the guard: a star with
