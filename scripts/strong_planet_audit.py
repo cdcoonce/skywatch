@@ -267,7 +267,7 @@ class SpySingle(_Spy, SingleTransitDetector):
     def __init__(self, targets: set[int], **kw: object) -> None:
         SingleTransitDetector.__init__(self, **kw)  # type: ignore[arg-type]
         self._init_spy(targets)
-        self._bls = SpyBls(targets)
+        self._bls = SpyBls(targets, trend_guard_ratio=None)  # as the detector pins its own
         self._bls.trace = self.trace  # one trace, in call order, for both detectors' methods
         self._bls._level = self._level
 
@@ -305,11 +305,14 @@ class SpySingle(_Spy, SingleTransitDetector):
             self._boxes_info,
         )
 
-    def _pulsating(self, t, flux, night, boxes, cadence_s):  # type: ignore[no-untyped-def]
+    def _pulsating(self, t, flux, night, boxes, cadence_s, *bar):  # type: ignore[no-untyped-def]
         return self._spy(
             "_pulsating(guard a)",
-            {"strongest_snr": _f(max((b.snr for b in boxes), default=0.0))},
-            lambda: super(SpySingle, self)._pulsating(t, flux, night, boxes, cadence_s),
+            {
+                "strongest_snr": _f(max((b.snr for b in boxes), default=0.0)),
+                "residual_bar": bar[0] if bar else 1.0,
+            },
+            lambda: super(SpySingle, self)._pulsating(t, flux, night, boxes, cadence_s, *bar),
             bool,
         )
 
@@ -321,11 +324,13 @@ class SpySingle(_Spy, SingleTransitDetector):
             lambda r: None if r is None else "residual",
         )
 
-    def _residual_pulsating(self, t, resid, night, boxes, cadence_s):  # type: ignore[no-untyped-def]
+    def _residual_pulsating(self, t, resid, night, boxes, cadence_s, *bar):  # type: ignore[no-untyped-def]
         return self._spy(
             "_residual_pulsating",
-            {"boxes": self._boxes_info(boxes)},
-            lambda: super(SpySingle, self)._residual_pulsating(t, resid, night, boxes, cadence_s),
+            {"boxes": self._boxes_info(boxes), "residual_bar": bar[0] if bar else 1.0},
+            lambda: super(SpySingle, self)._residual_pulsating(
+                t, resid, night, boxes, cadence_s, *bar
+            ),
             bool,
         )
 
@@ -345,11 +350,11 @@ class SpySingle(_Spy, SingleTransitDetector):
             lambda r: None if r is None else self._boxes_info(r[0]),
         )
 
-    def _shape(self, t, flux, night, b, cadence_s):  # type: ignore[no-untyped-def]
+    def _shape(self, t, flux, night, b, cadence_s, *ramp):  # type: ignore[no-untyped-def]
         return self._spy(
             "_shape",
-            {"night": b.night, "snr": _f(b.snr)},
-            lambda: super(SpySingle, self)._shape(t, flux, night, b, cadence_s),
+            {"night": b.night, "snr": _f(b.snr), "ramped_box": ramp[0] if ramp else None},
+            lambda: super(SpySingle, self)._shape(t, flux, night, b, cadence_s, *ramp),
             _f,
         )
 
@@ -362,7 +367,9 @@ class SpySingle(_Spy, SingleTransitDetector):
         )
 
 
-def run_audit(run: Path, stars: list[int], which: tuple[str, ...]) -> dict:
+def run_audit(
+    run: Path, stars: list[int], which: tuple[str, ...], single_kw: dict | None = None
+) -> dict:
     curves = store.read_curves(run)
     cadence_s = store.read_manifest(run)["config"]["cadence_s"]
     info = {s.star_id: s for s in store.read_stars(run)}
@@ -388,7 +395,7 @@ def run_audit(run: Path, stars: list[int], which: tuple[str, ...]) -> dict:
         },
     }
     for name in which:
-        det = SpyBls(set(stars)) if name == "bls" else SpySingle(set(stars))
+        det = SpyBls(set(stars)) if name == "bls" else SpySingle(set(stars), **(single_kw or {}))
         dets = det.detect(curves, cadence_s)
         out[name] = {"trace": det.trace, "detections": len(dets)}
     return out
@@ -421,11 +428,16 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--detector", choices=("bls", "single_transit", "both"), default="both")
     ap.add_argument("--json", help="write the full trace as JSON to this path")
+    ap.add_argument(
+        "--single-kw",
+        default="{}",
+        help="JSON of SingleTransitDetector keywords, e.g. '{\"reread\": true}' (default: its defaults)",
+    )
     ap.add_argument("run")
     ap.add_argument("stars", nargs="+", type=int)
     args = ap.parse_args()
     which = ("bls", "single_transit") if args.detector == "both" else (args.detector,)
-    res = run_audit(Path(args.run), args.stars, which)
+    res = run_audit(Path(args.run), args.stars, which, json.loads(args.single_kw))
     if args.json:
         Path(args.json).write_text(json.dumps(res))
     print(render(res))

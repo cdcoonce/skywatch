@@ -16,6 +16,7 @@ from tests.test_bls import (
     C,
     _pin_repeat_snr,
     _pulsator_field,
+    _with_spikes,
     curve,
     eclipsing,
     make_field,
@@ -72,6 +73,8 @@ def test_registered_and_a_detector():
         {"min_night_h": -1.0},
         {"near_snr": 0},
         {"near_snr": -1.0},
+        {"trend_guard_ratio": 0.9},
+        {"trend_guard_ratio": 0},
     ],
 )
 def test_constructor_validation(kw):
@@ -93,6 +96,9 @@ def test_defaults_are_the_documented_ones():
     assert d.min_night_h == 2.0
     assert d.leave_out_events is True
     assert d.near_snr == 5.0
+    assert d.trend_guard_ratio == 3.0 == BlsDetector().trend_min_ratio
+    assert d.reread is False  # opt-in: its held-out eclipse->transit cost (PR #68)
+    assert d.ramp_box is True
 
 
 def test_empty_and_tiny_curves():
@@ -347,7 +353,11 @@ def test_a_star_with_two_unequal_single_events_is_not_searched():
     rng = np.random.default_rng(5)
     t = night_times(10)
     prof = dip_profile(t, 2, 2.0, 3.0, 0.015) * dip_profile(t, 7, 4.0, 2.0, 0.006)
-    assert detect({0: curve(0, t, prof, 0.005, rng)}) == []
+    cv = curve(0, t, prof, 0.005, rng)
+    assert detect({0: cv}, trend_guard_ratio=None) == []
+    # ... and with the residual bar of issue #66 (3 levels) the guard reads the second event as
+    # what it is, and both are reported
+    assert [d.t_start // DAY for d in detect({0: cv}, reread=True)] == [2, 7]
 
 
 # -- the shape test ----------------------------------------------------------------------
@@ -466,13 +476,13 @@ def test_the_test_reads_the_night_of_the_box_only(monkeypatch):
     # the statistic is a single-night fit: the star's other nights (here a V on night 2 beside
     # the box on night 7) must not enter it, or the free level would be one for the whole star
     sizes = []
-    real = BlsDetector._shape_excess
+    real = BlsDetector._shape_gains
 
-    def spy(self, t, flux, night, sigma, box):
+    def spy(self, t, flux, night, box):
         sizes.append((len(t), len(np.unique(night)), len(np.unique(t // DAY))))
-        return real(self, t, flux, night, sigma, box)
+        return real(self, t, flux, night, box)
 
-    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
+    monkeypatch.setattr(BlsDetector, "_shape_gains", spy)
     t = night_times(10)
     prof = v_profile(t, 2, 4.0, 3.0, 0.03) * dip_profile(t, 7, 2.5, 3.0, 0.015)
     both = shapes(curve(0, t, prof, 0.005, np.random.default_rng(3)), guards=False)
@@ -488,21 +498,21 @@ def wing(seed):
 def test_a_statistic_of_1_2_is_refused_and_one_of_0_9_is_kept():
     # pins the effective threshold between 0.9 and 1.2, not only the default attribute
     refused, kept = wing(14), wing(27)
-    assert shapes(refused) == [pytest.approx(1.22, abs=0.05)]
-    assert shapes(kept) == [pytest.approx(0.90, abs=0.05)]
-    assert detect({0: refused}) == []
-    assert len(detect({0: kept})) == 1
+    assert shapes(refused, ramp_box=False) == [pytest.approx(1.22, abs=0.05)]
+    assert shapes(kept, ramp_box=False) == [pytest.approx(0.90, abs=0.05)]
+    assert detect({0: refused}, ramp_box=False) == []
+    assert len(detect({0: kept}, ramp_box=False)) == 1
 
 
 def test_sigma_is_the_nights_scatter_outside_the_box_not_the_whole_nights(monkeypatch):
     seen = []
-    real = BlsDetector._shape_excess
+    real = BlsDetector._shape_ratio
 
-    def spy(self, t, flux, night, sigma, box):
+    def spy(g_box, g_triangle, sigma):
         seen.append(sigma)
-        return real(self, t, flux, night, sigma, box)
+        return real(g_box, g_triangle, sigma)
 
-    monkeypatch.setattr(BlsDetector, "_shape_excess", spy)
+    monkeypatch.setattr(BlsDetector, "_shape_ratio", staticmethod(spy))
     cv = one_event(lambda t: v_profile(t, 4, 4.0, 5.0, 0.02))  # a V filling 5 h of the 8 h night
     shapes(cv)
     # the white noise is 0.005; the whole night's MAD (dip included) reads about 0.0075
@@ -688,7 +698,7 @@ def test_a_planet_with_several_events_on_a_pulsating_host_is_left_to_bls():
     # its other events stand out of the residual, so guard (a) still refuses it: the periodic
     # search is the one that finds this planet (see the bls tests of pulsating hosts)
     _t, cv = pulsator(0)
-    assert detect({0: cv}) == []
+    assert detect({0: cv}, trend_guard_ratio=None) == []
 
 
 # -- the other events of a planet on a pulsating host (issue #61) ------------------------------
@@ -721,7 +731,7 @@ def test_two_events_on_a_pulsating_host_are_both_found(seed):
         lo, hi = clipped_window(night, start_h, dur_h)
         assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6
         assert d.score >= 8.0 and d.kind_guess == "transit"
-    assert detect({0: cv}, leave_out_events=False) == []
+    assert detect({0: cv}, leave_out_events=False, trend_guard_ratio=None) == []
 
 
 def test_three_events_on_a_pulsating_host_are_found():
@@ -752,9 +762,9 @@ def _residual_guard_calls(det, cv):
     calls: list[tuple[int, int]] = []
     real = SingleTransitDetector._pulsating
 
-    def spy(t, flux, night, boxes, cadence_s):
+    def spy(t, flux, night, boxes, cadence_s, residual_bar=1.0):
         calls.append((len(t), len(boxes)))
-        return real(det, t, flux, night, boxes, cadence_s)
+        return real(det, t, flux, night, boxes, cadence_s, residual_bar)
 
     det._pulsating = spy
     det.detect({0: cv}, C)
@@ -773,8 +783,8 @@ def test_the_other_events_are_left_out_of_the_second_read_only():
     # two boxes whose first read refuses: the second read holds the strongest box alone, with
     # the other box's 1.5-times window (4.5 h of 60 s samples) cut out
     _t, cv = two_event_host(TWO_DIPS)
-    kept = SingleTransitDetector()
-    refused = SingleTransitDetector(leave_out_events=False)
+    kept = SingleTransitDetector(trend_guard_ratio=None)  # the bar of 1: this read refuses
+    refused = SingleTransitDetector(leave_out_events=False, trend_guard_ratio=None)
     full = _residual_guard_calls(refused, cv)
     cut = _residual_guard_calls(kept, cv)
     assert full[1][1] == 2 and cut[1][1] == 2  # the first read sees both boxes
@@ -804,7 +814,7 @@ def test_the_night_of_a_cut_box_is_levelled_again():
     ]
     reads: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
 
-    def spy(t_, flux_, night_, boxes_, cadence_s):
+    def spy(t_, flux_, night_, boxes_, cadence_s, residual_bar=1.0):
         reads.append((t_, flux_, night_))
         return True
 
@@ -831,7 +841,7 @@ def test_a_two_box_residual_the_plain_read_accepts_is_read_once():
     ]
     reads: list[int] = []
 
-    def spy(t_, flux_, night_, boxes_, cadence_s):
+    def spy(t_, flux_, night_, boxes_, cadence_s, residual_bar=1.0):
         reads.append(len(boxes_))
         return False
 
@@ -1431,3 +1441,213 @@ def test_the_bls_this_detector_reads_keeps_the_residual_bar_of_before_issue_66()
     # the PR leaves it unchanged
     assert SingleTransitDetector()._bls.trend_guard_ratio is None
     assert BlsDetector().trend_guard_ratio is not None
+
+
+# -- strong planets the guard and the shape test refused (issue #66) ---------------------------
+
+
+def weak_host(seed=0, depth=0.02):
+    """A 0.05 percent sinusoid (4.8 h) in 0.5 percent noise with one 3 h dip on night 4.
+
+    The sinusoid is the guard's: with the dip out it stands at 1 to 3 times the false-alarm level,
+    so guard (a) refuses the night's box on the residual test alone, and the detrending finds no
+    sinusoid (its bar is 3 times) to subtract.
+    """
+    return pulsating_host(seed, dip=(4, 2.5, 3.0, depth), amp=0.0005, period_d=0.2)
+
+
+def _guard_bars(cv, **kw):
+    """The residual bar handed to ``bls``'s guard by every ``_pulsating`` call of one detect."""
+    bars: list[float] = []
+    real = BlsDetector._pulsating
+
+    def spy(self, t, flux, sigma, cadence_s, box, residual_bar=1.0):
+        bars.append(residual_bar)
+        return real(self, t, flux, sigma, cadence_s, box, residual_bar)
+
+    det = SingleTransitDetector(**kw)
+    det._bls._pulsating = spy.__get__(det._bls)
+    out = det.detect({0: cv}, C)
+    return bars, out
+
+
+def test_a_strong_planet_on_a_barely_pulsating_star_is_read_again_and_found():
+    # main: guard (a) refuses the box on the residual test alone, at 1 to 3 times the level, and
+    # the detrending finds no sinusoid at 3 times: the star was lost whole
+    for seed in range(3):
+        _t, cv = weak_host(seed)
+        assert detect({0: cv}, trend_guard_ratio=None) == []
+        (d,) = detect({0: cv}, reread=True)
+        lo, hi = clipped_window(4, 2.5, 3.0)
+        assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6 and d.score >= 8.0
+
+
+def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found_nothing():
+    _t, cv = weak_host(0)
+    bars, out = _guard_bars(cv, reread=True)
+    assert len(out) == 1
+    assert bars == [1.0, 3.0]  # the first read, then the same box again at 3 levels
+    # a star the detrend rescues is not read again on its raw flux: its residual is judged at 3
+    _t, host = pulsating_host(0)
+    det = SingleTransitDetector()
+    rescued: list[bool] = []
+    real = SingleTransitDetector._detrended
+
+    def spy(self, *a):
+        rescued.append((found := real(self, *a)) is not None)
+        return found
+
+    det._detrended = spy.__get__(det)
+    assert len(det.detect({0: host}, C)) == 1 and rescued == [True]
+    assert _guard_bars(host)[0] == [1.0, 3.0]  # the raw read, then the residual (no third read)
+    # the old reading is the old bar and the old outcome
+    bars, out = _guard_bars(cv, trend_guard_ratio=None)
+    assert out == [] and set(bars) == {1.0}
+
+
+def test_the_raw_box_is_not_read_again_by_default():
+    # opt-in since PR #68's held-out eclipse->transit cost (2 to 5 on the standard set): the
+    # default keeps the residual bar of a detrended star and reads the raw box once, at 1
+    _t, cv = weak_host(0)
+    bars, out = _guard_bars(cv)
+    assert out == [] and bars == [1.0]
+    assert len(detect({0: cv}, reread=True)) == 1
+
+
+def test_the_reread_needs_the_detrend():
+    # the reread is the second look at a star the detrending could not clean: with the detrending
+    # off there is no such star, and the switch must not read the raw box again at the relaxed bar
+    _t, cv = weak_host(0)
+    assert len(detect({0: cv}, reread=True)) == 1
+    assert detect({0: cv}, detrend_pulsation=False, reread=True) == []
+
+
+def test_the_reread_has_its_own_switch_and_leaves_the_residual_bar_alone():
+    # the raw box read again is one of the two uses of `trend_guard_ratio`; `reread=False` keeps
+    # the residual bar of a detrended star and drops the second reading of the raw box
+    _t, cv = weak_host(0)
+    bars, out = _guard_bars(cv, reread=False)
+    assert out == [] and bars == [1.0]
+    _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
+    bars, out = _guard_bars(cv, reread=False)
+    assert len(out) == 1 and bars == [1.0, 3.0]
+
+
+def test_the_relaxed_bar_does_not_admit_a_pulsator_the_detrend_cannot_clean():
+    # the residual sinusoid of a strong second mode (0.2 percent, 25 times the level) stays above
+    # the bar of 3: the star is refused on its raw flux and on its residual as before
+    _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.002, 0.2))
+    assert detect({0: cv}) == []
+    # ... while the weak one (1 to 3 times the level) is below what the detrending would subtract
+    _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
+    assert detect({0: cv}, trend_guard_ratio=None) == []
+    assert len(detect({0: cv})) == 1
+
+
+def test_the_residual_of_a_detrended_star_is_judged_at_the_relaxed_bar():
+    _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
+    bars, out = _guard_bars(cv)
+    assert len(out) == 1 and bars == [1.0, 3.0]
+    # the leave-out read of a residual that is refused uses the bar too
+    det = SingleTransitDetector()
+    seen: list[float] = []
+    det._pulsating = lambda t, f, n, b, c, residual_bar=1.0: seen.append(residual_bar) is None
+    n = 480
+    t = (np.arange(n * 3, dtype=np.int64) * C).reshape(3, n) + (np.arange(3) * DAY)[:, None]
+    t, night = t.ravel(), np.repeat(np.arange(3), n)
+    boxes = [
+        st.NightBox(1, int(t[n + 100]), int(t[n + 199]), 0.03, 100, 380, 0.005, 20.0),
+        st.NightBox(2, int(t[2 * n + 100]), int(t[2 * n + 199]), 0.03, 100, 380, 0.005, 9.0),
+    ]
+    det._residual_pulsating(t, np.ones(3 * n), night, boxes, C, 3.0)
+    assert seen == [3.0, 3.0]
+
+
+def test_a_flare_star_keeps_the_guards_own_residual_bar():
+    # a flare star's tails make red noise that reads 1 to 3 levels in the residual, which is why
+    # the guard refuses it: the relaxed bar is for a star that is not one (the masked share of
+    # its samples reaches `flare_fraction` of `bls`, 3 percent). 0.8 percent lifted masks 3.9
+    _t, cv = weak_host(0)
+    flared = _with_spikes(cv)
+    assert len(detect({0: cv}, reread=True)) == 1
+    assert detect({0: flared}, reread=True) == []
+    det = SingleTransitDetector()
+    c = det._bls._clean(flared, C)
+    t, _, _, _ = det._bls._prepare(c, None)
+    assert 1.0 - len(t) / len(c.t) >= det._bls.flare_fraction
+    assert det._relaxed_bar(c, t) == 1.0
+    quiet = det._bls._clean(cv, C)
+    tq, _, _, _ = det._bls._prepare(quiet, None)
+    assert det._relaxed_bar(quiet, tq) == 3.0
+    assert SingleTransitDetector(trend_guard_ratio=None)._relaxed_bar(quiet, tq) == 1.0
+    assert SingleTransitDetector(trend_guard_ratio=1.0)._relaxed_bar(quiet, tq) == 1.0
+
+
+def test_the_relaxed_bar_does_not_clear_an_eclipsing_binary():
+    _t, cv = eb_with_dip()
+    assert detect({0: cv}) == []
+
+
+def test_a_planet_with_ramps_cut_by_the_night_end_is_not_a_v():
+    # a 5.7 h transit with a tenth of its width of ramp, 1 h of it before the night ends: the
+    # ingress is resolved (0.57 h) and a box cannot follow it; the transit the world draws can
+    for seed in (0, 2):
+        cv = one_event(lambda t: trapezoid_profile(t, 4, 7.0, 5.7, 0.023), seed=seed)
+        (plain,) = shapes(cv, ramp_box=False)
+        (ramped,) = shapes(cv)
+        assert plain > 1.1 and ramped < 0.7
+        assert detect({0: cv}, ramp_box=False) == []
+        (d,) = detect({0: cv})
+        assert span_iou(d.t_start, d.t_end, *clipped_window(4, 7.0, 5.7)) >= 0.6
+
+
+def test_the_ramped_box_never_raises_the_statistic_and_does_not_hide_a_v():
+    # g_box is the larger of the two families, so the statistic can only fall; a V stays a V
+    for prof in (
+        lambda t: v_profile(t, *V_MID),
+        lambda t: v_profile(t, 4, 8.0, 4.0, 0.06),
+        lambda t: trapezoid_profile(t, 4, 2.5, 3.0, 0.02),
+    ):
+        cv = one_event(prof)
+        assert shapes(cv)[0] <= shapes(cv, ramp_box=False)[0] + 1e-12
+    cv = one_event(lambda t: v_profile(t, *V_MID))
+    assert shapes(cv)[0] > 3.0 and detect({0: cv}) == []
+    cv = one_event(lambda t: v_profile(t, 4, 8.0, 4.0, 0.06))  # the half V of a night's end
+    assert shapes(cv)[0] > 1.5 and detect({0: cv}) == []
+
+
+def test_the_ramped_template_is_the_worlds_transit():
+    # a trapezoid with a tenth of its width of ramp on each side, 3 h wide: the template of that
+    # width fits it exactly, a box of that width does not
+    det = SingleTransitDetector()
+    x = np.arange(-4 * HOUR, 4 * HOUR, C, dtype=np.float64)
+    w = 3.0 * HOUR
+    dip = 0.02 * np.clip((w / 2 - np.abs(x)) / (0.1 * w), 0.0, 1.0)
+    gain = det._ramped_gain(x, dip)
+    centred = dip - dip.mean()
+    assert gain == pytest.approx(float(centred @ centred), rel=0.05)  # the ladder has steps
+    box = 0.02 * (np.abs(x) <= w / 2)
+    centred_box = box - box.mean()
+    assert det._ramped_gain(x, box) < float(centred_box @ centred_box)
+
+
+def test_the_ramp_is_not_used_for_boxes_found_after_the_eclipse_mask(monkeypatch):
+    # the boxes left beside a binary's masked eclipses are its wings; a ramp fits them (issue #66's
+    # development cost: three eclipses read as transits), so the shape test keeps the plain box
+    used: list[bool | None] = []
+    real = SingleTransitDetector._shape
+
+    def spy(self, t, flux, night, b, cadence_s, ramp=None):
+        used.append(ramp)
+        return real(self, t, flux, night, b, cadence_s, ramp)
+
+    monkeypatch.setattr(SingleTransitDetector, "_shape", spy)
+    _t, cv = eb_with_dip(dip=(6, 0.5, 3.0, 0.02))
+    assert len(detect({0: cv})) == 1
+    assert used == [False]
+    used.clear()
+    assert len(detect({0: one_dip()[1]})) == 1
+    assert used == [True]
+    used.clear()
+    detect({0: one_dip()[1]}, ramp_box=False)
+    assert used == [False]
