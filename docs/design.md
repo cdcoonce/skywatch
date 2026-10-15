@@ -804,8 +804,12 @@ Planned detectors, in order:
    pulsation->transit 21 to 22 (allowance one: met); standard union planets 15 to 15, fp 1 to 1,
    **eclipse->transit 2 to 5 (allowance one: missed)**, three eclipse boxes of two binaries admitted by the
    raw reread at 1.41 and 2.23 levels, none by the ramped box; planet-free unchanged (`single_transit` 0,
-   0, 1, 0). `Refs` rather than `Closes`: the bar on the standard set is missed, the raw reread is its
-   own switch (`reread`). The statistic, threshold, guards and limits are in the
+   0, 1, 0). `Refs` rather than `Closes`: the bar on the standard set is missed (cause: the raw reread,
+   which also admitted the one held-out flare->transit, seed922 star 180, a flare star under the 3 percent
+   share; the eclipse boxes are seed918 star 168 (two) and seed923 star 169, raw guard 1.41 and 2.23 levels,
+   shape 0.10, 0.70, 0.22). Decision: the raw reread is its own switch (`reread`) and is **off by default**;
+   906-927 are now development (they informed the choice) and the reread-off variant is to be judged on fresh
+   seeds in the review. 841 p93, found only by the reread, is not found by default. The statistic, threshold, guards and limits are in the
    `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
