@@ -24,6 +24,7 @@ from skywatch.detectors.bls import (
     refine,
 )
 from skywatch.detectors.bls import masked_runs as run_edges
+from skywatch.detectors.single_transit import SingleTransitDetector
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
 
@@ -3392,6 +3393,74 @@ def test_the_reread_keeps_the_second_looks_snr_bar():
     # ... and with a higher S/N the same star is reported
     _, cv = _weakly_pulsating(1, depth=0.0025)
     assert len(detect({0: cv})) == 4
+
+
+@pytest.mark.parametrize("snr,local", [(8.5, 9.5), (9.5, 8.5)])
+def test_the_reread_s_n_bar_applies_to_the_snr_and_to_the_local_snr_each(monkeypatch, snr, local):
+    # either of the two below the second look's bar of 9 refuses the box: the monkeypatch hands
+    # `_reread` a box that passes every gate with the two S/N read as given
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector()
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    assert det._reread(a, c, C, False) is not None
+    real = BlsDetector._search_arrays
+
+    def fake(self, *args, **kw):
+        return replace(real(self, *args, **kw), snr=snr, snr_local=local)
+
+    monkeypatch.setattr(BlsDetector, "_search_arrays", fake)
+    assert det._reread(a, c, C, False) is None
+    # ... and both at the bar keep it
+    monkeypatch.setattr(
+        BlsDetector,
+        "_search_arrays",
+        lambda self, *args, **kw: replace(real(self, *args, **kw), snr=9.5, snr_local=9.5),
+    )
+    assert det._reread(a, c, C, False) is not None
+
+
+def test_the_reread_keeps_a_box_only_if_every_other_gate_passes_it():
+    # a box another gate rejects (here: 50 events asked of a box with four) is not handed back
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector(min_events=50)
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    assert BlsDetector()._reread(a, c, C, False) is not None
+    assert det._search_arrays(a, c, C, False, 3.0).rejected == "min_events"
+    assert det._reread(a, c, C, False) is None
+
+
+def test_the_reread_keeps_the_repeat_check():
+    # `trend_repeat_snr` is off by default, so only a set value shows that the second look keeps it
+    _, cv = _weakly_pulsating(0)
+    c, a = BlsDetector()._clean(cv, C), _arrays(BlsDetector(), cv)
+    assert BlsDetector(trend_repeat_snr=1.0)._reread(a, c, C, False) is not None
+    assert BlsDetector(trend_repeat_snr=1e9)._reread(a, c, C, False) is None
+
+
+def test_the_box_versus_sine_bar_is_not_relaxed_with_the_residual_bar():
+    # a sinusoid of 0.1 percent at 4.8 h: the box a transit search finds on it is matched by the
+    # sine, so the box-versus-sine test refuses it, at the relaxed residual bar as at 1. The refusal
+    # is that test's, not the night-level ratio's behind it (which `sine_ratio` would then carry)
+    _, cv = pulsator(0, period_d=0.2, amp=0.001, transit=False)
+    det = BlsDetector()
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    for bar in (1.0, 3.0):
+        cand = det._search_arrays(a, c, C, False, bar)
+        assert cand.rejected == "pulsation guard" and cand.sine_ratio is None
+    assert det._reread(a, c, C, False) is None
+
+
+def test_the_bls_single_transit_reads_neither_relaxes_nor_rereads_a_box():
+    # behaviour, not the attribute: a star the relaxed bar rescues in `bls` (the weakly pulsating
+    # one: found with its four events) is read, by the `bls` of `single_transit`, as it was before
+    # #66: rejected by the guard, not rescued by a second reading
+    _, cv = _weakly_pulsating(0)
+    own = BlsDetector()
+    assert own._search(own._clean(cv, C), None, C).rejected is None
+    held = SingleTransitDetector()._bls
+    assert held._relaxed_bar(_arrays(held, cv)) == 1.0
+    assert held._reread(_arrays(held, cv), held._clean(cv, C), C, False) is None
+    assert held._search(held._clean(cv, C), None, C).rejected == "pulsation guard"
 
 
 def test_a_pulsator_without_a_planet_is_not_read_into_one():
