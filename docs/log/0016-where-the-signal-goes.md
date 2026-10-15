@@ -24,7 +24,7 @@ On 16 development runs (216 planets and 505 single events at S/N 5 or more):
 About 70% of the loss is one step: a box is compared with the rest of its own
 night, so its S/N carries the uncertainty of that night's level as well as its
 own. That costs a factor of sqrt(1 - n_in/n_night): 0.95 for a box that fills
-a tenth of the night, 0.5 for one that fills four-fifths. It is the honest
+a tenth of the night, 0.45 for one that fills four-fifths. It is the honest
 variance when each night's level is free. The alternative is to borrow the
 level from other nights. That was tested on 499 planet-free constant stars and
 did worse, because night levels jitter 1.7 times more than white noise would.
