@@ -513,8 +513,8 @@ Issue #66 listed six strong single-event planets that this detector refused whol
   subtract, and a residual that had just lost its sinusoid was refused on the same reading of 1. The
   bar is ``bls``'s own (``BlsDetector._pulsating(residual_bar=...)``, issue #66's first half) and is used
   twice: (1) for guard (a) on a pulsator's residual (:meth:`_residual_pulsating`, both reads), and (2) for the
-  raw box of a star the detrending could not clean, read again (``reread``, on by default; the same bar and
-  the same star-wide boxes; no S/N bar is added, the detector's 8 stands). A star whose share of masked
+  raw box of a star the detrending could not clean, read again (``reread``, **off by default**, opt-in: see
+  "The missed bar" below; the same bar and the same star-wide boxes; no S/N bar is added, the detector's 8 stands). A star whose share of masked
   samples reaches ``bls``'s ``flare_fraction`` (3 percent) keeps the bar of 1: a flare star's tails read 1
   to 3 levels in the residual. Only the residual test is relaxed; the box-versus-sine test is not.
 * **A ramped box in the shape test** (``ramp_box``, on by default). The box family of the shape test gets
@@ -532,7 +532,8 @@ planet    star main                                                  this
 844 p41   84   residual box night 2 (S/N 63.2), guard (a) on the     accepted; shape -6.70; found, bounded
                residual 1.5104 levels (sine/box 0.054): refused by
                the residual test alone
-841 p93   185  raw box night 14 (S/N 15.0), guard (a) 1.1008 levels   accepted by the raw reread; shape -0.85;
+841 p93   185  raw box night 14 (S/N 15.0), guard (a) 1.1008 levels   accepted by the raw reread (opt-in,
+                                                                     not found by default); shape -0.85;
                (sine/box 0.199); the detrend finds nothing: refit    found, bounded
                with the box out reads the host's sinusoid at ratio
                1.27 < 3, so there is no residual at all
@@ -597,6 +598,13 @@ residual at 1.50 levels. The raw reread is its own switch (``reread=False`` keep
 the reread); what it buys is the named planet 841 p93 and, on the development runs, 12 labels and 8
 planets on the sinusoidal and 27 labels and 12 planets on the standard runs, none of which was new to
 the union with ``bls`` on the standard runs.
+
+Decision (PR #68): the PR as scored (reread on) missed the bar, and does not land as scored. ``reread`` is
+**off by default** (``reread=True`` is the scored behaviour; the code is kept, opt-in). Seeds 906-927 are
+now development, since they informed this choice. The reread-off variant was not re-scored on them; it is
+to be judged on fresh seeds in the review. The named planet 841 p93, found only by the reread, is therefore
+not found by default. On the development runs the two settings differ only on stars where the reread
+fired (puls-seed841: star 185, p93, lost; seed26: star 75, two transit boxes lost; seed420: identical).
 
 Limits
 ------
@@ -868,7 +876,7 @@ class SingleTransitDetector:
         leave_out_events: bool = True,
         near_snr: float | None = 5.0,
         trend_guard_ratio: float | None = 3.0,
-        reread: bool = True,
+        reread: bool = False,
         ramp_box: bool = True,
     ) -> None:
         if not snr_threshold > 0:

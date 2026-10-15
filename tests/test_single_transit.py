@@ -97,7 +97,7 @@ def test_defaults_are_the_documented_ones():
     assert d.leave_out_events is True
     assert d.near_snr == 5.0
     assert d.trend_guard_ratio == 3.0 == BlsDetector().trend_min_ratio
-    assert d.reread is True
+    assert d.reread is False  # opt-in: its held-out eclipse->transit cost (PR #68)
     assert d.ramp_box is True
 
 
@@ -357,7 +357,7 @@ def test_a_star_with_two_unequal_single_events_is_not_searched():
     assert detect({0: cv}, trend_guard_ratio=None) == []
     # ... and with the residual bar of issue #66 (3 levels) the guard reads the second event as
     # what it is, and both are reported
-    assert [d.t_start // DAY for d in detect({0: cv})] == [2, 7]
+    assert [d.t_start // DAY for d in detect({0: cv}, reread=True)] == [2, 7]
 
 
 # -- the shape test ----------------------------------------------------------------------
@@ -1477,14 +1477,14 @@ def test_a_strong_planet_on_a_barely_pulsating_star_is_read_again_and_found():
     for seed in range(3):
         _t, cv = weak_host(seed)
         assert detect({0: cv}, trend_guard_ratio=None) == []
-        (d,) = detect({0: cv})
+        (d,) = detect({0: cv}, reread=True)
         lo, hi = clipped_window(4, 2.5, 3.0)
         assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6 and d.score >= 8.0
 
 
 def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found_nothing():
     _t, cv = weak_host(0)
-    bars, out = _guard_bars(cv)
+    bars, out = _guard_bars(cv, reread=True)
     assert len(out) == 1
     assert bars == [1.0, 3.0]  # the first read, then the same box again at 3 levels
     # a star the detrend rescues is not read again on its raw flux: its residual is judged at 3
@@ -1503,6 +1503,15 @@ def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found
     # the old reading is the old bar and the old outcome
     bars, out = _guard_bars(cv, trend_guard_ratio=None)
     assert out == [] and set(bars) == {1.0}
+
+
+def test_the_raw_box_is_not_read_again_by_default():
+    # opt-in since PR #68's held-out eclipse->transit cost (2 to 5 on the standard set): the
+    # default keeps the residual bar of a detrended star and reads the raw box once, at 1
+    _t, cv = weak_host(0)
+    bars, out = _guard_bars(cv)
+    assert out == [] and bars == [1.0]
+    assert len(detect({0: cv}, reread=True)) == 1
 
 
 def test_the_reread_has_its_own_switch_and_leaves_the_residual_bar_alone():
@@ -1552,8 +1561,8 @@ def test_a_flare_star_keeps_the_guards_own_residual_bar():
     # its samples reaches `flare_fraction` of `bls`, 3 percent). 0.8 percent lifted masks 3.9
     _t, cv = weak_host(0)
     flared = _with_spikes(cv)
-    assert len(detect({0: cv})) == 1
-    assert detect({0: flared}) == []
+    assert len(detect({0: cv}, reread=True)) == 1
+    assert detect({0: flared}, reread=True) == []
     det = SingleTransitDetector()
     c = det._bls._clean(flared, C)
     t, _, _, _ = det._bls._prepare(c, None)
