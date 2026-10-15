@@ -43,6 +43,8 @@ table.kinds th:nth-child(2), table.kinds td:nth-child(2) { text-align: left; }
 tr.all-kind td { font-weight: 600; }
 details { margin: 12px 0; }
 summary { cursor: pointer; padding: 4px 0; }
+ul.findings, ul.honest { margin: 8px 0; padding-left: 1.2rem; }
+ul.findings li, ul.honest li { margin: 8px 0; }
 .legend { color: var(--muted); font-size: 0.85rem; margin: 8px 0 0; }
 pre { background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
   padding: 12px 14px; overflow-x: auto; font-size: 0.85rem; line-height: 1.5; }
@@ -68,6 +70,23 @@ footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule);
 <img src="img/seed7-pick.png" alt="seed7-200s-3n · star 33 · night 1: Seed 7, star 33, night 1: a held tracking drift, a cosmic ray, a hot pixel and an end-of-night flare on one curve. Only the field detector names the drift." width="1200" height="800">
 <figcaption>Seed 7, star 33, night 1: a held tracking drift, a cosmic ray, a hot pixel and an end-of-night flare on one curve. Only the field detector names the drift.<span class="meta">seed7-200s-3n · star 33 · night 1</span></figcaption>
 </figure>
+<h2>What it found</h2>
+<ul class="findings">
+<li>Before any detector was wrong, the scorer was: a simple detector looked like it made 312 false alarms, but 281 of them overlapped real events, and once the scoring rules were fixed the same detections gave 34. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0002-the-first-finding-is-about-the-scorer.md">Build log 0002</a></li>
+<li>Before building a search for repeating dips, the project counted what a 3-night survey holds: only 1 of 34 planets in one run and 1 of 25 in the other transited more than once, with a combined signal of just 0.1 and 1.7 against a bar of 7, so it surveyed 20 nights instead. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0007-the-page-the-survey-that-could-not-be-searched-and-the-first-periodic-find.md">Build log 0007</a></li>
+<li>A fix that worked on the sky it was built on did nothing on six skies it had never seen (seeds 21 to 26) and raised false alarms from 6 to 9, so it shipped switched off and unseen &quot;held-out&quot; seeds became a standing rule. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0008-the-held-out-seeds-and-what-they-changed.md">Build log 0008</a></li>
+<li>A gate that would have removed 28 false claims was shipped switched off, because it would also have lost 18 real transits that no other detector finds. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0010-a-public-page-and-four-fixes-that-only-subtract.md">Build log 0010</a></li>
+<li>Dividing every star by the field&#x27;s median cancels sky-wide effects, but when most stars pulsate the median is itself a wobble that gets written into every star, and fixing that cut one run&#x27;s false planet claims from 14 to 2. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0012-the-median-of-a-field-of-pulsators-is-a-pulsation.md">Build log 0012</a></li>
+<li>A cause written down for a lost planet was invented by a side script that prepared the star differently from the real detector, and on the detector&#x27;s own path the star&#x27;s one candidate was dropped by a shape test at 1.57 against a bar of 1.0. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0013-the-planets-own-events-and-a-cause-the-instrument-invented.md">Build log 0013</a></li>
+<li>A transit search reads a dip at a median 0.65 of its ideal signal, and most of that loss is the honest price of comparing the dip with the rest of its own night; the one loss that looked fixable changed nothing on 34 runs, so that attempt was closed. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0016-where-the-signal-goes.md">Build log 0016</a></li>
+</ul>
+<h2>How it keeps itself honest</h2>
+<ul class="honest">
+<li>The simulator writes the truth when it injects each event, and the detectors never see it; only the scorer does.</li>
+<li>A change is designed on development seeds and scored once on held-out seeds, only after every threshold is committed, and a bar that fails there is reported instead of re-tuned. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/seeds.md">The seed ledger</a></li>
+<li>Every pull request is reviewed by a second agent that breaks the code one defect at a time and checks the tests go red, and bars are stated in planets, with an allowance of one planet.</li>
+<li>A failed bar closes the pull request: the change in entry 0016 gained nothing on unseen runs, so it was closed rather than shipped switched off. <a href="https://github.com/cdcoonce/skywatch/blob/main/docs/log/0016-where-the-signal-goes.md">Build log 0016</a></li>
+</ul>
 <h2>Scoreboard</h2>
 <h3>seed7-200s-3n</h3>
 <p class="run-meta">seed 7 · 200 stars · 3 nights · 60 s cadence</p>
@@ -345,6 +364,75 @@ footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule);
 </table></div>
 </details>
 <p class="legend">tpB/tpT = true positives bounded/touched, corr = corroborating, fp = false alarms, fn = missed, unobs = unobservable, excluded from fn and recall, P/R/F1 = precision, recall and F1, bounded = share of true positives that bounded the event</p>
+<h3>seed22-200s-20n</h3>
+<p class="run-meta">seed 22 · 200 stars · 20 nights · 60 s cadence</p>
+<div class="table-wrap"><table id="all-seed22-200s-20n" class="all">
+<tr><th>detector</th><th>tpB</th><th>tpT</th><th>corr</th><th>fp</th><th>fn</th><th>unobs</th><th>P</th><th>R</th><th>F1</th><th>bounded</th></tr>
+<tr><td>bls</td><td>9</td><td>1</td><td>0</td><td>0</td><td>2532</td><td>0</td><td>1.000</td><td>0.004</td><td>0.008</td><td>0.900</td></tr>
+<tr><td>field_common_mode</td><td>19</td><td>1</td><td>2</td><td>0</td><td>2522</td><td>0</td><td>1.000</td><td>0.008</td><td>0.016</td><td>0.950</td></tr>
+<tr><td>median_residual</td><td>1341</td><td>375</td><td>1487</td><td>64</td><td>826</td><td>0</td><td>0.964</td><td>0.675</td><td>0.794</td><td>0.781</td></tr>
+<tr><td>rolling_z</td><td>1198</td><td>611</td><td>1742</td><td>82</td><td>733</td><td>0</td><td>0.957</td><td>0.712</td><td>0.816</td><td>0.662</td></tr>
+<tr><td>single_transit</td><td>11</td><td>0</td><td>0</td><td>0</td><td>2531</td><td>0</td><td>1.000</td><td>0.004</td><td>0.009</td><td>1.000</td></tr>
+</table></div>
+<details>
+<summary>Every kind</summary>
+<div class="table-wrap"><table id="kinds-seed22-200s-20n" class="kinds">
+<tr><th>detector</th><th>kind</th><th>tpB</th><th>tpT</th><th>corr</th><th>fp</th><th>fn</th><th>unobs</th><th>P</th><th>R</th><th>F1</th><th>bounded</th></tr>
+<tr><td>bls</td><td>cloud</td><td>0</td><td>0</td><td>0</td><td>0</td><td>10</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>cosmic_ray</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1250</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>dropout</td><td>0</td><td>0</td><td>0</td><td>0</td><td>14</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>eclipse</td><td>0</td><td>0</td><td>0</td><td>0</td><td>173</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>flare</td><td>0</td><td>0</td><td>0</td><td>0</td><td>415</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>hot_pixel</td><td>0</td><td>0</td><td>0</td><td>0</td><td>186</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>pulsation</td><td>0</td><td>0</td><td>0</td><td>0</td><td>440</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>tracking_drift</td><td>0</td><td>0</td><td>0</td><td>0</td><td>5</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>bls</td><td>transit</td><td>9</td><td>1</td><td>0</td><td>0</td><td>39</td><td>0</td><td>1.000</td><td>0.204</td><td>0.339</td><td>0.900</td></tr>
+<tr class="all-kind"><td>bls</td><td>all</td><td>9</td><td>1</td><td>0</td><td>0</td><td>2532</td><td>0</td><td>1.000</td><td>0.004</td><td>0.008</td><td>0.900</td></tr>
+<tr><td>field_common_mode</td><td>cloud</td><td>10</td><td>0</td><td>2</td><td>0</td><td>0</td><td>0</td><td>1.000</td><td>1.000</td><td>1.000</td><td>1.000</td></tr>
+<tr><td>field_common_mode</td><td>cosmic_ray</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1250</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>field_common_mode</td><td>dropout</td><td>5</td><td>0</td><td>0</td><td>0</td><td>9</td><td>0</td><td>1.000</td><td>0.357</td><td>0.526</td><td>1.000</td></tr>
+<tr><td>field_common_mode</td><td>eclipse</td><td>0</td><td>0</td><td>0</td><td>0</td><td>173</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>field_common_mode</td><td>flare</td><td>0</td><td>0</td><td>0</td><td>0</td><td>415</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>field_common_mode</td><td>hot_pixel</td><td>0</td><td>0</td><td>0</td><td>0</td><td>186</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>field_common_mode</td><td>pulsation</td><td>0</td><td>0</td><td>0</td><td>0</td><td>440</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>field_common_mode</td><td>tracking_drift</td><td>4</td><td>1</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1.000</td><td>1.000</td><td>1.000</td><td>0.800</td></tr>
+<tr><td>field_common_mode</td><td>transit</td><td>0</td><td>0</td><td>0</td><td>0</td><td>49</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr class="all-kind"><td>field_common_mode</td><td>all</td><td>19</td><td>1</td><td>2</td><td>0</td><td>2522</td><td>0</td><td>1.000</td><td>0.008</td><td>0.016</td><td>0.950</td></tr>
+<tr><td>median_residual</td><td>cloud</td><td>8</td><td>0</td><td>1407</td><td>0</td><td>2</td><td>0</td><td>1.000</td><td>0.800</td><td>0.889</td><td>1.000</td></tr>
+<tr><td>median_residual</td><td>cosmic_ray</td><td>1224</td><td>0</td><td>0</td><td>32</td><td>26</td><td>0</td><td>0.975</td><td>0.979</td><td>0.977</td><td>1.000</td></tr>
+<tr><td>median_residual</td><td>dropout</td><td>0</td><td>0</td><td>0</td><td>0</td><td>14</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>median_residual</td><td>eclipse</td><td>1</td><td>29</td><td>3</td><td>0</td><td>143</td><td>0</td><td>1.000</td><td>0.173</td><td>0.296</td><td>0.033</td></tr>
+<tr><td>median_residual</td><td>flare</td><td>35</td><td>141</td><td>49</td><td>0</td><td>239</td><td>0</td><td>1.000</td><td>0.424</td><td>0.596</td><td>0.199</td></tr>
+<tr><td>median_residual</td><td>hot_pixel</td><td>73</td><td>35</td><td>6</td><td>0</td><td>78</td><td>0</td><td>1.000</td><td>0.581</td><td>0.735</td><td>0.676</td></tr>
+<tr><td>median_residual</td><td>pulsation</td><td>0</td><td>162</td><td>2</td><td>0</td><td>278</td><td>0</td><td>1.000</td><td>0.368</td><td>0.538</td><td>0.000</td></tr>
+<tr><td>median_residual</td><td>tracking_drift</td><td>0</td><td>5</td><td>20</td><td>0</td><td>0</td><td>0</td><td>1.000</td><td>1.000</td><td>1.000</td><td>0.000</td></tr>
+<tr><td>median_residual</td><td>transit</td><td>0</td><td>3</td><td>0</td><td>0</td><td>46</td><td>0</td><td>1.000</td><td>0.061</td><td>0.115</td><td>0.000</td></tr>
+<tr><td>median_residual</td><td>unknown</td><td>0</td><td>0</td><td>0</td><td>32</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr class="all-kind"><td>median_residual</td><td>all</td><td>1341</td><td>375</td><td>1487</td><td>64</td><td>826</td><td>0</td><td>0.964</td><td>0.675</td><td>0.794</td><td>0.781</td></tr>
+<tr><td>rolling_z</td><td>cloud</td><td>1</td><td>9</td><td>1589</td><td>0</td><td>0</td><td>0</td><td>1.000</td><td>1.000</td><td>1.000</td><td>0.100</td></tr>
+<tr><td>rolling_z</td><td>cosmic_ray</td><td>1187</td><td>0</td><td>0</td><td>0</td><td>63</td><td>0</td><td>1.000</td><td>0.950</td><td>0.974</td><td>1.000</td></tr>
+<tr><td>rolling_z</td><td>dropout</td><td>0</td><td>1</td><td>0</td><td>0</td><td>13</td><td>0</td><td>1.000</td><td>0.071</td><td>0.133</td><td>0.000</td></tr>
+<tr><td>rolling_z</td><td>eclipse</td><td>1</td><td>35</td><td>6</td><td>0</td><td>137</td><td>0</td><td>1.000</td><td>0.208</td><td>0.344</td><td>0.028</td></tr>
+<tr><td>rolling_z</td><td>flare</td><td>1</td><td>207</td><td>6</td><td>0</td><td>207</td><td>0</td><td>1.000</td><td>0.501</td><td>0.668</td><td>0.005</td></tr>
+<tr><td>rolling_z</td><td>hot_pixel</td><td>8</td><td>174</td><td>79</td><td>0</td><td>4</td><td>0</td><td>1.000</td><td>0.978</td><td>0.989</td><td>0.044</td></tr>
+<tr><td>rolling_z</td><td>pulsation</td><td>0</td><td>176</td><td>7</td><td>0</td><td>264</td><td>0</td><td>1.000</td><td>0.400</td><td>0.571</td><td>0.000</td></tr>
+<tr><td>rolling_z</td><td>tracking_drift</td><td>0</td><td>5</td><td>55</td><td>0</td><td>0</td><td>0</td><td>1.000</td><td>1.000</td><td>1.000</td><td>0.000</td></tr>
+<tr><td>rolling_z</td><td>transit</td><td>0</td><td>4</td><td>0</td><td>0</td><td>45</td><td>0</td><td>1.000</td><td>0.082</td><td>0.151</td><td>0.000</td></tr>
+<tr><td>rolling_z</td><td>unknown</td><td>0</td><td>0</td><td>0</td><td>82</td><td>0</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr class="all-kind"><td>rolling_z</td><td>all</td><td>1198</td><td>611</td><td>1742</td><td>82</td><td>733</td><td>0</td><td>0.957</td><td>0.712</td><td>0.816</td><td>0.662</td></tr>
+<tr><td>single_transit</td><td>cloud</td><td>0</td><td>0</td><td>0</td><td>0</td><td>10</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>cosmic_ray</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1250</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>dropout</td><td>0</td><td>0</td><td>0</td><td>0</td><td>14</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>eclipse</td><td>0</td><td>0</td><td>0</td><td>0</td><td>173</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>flare</td><td>0</td><td>0</td><td>0</td><td>0</td><td>415</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>hot_pixel</td><td>0</td><td>0</td><td>0</td><td>0</td><td>186</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>pulsation</td><td>0</td><td>0</td><td>0</td><td>0</td><td>440</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>tracking_drift</td><td>0</td><td>0</td><td>0</td><td>0</td><td>5</td><td>0</td><td>0.000</td><td>0.000</td><td>0.000</td><td>0.000</td></tr>
+<tr><td>single_transit</td><td>transit</td><td>11</td><td>0</td><td>0</td><td>0</td><td>38</td><td>0</td><td>1.000</td><td>0.224</td><td>0.367</td><td>1.000</td></tr>
+<tr class="all-kind"><td>single_transit</td><td>all</td><td>11</td><td>0</td><td>0</td><td>0</td><td>2531</td><td>0</td><td>1.000</td><td>0.004</td><td>0.009</td><td>1.000</td></tr>
+</table></div>
+</details>
+<p class="legend">tpB/tpT = true positives bounded/touched, corr = corroborating, fp = false alarms, fn = missed, unobs = unobservable, excluded from fn and recall, P/R/F1 = precision, recall and F1, bounded = share of true positives that bounded the event</p>
 <h2>More views</h2>
 <figure>
 <img src="img/seed7-bls-star185-night6.png" alt="seed7-200s-20n · star 185 · night 6: Seed 7 over 20 nights, star 185, night 6: a 1.4% dip over five and a half hours on a star whose noise is 1.7% per sample. No per-night detector sees it; bls finds it by folding the star&#x27;s whole record and bounds it on each of its three nights." width="1200" height="800">
@@ -353,6 +441,10 @@ footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid var(--rule);
 <figure>
 <img src="img/seed7-single-star93-night9.png" alt="seed7-200s-20n · star 93 · night 9: Seed 7 over 20 nights, star 93, night 9: a planet that transits once in the whole survey, already under way when the night starts. single_transit bounds it as a box truncated by the night edge; a periodic search cannot, because there is no second event." width="1200" height="800">
 <figcaption>Seed 7 over 20 nights, star 93, night 9: a planet that transits once in the whole survey, already under way when the night starts. single_transit bounds it as a box truncated by the night edge; a periodic search cannot, because there is no second event.<span class="meta">seed7-200s-20n · star 93 · night 9</span></figcaption>
+</figure>
+<figure>
+<img src="img/seed22-pulsator-star6-night4.png" alt="seed22-200s-20n · star 6 · night 4: Seed 22 over 20 nights, star 6, night 4: a 2.1% planet transit on a star that also pulsates by 0.8%; no per-night detector reports the transit, but bls and single_transit bound it because each subtracts the pulsation before searching." width="1200" height="800">
+<figcaption>Seed 22 over 20 nights, star 6, night 4: a 2.1% planet transit on a star that also pulsates by 0.8%; no per-night detector reports the transit, but bls and single_transit bound it because each subtracts the pulsation before searching.<span class="meta">seed22-200s-20n · star 6 · night 4</span></figcaption>
 </figure>
 <figure>
 <img src="img/seed42-pick.png" alt="seed42-200s-3n · star 24 · night 2: Seed 42, star 24, night 2: median_residual&#x27;s two fragments inside a flare it had already bounded were booked as false alarms until the scorer learned to call them corroborating." width="1200" height="800">
@@ -392,6 +484,13 @@ skywatch detect --run runs/seed42-200s-20n --detector median_residual
 skywatch detect --run runs/seed42-200s-20n --detector rolling_z
 skywatch detect --run runs/seed42-200s-20n --detector single_transit
 skywatch score --run runs/seed42-200s-20n
+skywatch simulate --seed 22 --stars 200 --nights 20 --run-id seed22-200s-20n
+skywatch detect --run runs/seed22-200s-20n --detector bls
+skywatch detect --run runs/seed22-200s-20n --detector field_common_mode
+skywatch detect --run runs/seed22-200s-20n --detector median_residual
+skywatch detect --run runs/seed22-200s-20n --detector rolling_z
+skywatch detect --run runs/seed22-200s-20n --detector single_transit
+skywatch score --run runs/seed22-200s-20n
 skywatch site --spec docs/site.json</pre>
 <footer>Generated by <code>skywatch site</code> from the runs above.</footer>
 </main>
