@@ -793,7 +793,8 @@ class SingleTransitDetector:
         self.min_night_h = min_night_h
         self.leave_out_events = leave_out_events
         self.near_snr = near_snr
-        self._bls = BlsDetector()
+        # the relaxed residual bar of issue #66 is `bls`'s own; this detector reads the guard as before
+        self._bls = BlsDetector(trend_guard_ratio=None)
 
     # -- search ----------------------------------------------------------------------------
 

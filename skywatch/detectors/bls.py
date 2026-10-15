@@ -192,7 +192,8 @@ transit threshold, so a box is also tested against sinusoids (:meth:`BlsDetector
   peak: a transit leaves white noise, a pulsator its pulsation, an eclipsing binary its
   second eclipse. The false-alarm level is ``ln(M / guard_fap)``, ``M`` the number of
   independent frequencies and ``guard_fap = 1e-3`` per star. ``guard_fap=None`` switches
-  both off.
+  both off. This is the bar of a first look; a box found after a pulsation is subtracted is judged at
+  ``trend_guard_ratio`` times the level (issue #66, below).
 
 Box versus sine with the nights' levels free
 --------------------------------------------
@@ -678,7 +679,8 @@ fit, in three steps, and only for a star whose best box was rejected by the puls
    pulsation).
 
 The result is a candidate in its own right: every gate applies (the guard on the detrended
-flux), and ``snr`` and ``snr_local`` must reach ``trend_snr_threshold`` (9), because a detrended
+flux, its residual test at ``trend_guard_ratio`` times the level: see "Strong planets the residual
+test refused" below), and ``snr`` and ``snr_local`` must reach ``trend_snr_threshold`` (9), because a detrended
 star is a second look at a star the first look rejected, and a second look is a second chance
 at a false alarm. A star that comes out rejected keeps its original candidate and is rejected as
 before. Detections still carry ``kind_guess="transit"``; ``Candidate.trend`` is the
@@ -718,6 +720,87 @@ one spurious event (dev seed 44 star 44: P 5.562 d, S/N 13.3, a bounded transit 
 dip; about 1 in 120 such stars on 240 synthetic pulsators with one 3 h transit, never a detection
 without the real transit; on ``main`` these stars give nothing). The repeat test below, when switched on,
 refuses such a box, and with it the real event.
+
+Strong planets the residual test refused (issue #66)
+----------------------------------------------------
+The guard's residual test refuses at the false-alarm level (1), the detrending subtracts a sinusoid
+only from ``trend_min_ratio`` (3) levels, and a star whose sinusoid sits between the two was
+refused whole with nothing to subtract, and a box found after a subtraction was refused on the
+same reading of 1. Issue #66 listed ten strong planets (S/N 29 to 117) refused whole by a guard or
+by the shape test; four are ``bls``'s (``scripts/strong_planet_audit.py`` reads them on the
+detector's own path, with spies on a real ``detect``). On each the planet's box (the first look's for
+planets 76, 26 and 20, the detrended one for 77) is at S/N 28 to 78, it reads 0.24 to 0.74 against the
+best sinusoid (``2 * power / chi2`` of the box, refused at 1) and 0.33 to 0.48 at the night-level ratio
+(0.81), so neither refuses it, and what does is the residual test alone, at 1.10 to 2.99 levels:
+
+* puls-seed847 planets 76 (star 146, a 0.11 percent sinusoid) and 77 (star 150, 1.7 percent): the
+  detrending works (the refit around the box finds the host's sinusoid, 8.010 and 2.064 cycles/day),
+  and the detrended box (S/N 78.4 and 44.9) is refused at 1.10 and 1.59 levels. The box of planet 76 is 4.0 h
+  on a 5.3 h transit and leaves its wings in the residual (dropping the planet's events with a window of
+  1.5 times its true duration leaves 0.46); the sinusoid has just been subtracted.
+* puls-seed840 planet 26 (star 50, a 0.30 percent sinusoid at 10.162 cycles/day) is refused at 2.99
+  levels. The detrending's first fit is the third harmonic of the P/2 box train (2.030 cycles/day,
+  ratio 6.4) and with the box left out the host's own sinusoid reads 2.83 levels, under the 3 it
+  needs.
+* seed861 planet 20 (star 150, constant, with a second planet) is refused at 1.27 levels (0.86 with the
+  other planet's events dropped); the detrending fits the planet's own box train (2.058 cycles/day, the
+  fourth harmonic of 0.514, ratio 7.6) on a constant star and loses it.
+
+Two changes, both only relaxing the bar for a box that is a second look, so every box accepted before
+is accepted now (the guard on the first look is untouched):
+
+1. **The residual bar of a detrended box is ``trend_guard_ratio`` (3) levels.** Both searches of
+   :meth:`BlsDetector._detrended` pass it to the guard (``_pulsating(residual_bar=...)``,
+   ``_search_arrays(residual_bar=...)``). It is the detrending's own bar for calling a signal a
+   sinusoid (``trend_min_ratio``), not a fitted number: what is left after the sinusoid the method
+   would subtract is below what it would subtract. A sinusoid that stays above it (a second strong
+   mode, an eclipsing binary's eclipses) still refuses. ``None`` is the old bar, 1.
+2. **A box the detrending could not rescue is read again at that bar** (:meth:`BlsDetector._reread`).
+   When ``_detrended`` returns None (no sinusoid at 3 levels, none once the box is left out, or
+   no box that stands after the subtraction) the same arrays are judged once more with the residual test at
+   ``trend_guard_ratio`` levels. The box must pass every other gate and reach ``trend_snr_threshold``
+   (9) in S/N and in local S/N, as a second look does, and the box search is not repeated (the reading
+   at another bar reuses it: user CPU on seed700 85.4 s to 85.1 s, on puls-seed848 143.2 s to 142.1 s).
+   It is the repair for a star whose sinusoid the detrending cannot place (planets 26 and 20 above
+   would be here; 26 then meets the shape test, below).
+
+Neither applies to a flare star (the share of samples the clip masked reaches ``flare_fraction``,
+3 percent: :meth:`BlsDetector._relaxed_bar`). A flare star's tails make red noise that reads 1 to 3
+levels in the residual, and without the exclusion the second reading admitted 9 flare stars' claims on the
+development runs (seed805 star 121 at S/N 25.7 among them) for 6 planets on constant and flare hosts.
+
+Measured, ``main`` to this, ``bls`` alone, 106 development runs of 200 stars and 20 nights (the 16 runs of
+the issue's census, 8 standard and 8 all-sinusoidal, and 90 more, all from ranges already used and listed
+in ``docs/seeds.md``; only a star whose first look the pulsation guard rejected can change, so the
+others are ``main``'s): every star sinusoidal with ``planet_rate`` 0.5 (32 runs) planets with a transit event
+bounded or touched 231 to 245, transit labels bounded 934 to 1013, fp 0 to 0, pulsation->transit 50 to
+51 (one box of 4 events, two on a transit, one beside a tracking drift and one on a pulsation label:
+puls-seed547 star 49), detections 1010 to 1091; standard field (32 runs) planets 72 to 75, labels
+bounded 267 to 291, fp 40 to 40, eclipse->transit 4 to 4, flare->transit 5 to 5, detections 346 to 371
+(three planets on constant stars, seed708 star 21 and seed801 star 70 among them); planet-free, every
+star sinusoidal (22 runs) 2 to 2 detections and standard (20 runs) 17 to 17, fp 7 to 7, none moved.
+Each part alone: the detrended bar changes 9 stars (all on a transit label but puls-seed547 star 49)
+and adds 62 labels and 9 planets on the all-sinusoidal runs, nothing elsewhere; the second reading
+without the flare exclusion adds 46 labels and 6 planets on the standard runs, with 3 fp and 6 flare->transit
+there, and 11 detections and 3 fp on the planet-free standard runs.
+Named planets (before/after): 847 p76 0 of 6 events to 6, 847 p77 0 of 15 to 14, 861 p20 0 of 9 to 9;
+840 p26 stays at 0 of 6 (below).
+
+What was tried and left. A ramped box in the shape test (a flat bottom with a ramp of a tenth of its width
+on each side, the transit the world draws, added to the box family and ``g_box`` the larger of the two):
+puls-seed840 star 50, the P/2 box of planet 26, reads 1.71 and a chi-square advantage of 35.7 (bars 1.5 and 14)
+with four of its six events cut by a night's edge, and 0.03 with the ramped box; alone it adds 9
+labels, 4 planets and 4 pulsation->transit on the all-sinusoidal runs, and with the two changes above it
+finds planet 26; but with the second reading it also let in an eclipsing binary (pf-seed456 star 82, 4
+events, 3 on eclipses), so it is not in this change. Planet 26 stays refused by the shape test.
+
+Limits: the relaxed bar is the detrending's, 3 levels, and a residual sinusoid between 1 and 3 levels on a
+real pulsator whose own sinusoid the detrending cannot place is now read as no pulsation (the night-level
+ratio and the box-versus-sine test still refuse a pulsator's fold: 0.0004 to 0.0006 amplitude pulsators
+without a transit give nothing in ``tests/test_bls.py``); a flare star with a masked share under 3 percent
+is not excluded and the second reading's S/N bar of 9 is what stands between it and a claim (seed859 star 25,
+a flare star with 16 events at S/N 10.2, local 8.3, is refused by it); a transit cut by a night's edge
+whose ingress is resolved is still read as a V by the shape test (above).
 
 Repeat test of a detrended box (off by default)
 -----------------------------------------------
@@ -1579,6 +1662,7 @@ class BlsDetector:
         trend_min_ratio: float = 3.0,
         trend_snr_threshold: float = 9.0,
         trend_repeat_snr: float | None = None,
+        trend_guard_ratio: float | None = 3.0,
         common_mode_pulsators: float | None = 0.5,
         shape_threshold: float | None = 1.5,
         shape_chi2: float | None = 14.0,
@@ -1623,6 +1707,8 @@ class BlsDetector:
             raise ValueError(f"trend_snr_threshold must be > 0, got {trend_snr_threshold}")
         if trend_repeat_snr is not None and not trend_repeat_snr > 0:
             raise ValueError(f"trend_repeat_snr must be > 0 or None, got {trend_repeat_snr}")
+        if trend_guard_ratio is not None and not trend_guard_ratio >= 1:
+            raise ValueError(f"trend_guard_ratio must be >= 1 or None, got {trend_guard_ratio}")
         if common_mode_pulsators is not None and not 0 <= common_mode_pulsators < 1:
             raise ValueError(
                 f"common_mode_pulsators must be in [0, 1) or None, got {common_mode_pulsators}"
@@ -1665,6 +1751,7 @@ class BlsDetector:
         self.trend_min_ratio = trend_min_ratio
         self.trend_snr_threshold = trend_snr_threshold
         self.trend_repeat_snr = trend_repeat_snr
+        self.trend_guard_ratio = trend_guard_ratio
         self.common_mode_pulsators = common_mode_pulsators
         self.shape_threshold = shape_threshold
         self.shape_chi2 = shape_chi2
@@ -1897,7 +1984,13 @@ class BlsDetector:
         return float(spectrum[1].max()), spectrum[2]
 
     def _pulsating(
-        self, t: np.ndarray, flux: np.ndarray, sigma: float, cadence_s: int, box: Box
+        self,
+        t: np.ndarray,
+        flux: np.ndarray,
+        sigma: float,
+        cadence_s: int,
+        box: Box,
+        residual_bar: float = 1.0,
     ) -> tuple[bool, float]:
         """(is it a pulsator, strongest residual-sinusoid power). Two tests, either rejects.
 
@@ -1914,6 +2007,10 @@ class BlsDetector:
           read the other way; the margin is thin at some periods, the residual test holds the
           rest); rejected when
           ``2 * power >= guard_ratio * depth**2 * n_in * n_out / (n * sigma**2)``.
+
+        The residual test refuses at `residual_bar` times the false-alarm level (1, the guard's own;
+        ``trend_guard_ratio`` for a box found on flux with a pulsation subtracted, and when it is read
+        again, see :meth:`_reread`).
         """
         core = in_box(t, replace(box, duration_s=_GUARD_CORE_WIDTH * box.duration_s))
         ring = in_box(t, replace(box, duration_s=_GUARD_MASK_WIDTH * box.duration_s)) & ~core
@@ -1927,7 +2024,9 @@ class BlsDetector:
         n, n_in = len(t), box.n_in
         box_chi2 = box.depth**2 * n_in * (n - n_in) / (n * sigma**2)
         s_power, _ = self._peak_power(t, flux - 1.0, sigma, cadence_s)
-        return (r_power >= r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2), r_power
+        return (
+            r_power >= residual_bar * r_crit or 2.0 * s_power >= self.guard_ratio * box_chi2
+        ), r_power
 
     def _shape_gains(
         self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, box: Box
@@ -2145,8 +2244,10 @@ class BlsDetector:
         search, the statistics, the guard and the event list (they are treated as not
         observed) and each night is divided by the median of what is left. With `plan_mask`
         a rejected candidate carries the windows a re-search should leave out
-        (:meth:`_dip_mask`). A candidate that is not reportable is searched once more with the
-        star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands.
+        (:meth:`_dip_mask`). A candidate that the pulsation guard rejected is searched once more
+        with the star's pulsation subtracted (:meth:`_detrended`), and replaced if that one stands;
+        when the detrending finds nothing the same candidate is read again at the detrending's bar
+        (:meth:`_reread`).
         """
         t, flux, night, level = self._prepare(c, common_mode)
         flare_fraction = 1.0 - len(t) / len(c.t)
@@ -2174,11 +2275,57 @@ class BlsDetector:
             t_obs, night_obs = t_obs[~drop_obs], night_obs[~drop_obs]
             flux = _renormalise_nights(flux, night)
         arrays = _Arrays(t, flux, night, level, t_obs, night_obs, windows, flare_fraction)
-        cand = self._search_arrays(arrays, c, cadence_s, plan_mask)
+        found: dict = {}  # the box search of these arrays, which a second reading does not repeat
+        cand = self._search_arrays(arrays, c, cadence_s, plan_mask, cache=found)
         if cand is None or cand.rejected != "pulsation guard" or not self._can_detrend():
             return cand
         again = self._detrended(arrays, c, cadence_s, plan_mask)
+        if again is None:
+            again = self._reread(arrays, c, cadence_s, plan_mask, found)
         return cand if again is None else again
+
+    def _reread(
+        self,
+        a: _Arrays,
+        c: _Clean,
+        cadence_s: int,
+        plan_mask: bool,
+        cache: dict | None = None,
+    ) -> Candidate | None:
+        """The star's box read again at the detrending's bar, when the detrending found nothing.
+
+        A box the pulsation guard rejected whose star the detrending could not rescue (no
+        sinusoid, or no box that stands once it is subtracted) was rejected on a residual
+        sinusoid that the detrending itself does not call one: the residual test refuses at the
+        false-alarm level, the detrending subtracts a sinusoid only from ``trend_min_ratio`` times
+        that. This reads the same arrays once more with the residual test at ``trend_guard_ratio``
+        times the level (the test of a detrended box, below) and keeps the box only if it passes
+        every gate and reaches ``trend_snr_threshold`` in both S/N and local S/N, as a second
+        look does. None when the bar is off or the box does not stand.
+        """
+        bar = self._relaxed_bar(a)
+        if bar == 1.0:
+            return None
+        cand = self._search_arrays(a, c, cadence_s, plan_mask, bar, cache)
+        if cand is None or cand.rejected is not None:
+            return None
+        if min(cand.snr, cand.snr_local) < self.trend_snr_threshold:
+            return None
+        if self.trend_repeat_snr is not None and not cand.snr_repeat >= self.trend_repeat_snr:
+            return None
+        return cand
+
+    def _relaxed_bar(self, a: _Arrays) -> float:
+        """The residual bar (in false-alarm levels) for a box found after the detrending, or read again.
+
+        ``trend_guard_ratio``, the level at which the detrending itself calls a signal a sinusoid;
+        the guard's own 1 for a flare star (the share of masked samples reaches ``flare_fraction``)
+        and when ``trend_guard_ratio`` is None. A flare star's tails make red noise that reads 1 to
+        3 levels in the residual, so there the reading is not a pulsation's to be waved through.
+        """
+        if self.trend_guard_ratio is None or a.flare_fraction >= self.flare_fraction:
+            return 1.0
+        return self.trend_guard_ratio
 
     def _can_detrend(self) -> bool:
         return self.detrend_pulsation and self.guard_fap is not None
@@ -2336,7 +2483,9 @@ class BlsDetector:
            first time. Only the second fit is used for the answer when there is one.
 
         The result must pass every gate (``snr`` and ``snr_local`` at ``trend_snr_threshold``,
-        a second look at a star whose first look failed) and, when ``trend_repeat_snr`` is set (it is
+        a second look at a star whose first look failed; the guard's residual test at
+        ``trend_guard_ratio`` times its level, the bar at which the detrending itself calls a signal
+        a sinusoid, instead of the level, since the sinusoid has just been subtracted) and, when ``trend_repeat_snr`` is set (it is
         off by default), must repeat: its S/N over the nights other than its strongest
         (:func:`repeat_snr`) reaches ``trend_repeat_snr``. None when no sinusoid stands out or the
         result is rejected, and the caller keeps the original candidate then.
@@ -2344,14 +2493,15 @@ class BlsDetector:
         fit = self._pulsation_trend(a, cadence_s)
         if fit is None:
             return None
+        bar = self._relaxed_bar(a)
         flux = _renormalise_nights(a.flux - fit[0], a.night)
-        cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask)
+        cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask, bar)
         if cand is not None and cand.rejected != "snr":
             fit = self._pulsation_trend(a, cadence_s, cand.box)
             if fit is None:
                 return None
             flux = _renormalise_nights(a.flux - fit[0], a.night)
-            cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask)
+            cand = self._search_arrays(replace(a, flux=flux), c, cadence_s, plan_mask, bar)
         if cand is None or cand.rejected is not None:
             return None
         if min(cand.snr, cand.snr_local) < self.trend_snr_threshold:
@@ -2369,8 +2519,21 @@ class BlsDetector:
         return replace(cand, trend=fit[1][:2])
 
     def _search_arrays(
-        self, a: _Arrays, c: _Clean, cadence_s: int, plan_mask: bool
+        self,
+        a: _Arrays,
+        c: _Clean,
+        cadence_s: int,
+        plan_mask: bool,
+        residual_bar: float = 1.0,
+        cache: dict | None = None,
     ) -> Candidate | None:
+        """The best box of the arrays with its S/N and, if it is not reportable, why not.
+
+        `residual_bar` is the pulsation guard's residual bar (:meth:`_pulsating`). `cache`, when
+        given, holds the box search of these arrays (the box, its flux, the star's flux and the
+        alternative period) after the first call and spares the search in the next: the same arrays
+        read at another bar are not searched twice.
+        """
         t, flux, night, level, t_obs, night_obs = (
             a.t,
             a.flux,
@@ -2386,16 +2549,25 @@ class BlsDetector:
         max_p = self.max_period_d * DAY_S if self.max_period_d is not None else baseline / 2.0
         if not max_p > min_p:
             return None
-        durations = np.array(self.durations_h, dtype=np.float64) * HOUR_S
-        periods = frequency_grid(baseline, min_p, max_p, float(durations[0]), self.oversample)
-        bin_s = float(durations[0]) / 2.0
-        tm, sm, cm = presample(t, flux, max(float(cadence_s), bin_s / 3.0))
-        box, power_by_period = search_box(tm, sm, cm, periods, durations, bin_s)
-        if box is None:
-            return None
-        star_flux = flux * level / float(np.median(level[np.unique(night, return_index=True)[1]]))
-        flux = _renormalise_out_of_box(t, flux, night, box)
-        box = refine(t, flux, box)
+        found = None if cache is None else cache.get("found")
+        if found is None:
+            durations = np.array(self.durations_h, dtype=np.float64) * HOUR_S
+            periods = frequency_grid(baseline, min_p, max_p, float(durations[0]), self.oversample)
+            bin_s = float(durations[0]) / 2.0
+            tm, sm, cm = presample(t, flux, max(float(cadence_s), bin_s / 3.0))
+            box, power_by_period = search_box(tm, sm, cm, periods, durations, bin_s)
+            if box is None:
+                return None
+            star_flux = (
+                flux * level / float(np.median(level[np.unique(night, return_index=True)[1]]))
+            )
+            flux = _renormalise_out_of_box(t, flux, night, box)
+            box = refine(t, flux, box)
+            alt = self._alternative(box, power_by_period, periods)
+            if cache is not None:
+                cache["found"] = (box, flux, star_flux, alt)
+        else:
+            box, flux, star_flux, alt = found
         resid = flux[~in_box(t, box)]
         if not box.depth > 0 or len(resid) < 2:
             return None
@@ -2403,7 +2575,6 @@ class BlsDetector:
         if not sigma > 0:
             return None
         snr = box.snr(sigma)
-        alt = self._alternative(box, power_by_period, periods)
         depth_k, weight_k = night_contrasts(t, flux, night, box)
         z_k = depth_k * np.sqrt(weight_k) / sigma
         w_sum = float(weight_k.sum())
@@ -2464,7 +2635,7 @@ class BlsDetector:
         r = None
         ratio = None
         if self.guard_fap is not None:
-            pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box)
+            pulsating, r = self._pulsating(t, flux, sigma, cadence_s, box, residual_bar)
             if not pulsating and self.guard_night_ratio is not None:
                 ratio = self._night_sine_ratio(t, flux, night, box, cadence_s)
                 pulsating = ratio >= self.guard_night_ratio

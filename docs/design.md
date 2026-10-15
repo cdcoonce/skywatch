@@ -511,6 +511,32 @@ Planned detectors, in order:
    Eclipses reported as transits (3 to 3) and pulsations (1 to 1) are unchanged. The planet-free
    rule (at most 5 detections a run) is met, 271 exactly at the limit (star 13, a flare star at
    local S/N 9.43, clean 9.04).
+   Strong planets refused by the residual test (#66). The guard's residual test refuses at the
+   false-alarm level (1), the detrending subtracts a sinusoid only from 3 levels (`trend_min_ratio`),
+   and a box found after a subtraction was refused on the same reading of 1. On the issue's four
+   `bls` planets (the planet's box at S/N 28 to 78, `2 * sine power / box chi2` 0.24 to 0.74, night
+   ratio 0.33 to 0.48, so neither of those refuses it) the residual test alone refused: 1.10 and 1.59
+   levels after a clean subtraction (puls-seed847 planets 76 and 77), 2.99 (puls-seed840 planet 26,
+   a 0.30 percent pulsator whose sinusoid reads 2.83 levels once the box is left out, under the 3) and
+   1.27 (seed861 planet 20, a constant star whose second planet's events are in the residual; the
+   detrending fitted the planet's own box train, the fourth harmonic of 0.514 cycles/day).
+   `trend_guard_ratio` (3, `None` is the old bar) is now the residual bar of a detrended box, and
+   `BlsDetector._reread` judges a box the detrending could not rescue again at that bar, with the S/N
+   bar of a second look (9 in S/N and in local S/N) and without repeating the box search. Neither
+   applies to a flare star (masked share of 3 percent or more: the second reading without that
+   exclusion admitted 9 flare stars' claims). Measured on 106 development runs, `bls` alone,
+   `main` to this: every star sinusoidal with planets (32 runs) planets 231 to 245, labels bounded
+   934 to 1013, fp 0 to 0, pulsation->transit 50 to 51; standard (32 runs) planets 72 to 75, labels
+   bounded 267 to 291, fp 40 to 40, eclipse->transit 4 to 4; planet-free (every star sinusoidal 22,
+   standard 20) detections 2 to 2 and 17 to 17. Planets 76, 77 and 20 are found; planet 26 stays
+   refused by the shape test (four of its six events are cut by a night's edge and the ramp of
+   a tenth of the duration is read as a V: 1.71 and a chi-square advantage of 35.7 against 1.5 and 14).
+   A ramped box in the shape test fixes that and was left out: with the second reading it let in an
+   eclipsing binary (pf-seed456 star 82). The rest of the issue is `single_transit`'s and is not in this
+   change: the same bar for guard (a) on a pulsator's residual (planets 41 and 93), the shape test on a
+   transit cut by an edge (53 and 29), a box below the bar after the subtraction (61) and an eclipse
+   mask that leaves no out-of-transit sample on the planet's night (4). See the module docstring of
+   `skywatch.detectors.bls`, "Strong planets the residual test refused".
 5. `single_transit` — a one-event box search for the planets that transit once (built;
    scored on the single-event labels of the stored runs). Per star it uses `bls`'s
    preprocessing, then searches every night on its own for one box (0.5 to 6 h, at every

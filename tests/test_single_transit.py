@@ -1420,3 +1420,14 @@ def test_a_near_miss_pulsator_whose_residual_guard_refuses_it_gives_nothing(seed
     assert 5.0 < _raw_best(cv) < 8.0
     assert detect({0: cv}) == []
     assert detect({0: cv}, near_snr=None) == []
+
+
+# -- the `bls` it reads is the one of before issue #66 --------------------------------------
+
+
+def test_the_bls_this_detector_reads_keeps_the_residual_bar_of_before_issue_66():
+    # `bls` relaxed its detrended residual bar and read a refused box again (#66). This detector's
+    # guard (b) and its eclipse mask read that `bls`, and its own gates were set on the old reading:
+    # the PR leaves it unchanged
+    assert SingleTransitDetector()._bls.trend_guard_ratio is None
+    assert BlsDetector().trend_guard_ratio is not None
