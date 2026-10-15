@@ -471,6 +471,7 @@ def test_findings_section_sits_between_the_explainer_and_the_scoreboard(tmp_path
     ]
     assert order == sorted(order)
     assert text.count(">What it found<") == 1 and text.count(">How it keeps itself honest<") == 1
+    assert '<ul class="findings">' in text and '<ul class="honest">' in text
 
 
 def test_each_finding_links_to_its_log_on_github(tmp_path, tiny):
@@ -503,6 +504,20 @@ def test_findings_and_honesty_text_is_escaped(tmp_path, tiny):
     assert "&lt;u&gt;l&lt;/u&gt; &amp; m" in text
     for raw in ("<b>bold</b>", "<i>no</i>", "<u>l</u>"):
         assert raw not in text
+
+
+def test_link_targets_and_log_numbers_are_escaped(tmp_path, tiny):
+    findings = [{"text": "t", "log": '<b>"-x.md'}]
+    honesty = [{"text": "t", "link": {"label": "l", "path": 'docs/<i>"s.md'}}]
+    out = site.generate(_write_spec(tmp_path, tiny, findings=findings, honesty=honesty))
+    text = out.read_text()
+    for raw in ("<b>", "<i>"):
+        assert raw not in text
+    assert [h for h in _hrefs(out) if "x.md" in h or "s.md" in h] == [
+        LOG_URL + '<b>"-x.md',
+        "https://github.com/cdcoonce/skywatch/blob/main/docs/" + '<i>"s.md',
+    ]
+    assert ">Build log &lt;b&gt;&quot;</a>" in text
 
 
 @pytest.mark.parametrize("extra", [{}, {"findings": []}])
@@ -553,6 +568,18 @@ def test_findings_page_is_byte_identical_across_generations(tmp_path, tiny):
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "../s.md"}}]}, "path"),
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "/s.md"}}]}, "path"),
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "https://x/s.md"}}]}, "path"),
+        ({"findings": [{"text": "   ", "log": "0002-x.md"}]}, "finding 1: text"),
+        ({"honesty": [{"text": "  "}]}, "honesty 1: text"),
+        ({"findings": [{"text": "t", "log": "a\\b.md"}]}, "finding 1: log"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs\\s.md"}}]}, "path"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs//s.md"}}]}, "path"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs/./s.md"}}]}, "path"),
+        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "javascript:alert(1)"}}]}, "path"),
+        ({"honesty": ["nope"]}, "honesty 1: must be an object"),
+        ({"honesty": [{"text": "t", "link": {}}]}, "honesty 1: link: label"),
+        ({"honesty": [{"text": "t", "link": ""}]}, "honesty 1: link"),
+        ({"findings": [{"text": 7, "log": "0002-x.md"}]}, "finding 1: text"),
+        ({"findings": [{"text": "t", "log": 7}]}, "finding 1: log"),
     ],
 )
 def test_bad_findings_or_honesty_fail_before_writing(tmp_path, tiny, capsys, extra, message):
@@ -564,6 +591,31 @@ def test_bad_findings_or_honesty_fail_before_writing(tmp_path, tiny, capsys, ext
 REPO = Path(__file__).resolve().parent.parent
 PUBLISHED = json.loads((REPO / "docs" / "site.json").read_text())
 NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def missing_numbers(text: str, body: str) -> list[str]:
+    """Numbers quoted in `text` that do not appear in `body` as whole figures."""
+    found = (n.rstrip(",") for n in NUMBER.findall(text))
+    return [
+        n
+        for n in found
+        if not re.search(rf"(?<![\d.,]){re.escape(n)}(?!\d|\.\d|,\d)", body)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "body", "expected"),
+    [
+        ("14 to 2", "it fell from 14 to 2 here", []),
+        ("3 of 35", "we saw 35 of 35", ["3"]),
+        ("0.65 of it", "a median of 10.65 here", ["0.65"]),
+        ("0.65 of it", "a 0 and a 65", ["0.65"]),
+        ("1,234 sites", "1,2345 sites", ["1,234"]),
+        ("312 alarms", "no figures at all", ["312"]),
+    ],
+)
+def test_the_number_check_rejects_figures_the_log_does_not_contain(text, body, expected):
+    assert missing_numbers(text, body) == expected
 
 
 def test_published_spec_has_five_to_seven_findings_and_three_or_four_honesty_sentences():
@@ -578,7 +630,7 @@ def test_every_quoted_number_appears_verbatim_in_the_linked_log(finding):
     body = log.read_text()
     numbers = NUMBER.findall(finding["text"])
     assert numbers, "a finding quotes at least one number from its log"
-    missing = [n for n in numbers if n.rstrip(",") not in body]
+    missing = missing_numbers(finding["text"], body)
     assert not missing, f"{missing} not in {finding['log']}"
 
 
