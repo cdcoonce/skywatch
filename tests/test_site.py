@@ -30,9 +30,30 @@ def tiny(tmp_path_factory):
     return run_dir
 
 
-def _write_spec(tmp_path: Path, run_dir: Path, views=None, **extra) -> Path:
+def _stub_linked_files(tmp_path: Path, extra: dict) -> None:
+    """Create the files the findings and honesty links name, as a real repo has them."""
+    for f in extra.get("findings") or []:
+        log = f.get("log") if isinstance(f, dict) else None
+        if isinstance(log, str) and log and "/" not in log and log.endswith(".md"):
+            (tmp_path / "docs" / "log").mkdir(parents=True, exist_ok=True)
+            (tmp_path / "docs" / "log" / log).write_text("a build log\n")
+    for h in extra.get("honesty") or []:
+        link = h.get("link") if isinstance(h, dict) else None
+        path = link.get("path") if isinstance(link, dict) else None
+        if isinstance(path, str) and path and ".." not in path and not path.startswith("/"):
+            target = tmp_path / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("a linked file\n")
+
+
+def _write_spec(tmp_path: Path, run_dir: Path, views=None, stub=True, **extra) -> Path:
     spec_dir = tmp_path / "docs"
     spec_dir.mkdir(exist_ok=True)
+    if stub:
+        try:
+            _stub_linked_files(tmp_path, extra)
+        except OSError:
+            pass
     if views is None:
         views = [
             {"run": str(run_dir), "pick": True, "file": "img/pick.png", "caption": "the pick"},
@@ -514,8 +535,8 @@ def test_link_targets_and_log_numbers_are_escaped(tmp_path, tiny):
     for raw in ("<b>", "<i>"):
         assert raw not in text
     assert [h for h in _hrefs(out) if "x.md" in h or "s.md" in h] == [
-        LOG_URL + '<b>"-x.md',
-        "https://github.com/cdcoonce/skywatch/blob/main/docs/" + '<i>"s.md',
+        LOG_URL + "%3Cb%3E%22-x.md",
+        "https://github.com/cdcoonce/skywatch/blob/main/docs/" + "%3Ci%3E%22s.md",
     ]
     assert ">Build log &lt;b&gt;&quot;</a>" in text
 
@@ -583,10 +604,43 @@ def test_findings_page_is_byte_identical_across_generations(tmp_path, tiny):
         ({"honesty": [{"text": "t", "link": ""}]}, "honesty 1: link"),
         ({"findings": [{"text": 7, "log": "0002-x.md"}]}, "finding 1: text"),
         ({"findings": [{"text": "t", "log": 7}]}, "finding 1: log"),
+        ({"findings": [{"text": "t", "log": "0002-x.md", "href": "x"}]}, "finding 1: unknown key"),
+        ({"honesty": [{"text": "t", "links": {}}]}, "honesty 1: unknown key"),
+        (
+            {"honesty": [{"text": "t", "link": {"label": "l", "path": "docs/s.md", "x": 1}}]},
+            "honesty 1: link: unknown key",
+        ),
+        (
+            {"findings": [{"text": "t", "log": "0002-x.md"}, {"text": "t", "log": "0003-y.md"}]},
+            "finding 2: duplicate",
+        ),
+        ({"honesty": [{"text": "t"}, {"text": "t"}]}, "honesty 2: duplicate"),
     ],
 )
 def test_bad_findings_or_honesty_fail_before_writing(tmp_path, tiny, capsys, extra, message):
     _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, **extra), capsys, message)
+
+
+def test_a_finding_whose_log_does_not_exist_fails_before_writing(tmp_path, tiny, capsys):
+    findings = [{"text": "t", "log": "0002-x.md"}, {"text": "u", "log": "9999-nope.md"}]
+    spec = _write_spec(tmp_path, tiny, findings=findings, stub=False)
+    (tmp_path / "docs" / "log").mkdir()
+    (tmp_path / "docs" / "log" / "0002-x.md").write_text("a build log\n")
+    _fails_before_writing(tmp_path, spec, capsys, "finding 2: log 'docs/log/9999-nope.md'")
+
+
+@pytest.mark.parametrize("path", ["docs/nope.md", "docs", "docs/log"])
+def test_an_honesty_link_to_a_missing_file_fails_before_writing(tmp_path, tiny, capsys, path):
+    honesty = [{"text": "t", "link": {"label": "l", "path": path}}]
+    spec = _write_spec(tmp_path, tiny, honesty=honesty, stub=False)
+    (tmp_path / "docs" / "log").mkdir()
+    _fails_before_writing(tmp_path, spec, capsys, f"honesty 1: link: path {path!r}")
+
+
+def test_link_paths_are_percent_quoted_in_the_href(tmp_path, tiny):
+    honesty = [{"text": "t", "link": {"label": "l", "path": "docs/a b#c?.md"}}]
+    out = site.generate(_write_spec(tmp_path, tiny, honesty=honesty))
+    assert "https://github.com/cdcoonce/skywatch/blob/main/docs/a%20b%23c%3F.md" in _hrefs(out)
 
 
 # The published spec: the page's own claims are checked against the logs they link to.
@@ -597,7 +651,10 @@ NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
 def missing_numbers(text: str, body: str) -> list[str]:
-    """Numbers quoted in `text` that do not appear in `body` as whole figures."""
+    """Numbers quoted in `text` that do not appear in `body` as whole figures.
+
+    Weak for single-digit figures: they recur in every log, so a wrong one still matches.
+    """
     found = (n.rstrip(",") for n in NUMBER.findall(text))
     return [n for n in found if not re.search(rf"(?<![\d.,]){re.escape(n)}(?!\d|\.\d|,\d)", body)]
 
