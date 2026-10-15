@@ -532,9 +532,17 @@ Planned detectors, in order:
    first): union planets 121 to 124 on the 12 all-sinusoidal runs and 20 to 22 on the 6 standard ones, fp 0
    to 0 and 3 to 3, eclipse->transit 4 to 4, the planet-free runs unchanged; pulsation->transit 14 to 16 on
    the all-sinusoidal runs, both on one mixed box (puls-seed872 star 137, five events, two on a transit),
-   which misses that bar. Planets 76, 77 and 20 are found; planet 26 stays
-   refused by the shape test (four of its six events are cut by a night's edge and the ramp of
-   a tenth of the duration is read as a V: 1.71 and a chi-square advantage of 35.7 against 1.5 and 14).
+   which misses that bar. The same pattern recurs on never-seen seeds (884-905, the reviewer's, scored
+   once): union planets 152 to 158 (`bls` 97 to 104), fp 0 to 0, standard field `bls`-identical,
+   planet-free 0, but pulsation->transit 20 to 21, one mixed box (puls-seed887 star 88, two events, one
+   on a transit and one on a pulsation label, at a residual reading of 1.0104 levels). That is 3 mixed
+   boxes in 56 all-sinusoidal runs with planets (about one per 19); it costs a mislabelled event, not an
+   fp, and the change ships on, as PR #53 did, because the cost is one characterised pattern against real
+   planet gains. Planets 76, 77 and 20 are found; planet 26 stays
+   refused by the shape test (1.71 and a chi-square advantage of 35.7 against 1.5 and 14; this
+   reproduces on the detector's own path, but the V reading is not specific to the four events a night's
+   edge cuts: with the planet's span they read 1.479 and 20.7 against 1.217 and 16.5 for the uncut two,
+   with the box's span 0.28 and -2.1 against 1.60 and 27.3, so its cause is not established).
    A ramped box in the shape test fixes that and was left out: with the second reading it let in an
    eclipsing binary (pf-seed456 star 82). The rest of the issue is `single_transit`'s and is not in this
    change: the same bar for guard (a) on a pulsator's residual (planets 41 and 93), the shape test on a

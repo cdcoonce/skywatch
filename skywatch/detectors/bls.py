@@ -800,21 +800,41 @@ puls-seed547 star 49 did (four events, two on a transit); the other five stars g
 41, seed872 star 174, seed873 star 116, seed876 star 38, seed878 star 14) are on transit labels only
 (17 bounded, 1 touched).
 
+Never-seen seeds (884-905, simulated by the PR's reviewer and scored once, ``main`` against the branch; every
+star sinusoidal with ``planet_rate`` 0.5 on 884-895, standard on 896-901, every star sinusoidal and
+planet-free on 902-905): ``bls`` planets 97 to 104, transit labels bounded 334 to 353, fp 0 to 0,
+detections 365 to 385, union planets 152 to 158, ``bls`` changed on 6 of 12 runs, ``single_transit``
+``cmp``-identical; the standard runs are ``bls``-identical and the planet-free runs give 0 detections.
+Pulsation->transit is missed again: 20 to 21 on 884-895, one mixed box (puls-seed887 star 88: two events,
+one on a transit and one 10 minute event touching a pulsation label, at a residual reading of 1.0104 levels,
+refused on ``main`` by 4 parts in 1000). With puls-seed872 star 137 on the held-out set and puls-seed547
+star 49 on the development runs that is 3 mixed boxes in 56 all-sinusoidal runs with planets, about one per 19.
+It costs a mislabelled event, not an fp, and it was shipped on: the cost is one characterised mixed-box
+pattern against real planet gains (never-seen union planets 152 to 158 with fp 0, the standard field
+unchanged, planet-free 0).
+
 What was tried and left. A ramped box in the shape test (a flat bottom with a ramp of a tenth of its width
 on each side, the transit the world draws, added to the box family and ``g_box`` the larger of the two):
-puls-seed840 star 50, the P/2 box of planet 26, reads 1.71 and a chi-square advantage of 35.7 (bars 1.5 and 14)
-with four of its six events cut by a night's edge, and 0.03 with the ramped box; alone it adds 9
-labels, 4 planets and 4 pulsation->transit on the all-sinusoidal runs, and with the two changes above it
-finds planet 26; but with the second reading it also let in an eclipsing binary (pf-seed456 star 82, 4
-events, 3 on eclipses), so it is not in this change. Planet 26 stays refused by the shape test.
+puls-seed840 star 50, the P/2 box of planet 26, reads 1.71 and a chi-square advantage of 35.7 (bars 1.5 and 14),
+and 0.03 with the ramped box; alone it adds 9 labels, 4 planets and 4 pulsation->transit on the
+all-sinusoidal runs, and with the two changes above it finds planet 26; but with the second reading it also
+let in an eclipsing binary (pf-seed456 star 82, 4 events, 3 on eclipses), so it is not in this change.
+Planet 26 stays refused by the shape test. That refusal reproduces on the detector's own path (the
+``_reread`` call reads 1.7134 and 35.657), but its cause is not established: it was first put down to
+four of the six events being cut by a night's edge, whose resolved ramp would read as a V, and the V
+reading is not specific to those events. With the planet's 4.26 h span the four cut events alone read
+1.479 and 20.7 and the two uncut ones 1.217 and 16.5; with the box's 2.98 h span the three cut events read
+0.28 and -2.1 and the three interior ones 1.60 and 27.3 (the two definitions of "cut" give opposite
+stories); a shape ladder widened to 8 h reads 1.13 and 18.9. The ramped box fixes it; why the box reads
+as a V is open.
 
 Limits: the relaxed bar is the detrending's, 3 levels, and a residual sinusoid between 1 and 3 levels on a
 real pulsator whose own sinusoid the detrending cannot place is now read as no pulsation (the night-level
 ratio and the box-versus-sine test still refuse a pulsator's fold: 0.0004 to 0.0006 amplitude pulsators
 without a transit give nothing in ``tests/test_bls.py``); a flare star with a masked share under 3 percent
 is not excluded and the second reading's S/N bar of 9 is what stands between it and a claim (seed859 star 25,
-a flare star with 16 events at S/N 10.2, local 8.3, is refused by it); a transit cut by a night's edge
-whose ingress is resolved is still read as a V by the shape test (above).
+a flare star with 16 events at S/N 10.2, local 8.3, is refused by it); the shape test still refuses the P/2
+box of 840 p26 (above; its cause is not established).
 
 Repeat test of a detrended box (off by default)
 -----------------------------------------------
