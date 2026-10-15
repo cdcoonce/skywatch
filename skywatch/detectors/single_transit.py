@@ -417,9 +417,11 @@ to 273, pulsation->transit 15 to 3; the planets it loses are puls-seed585 star 1
 star 125, and the same three labels are lost on ``main`` (planets 90 to 88), so the branch neither
 costs nor rescues anything under the switch.
 
-Not changed: a periodic planet with many events on a pulsator stays refused when the cut windows
-leave the guard enough data: ``pulsator(0)`` in the tests (four events of S/N 15 to 23) is still read
-as a sinusoid once the others are out and is left to ``bls``. This is measured for four events only.
+Not changed by that read: a periodic planet with many events on a pulsator stays refused when the cut
+windows leave the guard enough data: ``pulsator(0)`` in the tests (four events of S/N 15 to 23) is still
+read as a sinusoid once the others are out and is left to ``bls`` at the guard's bar of 1; since issue
+#66 the residual is judged at 3 levels (Strong planets the guard refused, below) and its four events are
+reported. This is measured for four events only.
 A planet with many events is accepted when 1.5 times its windows leaves the guard too little data to
 read a sinusoid in: puls-seed582 star 5 (20 events of 4.4 h, one per night) keeps about 1.4 h of each
 8 h night, is accepted and reported on 21 boxes (S/N 10 to 25). That is the mechanism and not a bar:
@@ -502,10 +504,12 @@ is 0.07 under the bar, so the change above does not reach it.
 Limits
 ------
 * Off the detrended path, a second strong event stays in the residual of the guard: a star with
-  two single events of S/N 10 or more each is read as a sinusoid and not searched (the residual
-  power of a dip grows
-  with its S/N squared; at S/N 9 it is at the level of the false-alarm limit). A periodic
-  planet's other events do the same.
+  two single events of S/N 10 or more each is read as a sinusoid at the guard's bar of 1 (the residual
+  power of a dip grows with its S/N squared; at S/N 9 it is at the level of the false-alarm limit). Since
+  issue #66 that star is read again at 3 levels when the detrending found nothing (Strong planets the
+  guard refused, below), so it is searched when the second event leaves the residual under 3 levels
+  (``tests/test_single_transit.py`` pins a 1.5 and a 0.6 percent event); a second event that leaves more,
+  and a periodic planet's other events when they add up above 3 levels, still refuse the star.
 * A planet whose transit overlaps or abuts the masked eclipses of its binary host is lost with
   them (seed7-200s-20n star 99: the planet's transit starts 20 minutes after an eclipse ends and
   the mask, 21 h of every 44 h cycle, covers it). Other eclipse residue gets through: the
@@ -642,6 +646,9 @@ from skywatch.detectors import register
 from skywatch.detectors.bls import (
     _GUARD_MASK_WIDTH,
     _MAD_SCALE,
+    _SHAPE_BOX_STEPS,
+    _SHAPE_SHIFT_H,
+    _SHAPE_SHIFT_STEP,
     BlsDetector,
     Box,
     _Arrays,
@@ -763,6 +770,8 @@ class SingleTransitDetector:
         min_night_h: float = 2.0,
         leave_out_events: bool = True,
         near_snr: float | None = 5.0,
+        trend_guard_ratio: float | None = 3.0,
+        ramp_box: bool = True,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -780,6 +789,8 @@ class SingleTransitDetector:
             raise ValueError(f"shape_threshold must be > 0 or None, got {shape_threshold}")
         if near_snr is not None and not near_snr > 0:
             raise ValueError(f"near_snr must be > 0 or None, got {near_snr}")
+        if trend_guard_ratio is not None and not trend_guard_ratio >= 1:
+            raise ValueError(f"trend_guard_ratio must be >= 1 or None, got {trend_guard_ratio}")
         self.snr_threshold = snr_threshold
         self.durations_h = tuple(sorted(durations_h))
         self.min_in = min_in
@@ -793,7 +804,11 @@ class SingleTransitDetector:
         self.min_night_h = min_night_h
         self.leave_out_events = leave_out_events
         self.near_snr = near_snr
-        # the relaxed residual bar of issue #66 is `bls`'s own; this detector reads the guard as before
+        self.trend_guard_ratio = trend_guard_ratio
+        self.ramp_box = ramp_box
+        # the periodic searches this detector asks of `bls` (guard (b)'s mask, and its pulsation
+        # rejection) keep the guard's own bar of 1: the relaxed bar of issue #66 is this detector's
+        # (`trend_guard_ratio`, handed to the guard explicitly), not a change to the mask search
         self._bls = BlsDetector(trend_guard_ratio=None)
 
     # -- search ----------------------------------------------------------------------------
@@ -856,6 +871,7 @@ class SingleTransitDetector:
         night: np.ndarray,
         boxes: list[NightBox],
         cadence_s: int,
+        residual_bar: float = 1.0,
     ) -> bool:
         """True when the `bls` pulsation guard rejects the star's strongest box as a one-event box."""
         best = max(boxes, key=lambda b: b.snr)
@@ -876,13 +892,19 @@ class SingleTransitDetector:
         sigma = _MAD_SCALE * float(np.median(np.abs(outside - np.median(outside))))
         if not sigma > 0:
             return False
-        rejected, _ = self._bls._pulsating(t, flux, sigma, cadence_s, box)
+        rejected, _ = self._bls._pulsating(t, flux, sigma, cadence_s, box, residual_bar)
         return rejected
 
     # -- shape test ------------------------------------------------------------------------
 
     def _shape(
-        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, b: NightBox, cadence_s: int
+        self,
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        b: NightBox,
+        cadence_s: int,
+        ramp: bool | None = None,
     ) -> float:
         """The `bls` shape statistic of one night's box, read as a one-event box.
 
@@ -901,9 +923,32 @@ class SingleTransitDetector:
             n_total=int(on.sum()),
             power=0.0,
         )
-        return self._bls._shape_excess(
-            t[on], flux[on], np.zeros(int(on.sum()), dtype=np.int64), b.sigma, box
-        )
+        fit = self._bls._shape_gains(t[on], flux[on], np.zeros(int(on.sum()), dtype=np.int64), box)
+        if fit is None:
+            return 0.0
+        g_box = fit.g_box
+        if self.ramp_box if ramp is None else ramp:
+            g_box = max(g_box, self._ramped_gain(t[on] - box.epoch_s, 1.0 - flux[on]))
+        return self._bls._shape_ratio(g_box, fit.g_triangle, b.sigma)
+
+    def _ramped_gain(self, x: np.ndarray, dip: np.ndarray) -> float:
+        """The largest chi-square gain of a ramped box (the transit the world draws) on one night.
+
+        The box family of :meth:`BlsDetector._shape_gains` (the same ladder of widths, the same
+        centres) with a ramp of a tenth of the width on each side; a free level and amplitude.
+        """
+        lo, hi = self.durations_h[0] * HOUR_S, self.durations_h[-1] * HOUR_S
+        reach = _SHAPE_SHIFT_H * HOUR_S
+        best = 0.0
+        for w in np.geomspace(lo, hi, _SHAPE_BOX_STEPS):
+            for c in np.arange(-reach, reach + 1e-6, min(reach, _SHAPE_SHIFT_STEP * w)):
+                template = np.clip((w / 2.0 - np.abs(x - c)) / (0.1 * w), 0.0, 1.0)
+                centred = template - template.mean()
+                den = float(centred @ centred)
+                num = float(centred @ dip)
+                if den > 0 and num > 0:
+                    best = max(best, num * num / den)
+        return best
 
     def _event_box(self, b: NightBox, cadence_s: int, n_total: int) -> Box:
         """The night box `b` as a one-event :class:`Box` (a "period" longer than the survey)."""
@@ -985,6 +1030,7 @@ class SingleTransitDetector:
         night: np.ndarray,
         boxes: list[NightBox],
         cadence_s: int,
+        residual_bar: float = 1.0,
     ) -> bool:
         """Guard (a) on the residual of a pulsator, with the star's other events left out.
 
@@ -999,7 +1045,7 @@ class SingleTransitDetector:
         guard accepted is accepted as before. No bar is added: the boxes are the ones the search
         already reports, and a sinusoid that stays in the data once they are out still refuses.
         """
-        if not self._pulsating(t, resid, night, boxes, cadence_s):
+        if not self._pulsating(t, resid, night, boxes, cadence_s, residual_bar):
             return False
         if not self.leave_out_events or len(boxes) < 2:
             return True
@@ -1017,7 +1063,15 @@ class SingleTransitDetector:
                 med = float(np.median(resid[on]))
                 if med > 0:
                     resid[on] /= med
-        return self._pulsating(t, resid, night, [best], cadence_s)
+        return self._pulsating(t, resid, night, [best], cadence_s, residual_bar)
+
+    def _relaxed_bar(self, c: _Clean, t: np.ndarray) -> float:
+        """The residual bar (in false-alarm levels) of guard (a) for a second look at a star."""
+        if self.trend_guard_ratio is None:
+            return 1.0
+        if 1.0 - len(t) / len(c.t) >= self._bls.flare_fraction:
+            return 1.0
+        return self.trend_guard_ratio
 
     def _detrended(
         self,
@@ -1041,7 +1095,8 @@ class SingleTransitDetector:
         boxes = self._boxes(t, resid, night, cadence_s)
         if boxes and self.clip_residual:
             boxes = [b for b in boxes if self._stands_unflared(t, resid, night, b)]
-        if not boxes or self._residual_pulsating(t, resid, night, boxes, cadence_s):
+        bar = self._relaxed_bar(c, t)
+        if not boxes or self._residual_pulsating(t, resid, night, boxes, cadence_s, bar):
             return None
         return boxes, resid
 
@@ -1088,6 +1143,7 @@ class SingleTransitDetector:
             return none, (t, flux, night)
         boxes = [b for b in seen if b.snr >= self.snr_threshold]
         refused = False
+        masked = False  # the boxes come from a search with a binary's eclipses left out
         if not boxes:
             # a pulsator's raw scatter holds its pulsation, so its raw boxes read low: the star
             # is given to the detrend when its best box is near the bar and guard (a) refuses it
@@ -1104,6 +1160,11 @@ class SingleTransitDetector:
                 log.info("single_transit star %s: pulsation subtracted", star_id)
                 boxes, flux = found
                 refused = False
+        bar = self._relaxed_bar(c, t)
+        reread = refused and self.detrend_pulsation and bar > 1.0
+        if reread and not self._pulsating(t, flux, night, boxes, cadence_s, bar):
+            log.info("single_transit star %s: guard (a) read again at %.1f levels", star_id, bar)
+            refused = False
         if refused:
             cand = self._bls._search(c, common_mode, cadence_s, plan_mask=True)
             if cand is None or cand.rejected != "pulsation guard" or not cand.mask:
@@ -1129,11 +1190,15 @@ class SingleTransitDetector:
             if not boxes or self._pulsating(t, flux, night, boxes, cadence_s):
                 log.info("single_transit star %s: pulsation guard, not searched", star_id)
                 return none, (t, flux, night)
+            masked = True
             log.info(
                 "single_transit star %s: eclipses masked (%d windows)", star_id, len(cand.mask)
             )
         if self.shape_threshold is not None:
-            boxes = [replace(b, shape=self._shape(t, flux, night, b, cadence_s)) for b in boxes]
+            ramp = self.ramp_box and not masked
+            boxes = [
+                replace(b, shape=self._shape(t, flux, night, b, cadence_s, ramp)) for b in boxes
+            ]
         return boxes, (t, flux, night)
 
     def _star(
