@@ -3,7 +3,8 @@
     "runs/seed7-200s-3n",
     "runs/seed42-200s-3n",
     "runs/seed7-200s-20n",
-    "runs/seed42-200s-20n"
+    "runs/seed42-200s-20n",
+    "runs/seed22-200s-20n"
   ],
   "views": [
     {
@@ -27,6 +28,13 @@
       "caption": "Seed 7 over 20 nights, star 93, night 9: a planet that transits once in the whole survey, already under way when the night starts. single_transit bounds it as a box truncated by the night edge; a periodic search cannot, because there is no second event."
     },
     {
+      "run": "runs/seed22-200s-20n",
+      "star": 6,
+      "night": 4,
+      "file": "img/seed22-pulsator-star6-night4.png",
+      "caption": "Seed 22 over 20 nights, star 6, night 4: a 2.1% planet transit on a star that also pulsates by 0.8%; no per-night detector reports the transit, but bls and single_transit bound it because each subtracts the pulsation before searching."
+    },
+    {
       "run": "runs/seed42-200s-3n",
       "pick": true,
       "file": "img/seed42-pick.png",
@@ -38,6 +46,58 @@
       "night": 1,
       "file": "img/seed7-drift-star7-night1.png",
       "caption": "Seed 7, star 7, night 1: the tracking drift as the field detector sees it, spanning an hour past the ramp because its causal baseline absorbs the step."
+    }
+  ],
+  "findings": [
+    {
+      "text": "Before any detector was wrong, the scorer was: a simple detector looked like it made 312 false alarms, but 281 of them overlapped real events, and once the scoring rules were fixed the same detections gave 34.",
+      "log": "0002-the-first-finding-is-about-the-scorer.md"
+    },
+    {
+      "text": "Before building a search for repeating dips, the project counted what a 3-night survey holds: only 1 of 34 planets in one run and 1 of 25 in the other transited more than once, with a combined signal of just 0.1 and 1.7 against a bar of 7, so it surveyed 20 nights instead.",
+      "log": "0007-the-page-the-survey-that-could-not-be-searched-and-the-first-periodic-find.md"
+    },
+    {
+      "text": "A fix that worked on the sky it was built on did nothing on six skies it had never seen (seeds 21 to 26) and raised false alarms from 6 to 9, so it shipped switched off and unseen \"held-out\" seeds became a standing rule.",
+      "log": "0008-the-held-out-seeds-and-what-they-changed.md"
+    },
+    {
+      "text": "A gate that would have removed 28 false claims was shipped switched off, because it would also have lost 18 real transits that no other detector finds.",
+      "log": "0010-a-public-page-and-four-fixes-that-only-subtract.md"
+    },
+    {
+      "text": "Dividing every star by the field's median cancels sky-wide effects, but when most stars pulsate the median is itself a wobble that gets written into every star, and fixing that cut one run's false planet claims from 14 to 2.",
+      "log": "0012-the-median-of-a-field-of-pulsators-is-a-pulsation.md"
+    },
+    {
+      "text": "A cause written down for a lost planet was invented by a side script that prepared the star differently from the real detector, and on the detector's own path the star's one candidate was dropped by a shape test at 1.57 against a bar of 1.0.",
+      "log": "0013-the-planets-own-events-and-a-cause-the-instrument-invented.md"
+    },
+    {
+      "text": "A transit search reads a dip at a median 0.65 of its ideal signal, and most of that loss is the honest price of comparing the dip with the rest of its own night; the one loss that looked fixable changed nothing on 34 runs, so that attempt was closed.",
+      "log": "0016-where-the-signal-goes.md"
+    }
+  ],
+  "honesty": [
+    {
+      "text": "The simulator writes the truth when it injects each event, and the detectors never see it; only the scorer does."
+    },
+    {
+      "text": "A change is designed on development seeds and scored once on held-out seeds, only after every threshold is committed, and a bar that fails there is reported instead of re-tuned.",
+      "link": {
+        "label": "The seed ledger",
+        "path": "docs/seeds.md"
+      }
+    },
+    {
+      "text": "Every pull request is reviewed by a second agent that breaks the code one defect at a time and checks the tests go red, and bars are stated in planets, with an allowance of one planet."
+    },
+    {
+      "text": "A failed bar closes the pull request: the change in entry 0016 gained nothing on unseen runs, so it was closed rather than shipped switched off.",
+      "link": {
+        "label": "Build log 0016",
+        "path": "docs/log/0016-where-the-signal-goes.md"
+      }
     }
   ]
 }

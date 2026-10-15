@@ -557,3 +557,39 @@ def test_findings_page_is_byte_identical_across_generations(tmp_path, tiny):
 )
 def test_bad_findings_or_honesty_fail_before_writing(tmp_path, tiny, capsys, extra, message):
     _fails_before_writing(tmp_path, _write_spec(tmp_path, tiny, **extra), capsys, message)
+
+
+# The published spec: the page's own claims are checked against the logs they link to.
+
+REPO = Path(__file__).resolve().parent.parent
+PUBLISHED = json.loads((REPO / "docs" / "site.json").read_text())
+NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def test_published_spec_has_five_to_seven_findings_and_three_or_four_honesty_sentences():
+    assert 5 <= len(PUBLISHED["findings"]) <= 7
+    assert 3 <= len(PUBLISHED["honesty"]) <= 4
+
+
+@pytest.mark.parametrize("finding", PUBLISHED["findings"], ids=lambda f: f["log"][:4])
+def test_every_quoted_number_appears_verbatim_in_the_linked_log(finding):
+    log = REPO / "docs" / "log" / finding["log"]
+    assert log.is_file(), f"{finding['log']} is not a build log"
+    body = log.read_text()
+    numbers = NUMBER.findall(finding["text"])
+    assert numbers, "a finding quotes at least one number from its log"
+    missing = [n for n in numbers if n.rstrip(",") not in body]
+    assert not missing, f"{missing} not in {finding['log']}"
+
+
+def test_published_findings_are_one_sentence_each():
+    for finding in PUBLISHED["findings"]:
+        text = finding["text"].strip()
+        assert text.endswith(".") and len(text) < 420
+        assert len(re.findall(r"[.!?](?:\s+[A-Z])", text)) == 0, text
+
+
+def test_published_honesty_links_point_at_files_in_the_repo():
+    for item in PUBLISHED["honesty"]:
+        if "link" in item:
+            assert (REPO / item["link"]["path"]).is_file(), item["link"]["path"]
