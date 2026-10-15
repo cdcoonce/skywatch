@@ -1514,6 +1514,14 @@ def test_the_raw_box_is_not_read_again_by_default():
     assert len(detect({0: cv}, reread=True)) == 1
 
 
+def test_the_reread_needs_the_detrend():
+    # the reread is the second look at a star the detrending could not clean: with the detrending
+    # off there is no such star, and the switch must not read the raw box again at the relaxed bar
+    _t, cv = weak_host(0)
+    assert len(detect({0: cv}, reread=True)) == 1
+    assert detect({0: cv}, detrend_pulsation=False, reread=True) == []
+
+
 def test_the_reread_has_its_own_switch_and_leaves_the_residual_bar_alone():
     # the raw box read again is one of the two uses of `trend_guard_ratio`; `reread=False` keeps
     # the residual bar of a detrended star and drops the second reading of the raw box
