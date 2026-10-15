@@ -599,12 +599,26 @@ the reread); what it buys is the named planet 841 p93 and, on the development ru
 planets on the sinusoidal and 27 labels and 12 planets on the standard runs, none of which was new to
 the union with ``bls`` on the standard runs.
 
-Decision (PR #68): the PR as scored (reread on) missed the bar, and does not land as scored. ``reread`` is
-**off by default** (``reread=True`` is the scored behaviour; the code is kept, opt-in). Seeds 906-927 are
-now development, since they informed this choice. The reread-off variant was not re-scored on them; it is
-to be judged on fresh seeds in the review. The named planet 841 p93, found only by the reread, is therefore
-not found by default. On the development runs the two settings differ only on stars where the reread
-fired (puls-seed841: star 185, p93, lost; seed26: star 75, two transit boxes lost; seed420: identical).
+Decision (PR #68): the PR as scored (reread on) missed the bar, and did not land as scored. ``reread`` is
+**off by default** (``reread=True`` is the scored behaviour; the code is kept, opt-in, and fires only with
+``detrend_pulsation`` on). Seeds 906-927 are now development, since they informed this choice; the reread-off
+default was judged on fresh seeds 928-955 in the review (scored once, ``main`` to the default, ``bls``
+``cmp``-identical):
+
+* The default's measured effect is a gain in ``single_transit`` alone, not in the union. Planets 97 to 110
+  (every star sinusoidal, 928-939) and 22 to 23 (standard, 940-951); all 46 added detections are on transit
+  labels that ``bls`` already bounded, so union planets read 141 to 141 and 37 to 37 and no union label is new.
+  Every bar is met, with +0 on pulsation->transit and eclipse->transit (fp 0 to 0, 8 to 8; planet-free 0
+  against 0). The held-out 906-917 union gain, 143 to 145, was scored with the reread on and is not a
+  statement about the default.
+* The reread (opt-in) on the same fresh runs: union planets 141 to 143 (puls-seed930 star 46 and puls-seed935
+  star 61, the two planets only the reread finds) and no eclipse claim on the 12 standard runs; with the
+  held-out 918-923 that is 3 new eclipse boxes in 18 standard runs (two seeds of six there, none of twelve
+  here), which is why it stays off.
+* Named planets: 844 p41 and 845 p29 are found by default; 841 p93 is found only with the reread (opt-in, for
+  its eclipse cost); 843 p53, 845 p61 and 861 p4 stay with the causes stated above. On the development runs
+  the two settings differ only on stars where the reread fired (puls-seed841: star 185, p93, lost; seed26:
+  star 75, two transit boxes lost; seed420: identical).
 
 Limits
 ------

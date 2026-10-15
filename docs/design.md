@@ -804,12 +804,20 @@ Planned detectors, in order:
    pulsation->transit 21 to 22 (allowance one: met); standard union planets 15 to 15, fp 1 to 1,
    **eclipse->transit 2 to 5 (allowance one: missed)**, three eclipse boxes of two binaries admitted by the
    raw reread at 1.41 and 2.23 levels, none by the ramped box; planet-free unchanged (`single_transit` 0,
-   0, 1, 0). `Refs` rather than `Closes`: the bar on the standard set is missed (cause: the raw reread,
-   which also admitted the one held-out flare->transit, seed922 star 180, a flare star under the 3 percent
-   share; the eclipse boxes are seed918 star 168 (two) and seed923 star 169, raw guard 1.41 and 2.23 levels,
-   shape 0.10, 0.70, 0.22). Decision: the raw reread is its own switch (`reread`) and is **off by default**;
-   906-927 are now development (they informed the choice) and the reread-off variant is to be judged on fresh
-   seeds in the review. 841 p93, found only by the reread, is not found by default. The statistic, threshold, guards and limits are in the
+   0, 1, 0). As scored the PR missed the bar (cause: the raw reread, which also admitted the one held-out
+   flare->transit, seed922 star 180, a flare star under the 3 percent share; the eclipse boxes are seed918
+   star 168 (two) and seed923 star 169, raw guard 1.41 and 2.23 levels, shape 0.10, 0.70, 0.22). Decision: the
+   raw reread is its own switch (`reread`) and is **off by default** (opt-in, and only with the detrending on);
+   906-927 are development (they informed the choice). The default was then judged on fresh seeds 928-955
+   (review of PR #68, scored once, `main` to the default, `bls` `cmp`-identical): the default's measured
+   effect is a `single_transit` gain, not a union gain. `single_transit` planets 97 to 110 (every star
+   sinusoidal, 928-939) and 22 to 23 (standard, 940-951); all 46 added detections are on transit labels `bls`
+   already bounded, so union planets read 141 to 141 and 37 to 37 and fp 0 to 0, 8 to 8, with +0 on
+   pulsation->transit and eclipse->transit and planet-free 0 against 0 (every bar met). The held-out
+   143 to 145 was scored with the reread on. The reread (opt-in) on the same runs: union planets 141 to 143
+   (puls-seed930 star 46, puls-seed935 star 61) and no eclipse claim on 12 standard runs; 3 eclipse boxes in
+   18 standard runs overall. Named planets: 844 p41 and 845 p29 found by default; 841 p93 found only with the
+   reread (opt-in for its eclipse cost); 843 p53, 845 p61 and 861 p4 with causes stated. The statistic, threshold, guards and limits are in the
    `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
