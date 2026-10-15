@@ -131,6 +131,11 @@ between the true signal and what a detector reports. Most of it is the honest
 cost of comparing a box with the rest of its own night. One step that looked
 avoidable turned out to be a best case no detector reaches.
 
+[0017](docs/log/0017-what-the-page-says-about-itself.md): the page now says
+what the project found and how it keeps itself honest, each claim linked to
+its build log. The review caught the honesty section claiming a rule the
+logs show was not always kept, and the text was corrected before it shipped.
+
 Nothing is open.
 
 ## Develop
