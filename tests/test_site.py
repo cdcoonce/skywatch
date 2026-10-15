@@ -574,7 +574,10 @@ def test_findings_page_is_byte_identical_across_generations(tmp_path, tiny):
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs\\s.md"}}]}, "path"),
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs//s.md"}}]}, "path"),
         ({"honesty": [{"text": "t", "link": {"label": "l", "path": "docs/./s.md"}}]}, "path"),
-        ({"honesty": [{"text": "t", "link": {"label": "l", "path": "javascript:alert(1)"}}]}, "path"),
+        (
+            {"honesty": [{"text": "t", "link": {"label": "l", "path": "javascript:alert(1)"}}]},
+            "path",
+        ),
         ({"honesty": ["nope"]}, "honesty 1: must be an object"),
         ({"honesty": [{"text": "t", "link": {}}]}, "honesty 1: link: label"),
         ({"honesty": [{"text": "t", "link": ""}]}, "honesty 1: link"),
@@ -596,11 +599,7 @@ NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 def missing_numbers(text: str, body: str) -> list[str]:
     """Numbers quoted in `text` that do not appear in `body` as whole figures."""
     found = (n.rstrip(",") for n in NUMBER.findall(text))
-    return [
-        n
-        for n in found
-        if not re.search(rf"(?<![\d.,]){re.escape(n)}(?!\d|\.\d|,\d)", body)
-    ]
+    return [n for n in found if not re.search(rf"(?<![\d.,]){re.escape(n)}(?!\d|\.\d|,\d)", body)]
 
 
 @pytest.mark.parametrize(
