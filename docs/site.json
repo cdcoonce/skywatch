@@ -30,9 +30,9 @@
     {
       "run": "runs/seed22-200s-20n",
       "star": 6,
-      "night": 4,
-      "file": "img/seed22-pulsator-star6-night4.png",
-      "caption": "Seed 22 over 20 nights, star 6, night 4: a 2.1% planet transit on a star that also pulsates by 0.8%; no per-night detector reports the transit, but bls and single_transit bound it because each subtracts the pulsation before searching."
+      "night": 3,
+      "file": "img/seed22-pulsator-star6-night3.png",
+      "caption": "Seed 22 over 20 nights, star 6, night 3: a 2.1% planet transit in the middle of the night, on a star that also pulsates by 0.8%. The pulsation is smaller than the 1.4% scatter of each sample, and the per-night detectors report nothing. bls and single_transit each subtract the pulsation before searching, and both bound the transit."
     },
     {
       "run": "runs/seed42-200s-3n",
@@ -62,7 +62,7 @@
       "log": "0008-the-held-out-seeds-and-what-they-changed.md"
     },
     {
-      "text": "A gate that would have removed 28 false claims was shipped switched off, because it would also have lost 18 real transits that no other detector finds.",
+      "text": "A gate that would have removed 28 false claims was shipped switched off, because it would also have lost 18 real transits that the project's other transit search could not find.",
       "log": "0010-a-public-page-and-four-fixes-that-only-subtract.md"
     },
     {
@@ -74,7 +74,7 @@
       "log": "0013-the-planets-own-events-and-a-cause-the-instrument-invented.md"
     },
     {
-      "text": "A transit search reads a dip at a median 0.65 of its ideal signal, and most of that loss is the honest price of comparing the dip with the rest of its own night; the one loss that looked fixable changed nothing on 34 runs, so that attempt was closed.",
+      "text": "Even when told a planet's exact period and duration, the periodic search reads its dip at a median 0.65 of the ideal signal, and about 70% of that loss is the honest price of comparing the dip with the rest of its own night; the one fix that looked possible gained nothing on unseen runs, so it was closed.",
       "log": "0016-where-the-signal-goes.md"
     }
   ],
@@ -83,20 +83,20 @@
       "text": "The simulator writes the truth when it injects each event, and the detectors never see it; only the scorer does."
     },
     {
-      "text": "A change is designed on development seeds and scored once on held-out seeds, only after every threshold is committed, and a bar that fails there is reported instead of re-tuned.",
+      "text": "A change is designed on development seeds and scored once on unseen seeds, only after every threshold is committed; the one time a gate was set after seeing unseen data, build log 0012 says so.",
       "link": {
         "label": "The seed ledger",
         "path": "docs/seeds.md"
       }
     },
     {
-      "text": "Every pull request is reviewed by a second agent that breaks the code one defect at a time and checks the tests go red, and bars are stated in planets, with an allowance of one planet."
+      "text": "Every code pull request is reviewed by a second agent that breaks the code one defect at a time and checks the tests catch each break, and since build log 0011 every bar is written in planets, with an allowance of one planet."
     },
     {
-      "text": "A failed bar closes the pull request: the change in entry 0016 gained nothing on unseen runs, so it was closed rather than shipped switched off.",
+      "text": "A bar is written before the unseen seeds are scored and is never loosened afterwards: a change that misses it is closed, or ships with the miss written down as a cost set against what it measurably gained.",
       "link": {
-        "label": "Build log 0016",
-        "path": "docs/log/0016-where-the-signal-goes.md"
+        "label": "Build log 0011",
+        "path": "docs/log/0011-pulsating-stars-and-a-rule-that-was-decided-by-one-planet.md"
       }
     }
   ]
