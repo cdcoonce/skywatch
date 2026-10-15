@@ -136,14 +136,14 @@ class SpyBls(_Spy, BlsDetector):
             cand_summary,
         )
 
-    def _search_arrays(self, a, c, cadence_s, plan_mask, *bar):  # type: ignore[no-untyped-def]
+    def _search_arrays(self, a, c, cadence_s, plan_mask, *bar, **kw):  # type: ignore[no-untyped-def]
         self._night = (
             a.night
         )  # the guard is not handed the nights; its night-level ratio needs them
         return self._spy(
             "_search_arrays",
             {"samples": len(a.t), "residual_bar": bar[0] if bar else 1.0},
-            lambda: super(SpyBls, self)._search_arrays(a, c, cadence_s, plan_mask, *bar),
+            lambda: super(SpyBls, self)._search_arrays(a, c, cadence_s, plan_mask, *bar, **kw),
             cand_summary,
         )
 
