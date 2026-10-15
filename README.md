@@ -126,6 +126,11 @@ planets both detectors still miss showed the standard field near its ceiling
 and pointed at strong planets refused whole; giving them a second look found
 more planets on unseen seeds with no new false alarms.
 
+[0016](docs/log/0016-where-the-signal-goes.md): where a transit's S/N goes
+between the true signal and what a detector reports. Most of it is the honest
+cost of comparing a box with the rest of its own night. One step that looked
+avoidable turned out to be a best case no detector reaches.
+
 Nothing is open.
 
 ## Develop
