@@ -501,6 +501,103 @@ scale 0.0300), sigma of the night's out-of-box samples 10 percent over that whit
 contrast factor sqrt(285/463) = 0.785 (7.93). The star's other nights are white. The residual reading
 is 0.07 under the bar, so the change above does not reach it.
 
+Strong planets the guard and the shape test refused (issue #66)
+---------------------------------------------------------------
+Issue #66 listed six strong single-event planets that this detector refused whole
+(``scripts/strong_planet_audit.py`` reads each on the detector's own path, with spies on a real
+``detect``). Three of them are a bar, and the shape test of a fourth is a template:
+
+* **Guard (a)'s residual bar on a second look** (``trend_guard_ratio``, 3 by default; ``None`` is the old
+  bar). The guard's residual test refuses at the false-alarm level (1), and the detrending subtracts a
+  sinusoid only from ``trend_min_ratio`` (3) levels, so a star between the two was refused with nothing to
+  subtract, and a residual that had just lost its sinusoid was refused on the same reading of 1. The
+  bar is ``bls``'s own (``BlsDetector._pulsating(residual_bar=...)``, issue #66's first half) and is used
+  twice: (1) for guard (a) on a pulsator's residual (:meth:`_residual_pulsating`, both reads), and (2) for the
+  raw box of a star the detrending could not clean, read again (``reread``, on by default; the same bar and
+  the same star-wide boxes; no S/N bar is added, the detector's 8 stands). A star whose share of masked
+  samples reaches ``bls``'s ``flare_fraction`` (3 percent) keeps the bar of 1: a flare star's tails read 1
+  to 3 levels in the residual. Only the residual test is relaxed; the box-versus-sine test is not.
+* **A ramped box in the shape test** (``ramp_box``, on by default). The box family of the shape test gets
+  a ramped box (a tenth of its width on each side: the transit the world draws, ``_ramped_gain``; the same
+  ladder of widths and centres, a free level and amplitude) and ``g_box`` is the larger of the two. A
+  transit cut by a night's end that shows its resolved ingress is not a V. The ramped box is not used for
+  the boxes found after guard (b)'s eclipse mask (``masked``): those are a binary's leftover wings, and a ramp
+  fits a wing (below).
+
+The six named planets, ``main`` to this, each read on the detector's own path:
+
+========= ==== ===================================================== ===========================================
+planet    star main                                                  this
+========= ==== ===================================================== ===========================================
+844 p41   84   residual box night 2 (S/N 63.2), guard (a) on the     accepted; shape -6.70; found, bounded
+               residual 1.5104 levels (sine/box 0.054): refused by
+               the residual test alone
+841 p93   185  raw box night 14 (S/N 15.0), guard (a) 1.1008 levels   accepted by the raw reread; shape -0.85;
+               (sine/box 0.199); the detrend finds nothing: refit    found, bounded
+               with the box out reads the host's sinusoid at ratio
+               1.27 < 3, so there is no residual at all
+845 p29   47   residual box night 13 (S/N 48.5, 62 samples, 1.0 h),  shape -0.082 with the ramped box; found,
+               guard (a) 0.56, shape 1.4542 (bar 1.0)                bounded
+843 p53   118  residual box night 16 (S/N 43.7, 25 samples, 0.4 h),  shape 1.380 with the ramped box: still
+               guard (a) 0.869, shape 3.146                          refused. The night ends 0.4 h into the
+                                                                     transit (ingress, 0.3 h, resolved, then 7
+                                                                     samples of the bottom); the ramped box is
+                                                                     centred within 0.5 h of the box and the
+                                                                     transit's centre is 1.3 h from it. With a
+                                                                     reach of 1.0 h the statistic reads -0.03
+                                                                     (1.5 h: -0.11); that constant was not
+                                                                     measured on development and is not changed
+845 p61   104  no residual box reaches 8 (the issue read 6.5)         unchanged: below the bar after the
+                                                                     subtraction, not a guard problem
+861 p4    54   eclipsing binary; the residual still holds the        unchanged: the eclipse mask leaves the
+               eclipses (guard (a) 158 levels, 71 with the other     planet's night no out-of-transit
+               boxes left out); guard (b) masks them and no box      reference
+               is left
+========= ==== ===================================================== ===========================================
+
+Development cost (106 runs of 200 stars and 20 nights from the ranges of docs/seeds.md: 36 standard with
+planets, 16 standard planet-free, 36 every star sinusoidal with ``planet_rate`` 0.5, 18 every star
+sinusoidal and planet-free; the measurement comment of issue #66), ``main`` to this, ``single_transit``
+alone. Standard with planets: transit labels bounded 87 to 130, planets 73 to 89, fp 1 to 1,
+eclipse->transit 13 to 13, flare->transit 6 to 6, pulsation->transit 0 to 0, detections 113 to 156; union
+with ``bls``: planets 125 to 125, labels bounded 357 to 357 (``bls`` holds them), eclipse->transit 17 to
+17, detections 517 to 560. Every star sinusoidal with planets: labels bounded 497 to 655, planets 301 to
+347, fp 0 to 0, pulsation->transit 1 to 1, detections 501 to 659; union labels bounded 1252 to 1270,
+planets 414 to 426, pulsation->transit 63 to 63, detections 1699 to 1857. Planet-free: 11 to 11 (standard)
+and 1 to 1 (sinusoidal) detections. No detection of ``main`` is lost. Per part, ``single_transit`` alone:
+the residual bar of a detrended star adds 121 labels and 29 planets on the sinusoidal runs (16 and 4 on the
+standard ones), the raw reread 12 labels and 8 planets there and 27 labels and 12 planets on the standard
+runs, the ramped box 21 labels and 7 planets there and none on the standard runs. Without the flare exclusion
+the two bars add 6 fp and 5 flare->transit on the standard planet runs and 3 fp and 6 flare->transit on the
+planet-free ones, so it stays. The ramped box used after the eclipse mask added three eclipse->transit
+(pf-seed622 star 134, seed26 star 97, seed422 star 172: shape 1.18 to 0.81, 1.07 to 0.94, 1.32 to 0.89) and
+nothing else, which is why it is not used there.
+
+Held-out, scored once after the constants were committed (4ca4edf; seeds 906-917 every star sinusoidal with
+``planet_rate`` 0.5, 918-923 standard, 924-927 every star sinusoidal and planet-free; 200 stars, 20 nights),
+``main`` to this. Every star sinusoidal with planets (12 runs), ``single_transit``: labels bounded 174 to
+218, planets 97 to 115, fp 0 to 0, pulsation->transit 1 to 2, detections 175 to 220; union with ``bls``
+(unchanged, ``cmp``-identical on 906 and 910): planets 143 to 145, labels bounded 430 to 434, fp 0 to 0,
+pulsation->transit 21 to 22, detections 588 to 633. Standard (6 runs), ``single_transit``: labels bounded
+10 to 26, planets 8 to 14, fp 0 to 0, eclipse->transit 2 to 5, flare->transit 1 to 2, detections 15 to 35;
+union (``bls`` ``cmp``-identical on 918 and 920): planets 15 to 15, labels bounded 44 to 44, fp 1 to 1,
+eclipse->transit 2 to 5, flare->transit 1 to 2, detections 55 to 75. Planet-free (4 runs): the same
+detections on both sides (``single_transit`` 0, 0, 1 and 0; union 0, 0, 1 and 2).
+
+**The bar on eclipse->transit is missed on the standard held-out set: 2 to 5, against an allowance of one.**
+The three new claims are two boxes of seed918 star 168 (an eclipsing binary; 0.43 h at S/N 9.06 and 0.85 h at
+10.55; shape 0.10 and 0.70) and one of seed923 star 169 (an eclipsing binary; 1.87 h, S/N 8.54; shape 0.22).
+All three came through the raw reread: the raw guard reads 1.41 and 2.23 levels on them, the detrending
+returned nothing on either star, and the ramped box is not involved (the
+statistics without it are 0.28 and 0.70 for 168, the same for 169). The same reread admits the flare->transit
+(seed922 star 180, a flare star under the 3 percent share, a 5.95 h box of S/N 9.0 at 1.14 levels). The
+development runs showed none of these in 52 standard runs. The pulsation->transit on the sinusoidal set (21 to
+22) is the allowance: puls-seed917 star 35, a 0.5 h box 75 percent deep (S/N 34), accepted on the detrended
+residual at 1.50 levels. The raw reread is its own switch (``reread=False`` keeps the residual bar and drops
+the reread); what it buys is the named planet 841 p93 and, on the development runs, 12 labels and 8
+planets on the sinusoidal and 27 labels and 12 planets on the standard runs, none of which was new to
+the union with ``bls`` on the standard runs.
+
 Limits
 ------
 * Off the detrended path, a second strong event stays in the residual of the guard: a star with
@@ -771,6 +868,7 @@ class SingleTransitDetector:
         leave_out_events: bool = True,
         near_snr: float | None = 5.0,
         trend_guard_ratio: float | None = 3.0,
+        reread: bool = True,
         ramp_box: bool = True,
     ) -> None:
         if not snr_threshold > 0:
@@ -805,6 +903,7 @@ class SingleTransitDetector:
         self.leave_out_events = leave_out_events
         self.near_snr = near_snr
         self.trend_guard_ratio = trend_guard_ratio
+        self.reread = reread
         self.ramp_box = ramp_box
         # the periodic searches this detector asks of `bls` (guard (b)'s mask, and its pulsation
         # rejection) keep the guard's own bar of 1: the relaxed bar of issue #66 is this detector's
@@ -1161,7 +1260,7 @@ class SingleTransitDetector:
                 boxes, flux = found
                 refused = False
         bar = self._relaxed_bar(c, t)
-        reread = refused and self.detrend_pulsation and bar > 1.0
+        reread = refused and self.reread and self.detrend_pulsation and bar > 1.0
         if reread and not self._pulsating(t, flux, night, boxes, cadence_s, bar):
             log.info("single_transit star %s: guard (a) read again at %.1f levels", star_id, bar)
             refused = False

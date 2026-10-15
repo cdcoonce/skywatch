@@ -784,8 +784,29 @@ Planned detectors, in order:
    puls-seed585 star 16 (the single event that
    motivated the issue) is not recovered: its residual reads 7.93 against 8 (raw 7.43), from the
    realised depth (11.2 at the white scale), a sigma 10 percent over it and the contrast factor 0.785.
-   The statistic, threshold, guards and limits are in the `skywatch/detectors/single_transit.py`
-   docstring.
+   Strong planets the guard and the shape test refused (issue #66, `single_transit`'s half). Six strong
+   single-event planets were refused whole; read on the detector's own path (`scripts/strong_planet_audit.py`),
+   three are a bar and one a template. Guard (a) reads a pulsator's residual, and the raw box of a star the
+   detrending could not clean, at `trend_guard_ratio` (3) false-alarm levels instead of 1 (`bls`'s own bar,
+   the level at which the detrending itself calls a signal a sinusoid; a flare star, masked share of 3 percent
+   or more, keeps 1), and the shape test fits a ramped box (a tenth of its width on each side, the world's
+   transit) beside its boxes, except for the boxes found after the eclipse mask. Named planets: 844 p41
+   (residual 1.51 levels), 841 p93 (raw 1.10 levels, no residual because the refit sinusoid reads 1.27) and
+   845 p29 (shape 1.45 to -0.08) are found; 843 p53 (shape 3.15 to 1.38: the ramped box's reach of 0.5 h
+   cannot place the ramp of a transit whose centre is 1.3 h from the box; 1.0 h reads -0.03, unmeasured on
+   development and not changed), 845 p61 (no residual box reaches 8) and 861 p4 (the eclipse mask leaves
+   the planet's night no reference) stay with those causes. Development (106 runs, `single_transit` alone):
+   standard planets labels bounded 87 to 130, planets 73 to 89, eclipse->transit 13 to 13, flare->transit
+   6 to 6; every star sinusoidal labels bounded 497 to 655, planets 301 to 347, pulsation->transit 1 to 1;
+   without the flare exclusion the bar adds 6 fp and 5 flare->transit; the ramped box after the eclipse mask
+   added three eclipse->transit and nothing else. Held-out, scored once (906-927, `main` to branch):
+   every star sinusoidal with planets union planets 143 to 145, labels bounded 430 to 434, fp 0 to 0,
+   pulsation->transit 21 to 22 (allowance one: met); standard union planets 15 to 15, fp 1 to 1,
+   **eclipse->transit 2 to 5 (allowance one: missed)**, three eclipse boxes of two binaries admitted by the
+   raw reread at 1.41 and 2.23 levels, none by the ramped box; planet-free unchanged (`single_transit` 0,
+   0, 1, 0). `Refs` rather than `Closes`: the bar on the standard set is missed, the raw reread is its
+   own switch (`reread`). The statistic, threshold, guards and limits are in the
+   `skywatch/detectors/single_transit.py` docstring.
 6. Later: matched flare filter, a learned model, an LLM-judge for comparison.
 
 ## Scoring

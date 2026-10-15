@@ -97,6 +97,7 @@ def test_defaults_are_the_documented_ones():
     assert d.leave_out_events is True
     assert d.near_snr == 5.0
     assert d.trend_guard_ratio == 3.0 == BlsDetector().trend_min_ratio
+    assert d.reread is True
     assert d.ramp_box is True
 
 
@@ -1502,6 +1503,17 @@ def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found
     # the old reading is the old bar and the old outcome
     bars, out = _guard_bars(cv, trend_guard_ratio=None)
     assert out == [] and set(bars) == {1.0}
+
+
+def test_the_reread_has_its_own_switch_and_leaves_the_residual_bar_alone():
+    # the raw box read again is one of the two uses of `trend_guard_ratio`; `reread=False` keeps
+    # the residual bar of a detrended star and drops the second reading of the raw box
+    _t, cv = weak_host(0)
+    bars, out = _guard_bars(cv, reread=False)
+    assert out == [] and bars == [1.0]
+    _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
+    bars, out = _guard_bars(cv, reread=False)
+    assert len(out) == 1 and bars == [1.0, 3.0]
 
 
 def test_the_relaxed_bar_does_not_admit_a_pulsator_the_detrend_cannot_clean():
