@@ -24,6 +24,7 @@ from skywatch.detectors.bls import (
     refine,
 )
 from skywatch.detectors.bls import masked_runs as run_edges
+from skywatch.detectors.single_transit import SingleTransitDetector
 from skywatch.scoring.match import span_iou
 from skywatch.types import LightCurve
 
@@ -1521,8 +1522,8 @@ def _pin_repeat_snr(monkeypatch, value):
     """Make every candidate of the search read ``snr_repeat == value`` (nothing else changes)."""
     real = BlsDetector._search_arrays
 
-    def patched(self, a, c, cadence_s, plan_mask):
-        cand = real(self, a, c, cadence_s, plan_mask)
+    def patched(self, a, c, cadence_s, plan_mask, *rest, **kw):
+        cand = real(self, a, c, cadence_s, plan_mask, *rest, **kw)
         return None if cand is None else replace(cand, snr_repeat=value)
 
     monkeypatch.setattr(BlsDetector, "_search_arrays", patched)
@@ -3310,3 +3311,226 @@ def test_the_cheap_stage_does_not_rule_out_a_majority_of_weak_pulsators():
     assert len(det._pulsation_free(cleaned, cm, C)) > 7
     assert det._pulsator_majority_possible(cleaned, cm, C)
     assert not np.array_equal(det._common_mode(cleaned, C)[1], cm[1])
+
+
+# -- strong planets the pulsation guard refused (#66) ---------------------------------------
+
+
+def _weakly_pulsating(seed, depth=0.02, amp=0.0005):
+    """A 4.8 h sinusoid of 0.05 percent in 0.5 percent noise, with a 3 h transit every 3.1 d.
+
+    The sinusoid is the guard's: after the box is out it stands at about twice the false-alarm
+    level (1 to 3 times, the band between the guard's bar and the detrending's), so the residual
+    test refuses the box, and the detrending does not recognise a sinusoid to subtract.
+    """
+    return pulsator(seed, period_d=0.2, amp=amp, depth=depth)
+
+
+def _two_modes(seed, a2=0.0005, depth=0.02):
+    """A strong mode (1.5 percent, 0.9 d) and a weak one (`a2`, 4.8 h) with a 3 h transit.
+
+    The detrending subtracts the strong mode; the weak one is left in the residual at about twice
+    the false-alarm level.
+    """
+    rng = np.random.default_rng(seed)
+    t = night_times(20)
+    prof = 1.0 + 0.015 * np.sin(2 * np.pi * t / (0.9 * DAY) + 0.7)
+    prof = prof + a2 * np.sin(2 * np.pi * t / (0.2 * DAY) + 0.3)
+    prof = prof * box_profile(t, 3.1 * DAY, 0.05 * DAY, 3 * 3600.0, depth)
+    return t, curve(0, t, prof, 0.005, rng)
+
+
+def _all_bounded(t, out):
+    truth = planted_windows(t, 3.1, 0.05, 3.0)
+    assert len(truth) == 4
+    for lo, hi in truth:
+        assert max((span_iou(d.t_start, d.t_end, lo, hi) for d in out), default=0.0) >= 0.5
+    return truth
+
+
+def test_the_residual_bar_is_a_multiple_of_the_false_alarm_level():
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector(trend_guard_ratio=None)
+    c = det._clean(cv, C)
+    a = _arrays(det, cv)
+    plain = det._search_arrays(a, c, C, False)
+    _, level = det._peak_power(a.t, a.flux - 1.0, 0.005, C)
+    assert plain.rejected == "pulsation guard" and plain.snr > 50
+    assert 1.0 < plain.excess / level < 3.0  # between the guard's bar and the detrending's
+    # the same box read at 3 times the level passes the guard (and every gate behind it)
+    assert det._search_arrays(a, c, C, False, 3.0).rejected is None
+    assert det._search_arrays(a, c, C, False, 1.0).rejected == "pulsation guard"
+    # a sinusoid that stands well above the detrending's bar is refused at either
+    _, strong = pulsator(0, period_d=0.2, amp=0.002, depth=0.02)
+    cs, ast = det._clean(strong, C), _arrays(det, strong)
+    assert det._search_arrays(ast, cs, C, False, 3.0).rejected == "pulsation guard"
+
+
+def test_a_strong_planet_on_a_barely_pulsating_star_is_read_again_and_found():
+    # main: the residual test refuses the box at 2 times the level and the detrending finds no
+    # sinusoid (its bar is 3 times), so the star was lost whole
+    t, cv = _weakly_pulsating(0)
+    assert detect({0: cv}, trend_guard_ratio=None) == []
+    out = detect({0: cv})
+    _all_bounded(t, out)
+    det = BlsDetector()
+    cand = det._search(det._clean(cv, C), None, C)
+    # the star's own box, read again, not a detrended one
+    assert cand.rejected is None and cand.trend is None
+
+
+def test_the_reread_keeps_the_second_looks_snr_bar():
+    # a box that passes the guard at the detrending's bar but reaches S/N 11 and local S/N 8.3:
+    # a second look is a second chance at a false alarm, so it must reach trend_snr_threshold (9)
+    _, cv = _weakly_pulsating(0, depth=0.0025)
+    det = BlsDetector()
+    c = det._clean(cv, C)
+    a = _arrays(det, cv)
+    read = det._search_arrays(a, c, C, False, 3.0)
+    assert read.rejected is None and min(read.snr, read.snr_local) < det.trend_snr_threshold
+    assert det._reread(a, c, C, False) is None
+    assert detect({0: cv}) == []
+    # ... and with a higher S/N the same star is reported
+    _, cv = _weakly_pulsating(1, depth=0.0025)
+    assert len(detect({0: cv})) == 4
+
+
+@pytest.mark.parametrize("snr,local", [(8.5, 9.5), (9.5, 8.5)])
+def test_the_reread_s_n_bar_applies_to_the_snr_and_to_the_local_snr_each(monkeypatch, snr, local):
+    # either of the two below the second look's bar of 9 refuses the box: the monkeypatch hands
+    # `_reread` a box that passes every gate with the two S/N read as given
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector()
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    assert det._reread(a, c, C, False) is not None
+    real = BlsDetector._search_arrays
+
+    def fake(self, *args, **kw):
+        return replace(real(self, *args, **kw), snr=snr, snr_local=local)
+
+    monkeypatch.setattr(BlsDetector, "_search_arrays", fake)
+    assert det._reread(a, c, C, False) is None
+    # ... and both at the bar keep it
+    monkeypatch.setattr(
+        BlsDetector,
+        "_search_arrays",
+        lambda self, *args, **kw: replace(real(self, *args, **kw), snr=9.5, snr_local=9.5),
+    )
+    assert det._reread(a, c, C, False) is not None
+
+
+def test_the_reread_keeps_a_box_only_if_every_other_gate_passes_it():
+    # a box another gate rejects (here: 50 events asked of a box with four) is not handed back
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector(min_events=50)
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    assert BlsDetector()._reread(a, c, C, False) is not None
+    assert det._search_arrays(a, c, C, False, 3.0).rejected == "min_events"
+    assert det._reread(a, c, C, False) is None
+
+
+def test_the_reread_keeps_the_repeat_check():
+    # `trend_repeat_snr` is off by default, so only a set value shows that the second look keeps it
+    _, cv = _weakly_pulsating(0)
+    c, a = BlsDetector()._clean(cv, C), _arrays(BlsDetector(), cv)
+    assert BlsDetector(trend_repeat_snr=1.0)._reread(a, c, C, False) is not None
+    assert BlsDetector(trend_repeat_snr=1e9)._reread(a, c, C, False) is None
+
+
+def test_the_box_versus_sine_bar_is_not_relaxed_with_the_residual_bar():
+    # a sinusoid of 0.1 percent at 4.8 h: the box a transit search finds on it is matched by the
+    # sine, so the box-versus-sine test refuses it, at the relaxed residual bar as at 1. The refusal
+    # is that test's, not the night-level ratio's behind it (which `sine_ratio` would then carry)
+    _, cv = pulsator(0, period_d=0.2, amp=0.001, transit=False)
+    det = BlsDetector()
+    c, a = det._clean(cv, C), _arrays(det, cv)
+    for bar in (1.0, 3.0):
+        cand = det._search_arrays(a, c, C, False, bar)
+        assert cand.rejected == "pulsation guard" and cand.sine_ratio is None
+    assert det._reread(a, c, C, False) is None
+
+
+def test_the_bls_single_transit_reads_neither_relaxes_nor_rereads_a_box():
+    # behaviour, not the attribute: a star the relaxed bar rescues in `bls` (the weakly pulsating
+    # one: found with its four events) is read, by the `bls` of `single_transit`, as it was before
+    # #66: rejected by the guard, not rescued by a second reading
+    _, cv = _weakly_pulsating(0)
+    own = BlsDetector()
+    assert own._search(own._clean(cv, C), None, C).rejected is None
+    held = SingleTransitDetector()._bls
+    assert held._relaxed_bar(_arrays(held, cv)) == 1.0
+    assert held._reread(_arrays(held, cv), held._clean(cv, C), C, False) is None
+    assert held._search(held._clean(cv, C), None, C).rejected == "pulsation guard"
+
+
+def test_a_pulsator_without_a_planet_is_not_read_into_one():
+    for a in (0.0004, 0.0005, 0.0006, 0.002):
+        _, cv = pulsator(0, period_d=0.2, amp=a, transit=False)
+        assert detect({0: cv}) == []
+
+
+def test_the_reread_needs_the_bar_and_leaves_stars_the_detrending_found_alone(monkeypatch):
+    _, cv = _weakly_pulsating(0)
+    det = BlsDetector(trend_guard_ratio=None)
+    assert det._reread(_arrays(det, cv), det._clean(cv, C), C, False) is None
+    # a star the detrending rescued is not read again
+    seen = []
+    real = BlsDetector._reread
+    monkeypatch.setattr(BlsDetector, "_reread", lambda self, *a: seen.append(1) or real(self, *a))
+    _, cv = pulsator(0)  # a 1.5 percent pulsator with a planet: found by the detrending
+    assert len(detect({0: cv})) == 4 and seen == []
+
+
+def test_a_detrended_box_is_judged_at_the_detrendings_own_bar(monkeypatch):
+    # a strong mode is subtracted; the weak one that is left (2 times the level) is below what the
+    # detrending would itself call a sinusoid, and main refused the planet for it
+    monkeypatch.setattr(BlsDetector, "_reread", lambda self, *a: None)  # the detrending alone
+    t, cv = _two_modes(0)
+    assert detect({0: cv}, trend_guard_ratio=None) == []
+    out = detect({0: cv})
+    _all_bounded(t, out)
+    det = BlsDetector()
+    cand = det._search(det._clean(cv, C), None, C)
+    assert cand.rejected is None and cand.trend is not None and cand.trend[1] > 0.01
+
+
+def test_the_detrended_bar_does_not_admit_a_pulsator_left_with_a_strong_mode(monkeypatch):
+    # the same star with the second mode at 0.2 percent: 25 times the level, far above the bar
+    monkeypatch.setattr(BlsDetector, "_reread", lambda self, *a: None)
+    _, cv = _two_modes(0, a2=0.002)
+    assert detect({0: cv}) == []
+
+
+def test_the_new_guard_parameter_is_validated():
+    with pytest.raises(ValueError):
+        BlsDetector(trend_guard_ratio=0.9)
+    assert BlsDetector().trend_guard_ratio == 3.0 == BlsDetector().trend_min_ratio
+    BlsDetector(trend_guard_ratio=None)
+    BlsDetector(trend_guard_ratio=1.0)
+
+
+def _with_spikes(cv, share=0.008, seed=5):
+    """The curve with a random `share` of its samples lifted by 6 percent (positive outliers)."""
+    flux = cv.flux.copy()
+    flux[np.random.default_rng(seed).random(len(flux)) < share] *= 1.06
+    return LightCurve(cv.star_id, cv.t, flux, cv.flux_err, cv.quality)
+
+
+def test_a_flare_star_keeps_the_guards_own_residual_bar():
+    # a flare star's tails make red noise that reads 1 to 3 levels in the residual, which is why the
+    # guard refuses it: the relaxed bar is for a star that is not one (the masked share reaches
+    # `flare_fraction`, 3 percent). 0.8 percent of the samples lifted masks 3.9 percent here
+    _, cv = _weakly_pulsating(0)
+    flared = _with_spikes(cv)
+    assert len(detect({0: cv})) == 4
+    assert detect({0: flared}) == []
+    assert (
+        len(detect({0: flared}, flare_fraction=1.0)) == 4
+    )  # the same curve, not called a flare star
+    det = BlsDetector()
+    a = _arrays(det, cv)
+    assert det._relaxed_bar(a) == 3.0 and det._relaxed_bar(replace(a, flare_fraction=0.02)) == 3.0
+    assert det._relaxed_bar(replace(a, flare_fraction=0.03)) == 1.0
+    assert BlsDetector(trend_guard_ratio=None)._relaxed_bar(a) == 1.0
+    assert det._reread(replace(a, flare_fraction=0.05), det._clean(cv, C), C, False) is None
+    assert det._reread(a, det._clean(cv, C), C, False) is not None
