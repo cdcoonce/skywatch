@@ -250,7 +250,8 @@ Issue #54 is that fix (the section below).
 Limits of the subtraction: one sinusoid per star (a multi-mode pulsator keeps its second mode in
 the residual and fails the guard), a planet whose other events still stand out of the residual once
 the boxes are left out (below) is left to ``bls`` (its periodic search), and a star whose raw
-nights never reach ``near_snr`` (5; see Boxes near the bar on a pulsator) is not tried.
+nights never reach ``near_snr`` (5; see Boxes near the bar on a pulsator) is not tried unless its
+strongest Fourier peak reaches the guard's level (issue #69 below tries the subtraction first).
 
 Flares on a pulsator's residual
 -------------------------------
@@ -620,6 +621,72 @@ default was judged on fresh seeds 928-955 in the review (scored once, ``main`` t
   the two settings differ only on stars where the reread fired (puls-seed841: star 185, p93, lost; seed26:
   star 75, two transit boxes lost; seed420: identical).
 
+The pulsation subtracted before the first search (issue #69)
+------------------------------------------------------------
+Issue #69 measured where a transit's S/N goes against the truth matched filter, on the detectors' own
+code paths (16 development runs, 216 planets and 505 events at truth S/N 5 or more; the numbers are the
+median step factors):
+
+======================================================= =============== ===================
+step                                                    ``bls`` planet  ``single_transit``
+                                                                        event
+======================================================= =============== ===================
+box vs ramped transit                                   0.97            0.97
+detector's duration grid and phase                      0.99            1.00
+samples kept after clipping                             0.98            (in grid)
+**contrast form (own-night reference)**                 **0.79**        **0.84**
+depth read, noise estimate (constant hosts)             1.00            1.00
+**total, after pulsation subtraction**                  **0.72**        **0.75**
+**total, first pass (no subtraction)**                  **0.57**        **0.61**
+======================================================= =============== ===================
+
+The contrast factor equals ``sqrt(1 - n_in / n_night)``, the honest variance when each night's level is
+free; a cross-night reference measured on 499 planet-free constant stars did worse (night levels jitter
+1.7 times the white noise), so it is not the target. The avoidable loss is the first pass on pulsating
+stars: their transits read at 0.52 of truth with a scatter about 5 times the stated sigma (the pulsation
+is slow, not white), against 0.73 with honest sigma after the detector's own subtraction.
+
+What the measurement on the detector's own path found (``scripts/single_transit_presub_audit.py``, 34
+development runs of 200 stars and 20 nights, 20 of them every star sinusoidal with ``planet_rate`` 0.5;
+the comment of issue #69 has the tables) is that the order was not the loss. The issue found 25 percent of the
+events of sinusoidal hosts under ``near_snr`` on the raw flux (13 percent of the events at truth S/N 8 or
+more in this pool have no raw box over 5 on their night), but a pulsator reaches the detrend through
+guard (a) on some other night, so subtracting first at the detrending's own bar (3 false-alarm levels)
+changes nothing: the detections are ``cmp``-identical to ``main`` on all 34 runs. Of the 117 transit events
+(truth S/N 8 or more) whose subtracted box reaches 8 and that ``main`` does not report, 103 are planets
+with 6 to 15 events whose other events guard (a) reads as a sinusoid in the residual (``bls``'s planets;
+the guard stays), 13 have no box at 8 on the residual in the path and 1 is another night's; none was
+lost to the order. What is lost is the bar of the sinusoid: a star whose fitted sinusoid stands at 1 to 3
+levels (270 of the 4,552 stars whose strongest Fourier peak reaches the guard's level) is subtracted by
+nothing, and a star whose fit with the box left out falls under 3 loses the residual (puls-seed1006 star
+124 reads 3.09 with the box in, puls-seed841 star 185 3.33, seed21 star 58 3.81).
+
+The change (``subtract_first``, on by default; ``False`` is the old order): for a star whose strongest
+Fourier peak of the guard band reaches the false-alarm level (:meth:`_significant_peak`: the guard's own
+test, one transform, about a millisecond) the detrend (:meth:`_detrended`: the subtraction, the search of
+the residual, the refit round the best box, the flare gate, guard (a) on the residual, the shape test)
+runs **before** the raw search, with the sinusoid counted from ``subtract_ratio`` (1, the false-alarm level
+itself) instead of ``trend_min_ratio`` (3). A star whose residual passes is read on it and its raw flux is
+not searched or read by guard (a); a star it does not give is read exactly as before (the detrend is not
+run a second time: its answer would be the same). A star under the guard's level, and a star the
+detrending already subtracted, is read as before. A flare star (the masked share of its samples reaches
+``flare_fraction`` of ``bls``, 3 percent) keeps the bar of 3: its tails and clouds read 1 to 3 levels as a
+sinusoid, the rule of :meth:`_relaxed_bar`. Without that rule the change added one fp (seed859 star 16, a
+flare star at sinusoid ratio 1.2) and one cosmic-ray box (seed860 star 66, ratio 1.4) on the development
+runs; both stars were read there, so the rule is a development choice, not an unseen one. No S/N bar, shape
+threshold or gate was added or changed; ``subtract_ratio`` is bounded to ``[1, trend_min_ratio]`` (the
+same fit, a lower bar: a detrend that finds nothing at 1 finds nothing at 3).
+
+Measured on the 34 development runs, ``main`` to this, ``single_transit`` alone: transit labels bounded 432
+to 445, planets 214 to 222, single-event planets at S/N 10 or more bounded 93 to 97, fp 1 to 1,
+pulsation->transit 3 to 3, eclipse->transit 7 to 7, flare->transit 2 to 2, detections 452 to 465; no
+detection of ``main`` is lost, the 13 added are all on transit labels (5 on sinusoidal hosts, 8 on three
+constant hosts whose planets' own events made the guard read a sinusoid). Union with ``bls`` (unchanged):
+planets 277 to 282, labels bounded 916 to 921, fp 12 to 12, detections 1,342 to 1,355. CPU: the
+subtraction costs 52 ms a star with a fitted sinusoid (4,414 stars) plus 7 ms for the search of the residual;
+whole ``detect``, serial CPU seconds, ``main`` to this: seed1020 (standard) 30.2 to 30.6, puls-seed1000 (every
+star sinusoidal) 97.1 to 97.5.
+
 Limits
 ------
 * Off the detrended path, a second strong event stays in the residual of the guard: a star with
@@ -772,6 +839,7 @@ from skywatch.detectors.bls import (
     Box,
     _Arrays,
     _Clean,
+    _demean_by_night,
     _renormalise_nights,
     in_box,
     positive_outliers,
@@ -892,6 +960,8 @@ class SingleTransitDetector:
         trend_guard_ratio: float | None = 3.0,
         reread: bool = False,
         ramp_box: bool = True,
+        subtract_first: bool = True,
+        subtract_ratio: float = 1.0,
     ) -> None:
         if not snr_threshold > 0:
             raise ValueError(f"snr_threshold must be > 0, got {snr_threshold}")
@@ -911,6 +981,11 @@ class SingleTransitDetector:
             raise ValueError(f"near_snr must be > 0 or None, got {near_snr}")
         if trend_guard_ratio is not None and not trend_guard_ratio >= 1:
             raise ValueError(f"trend_guard_ratio must be >= 1 or None, got {trend_guard_ratio}")
+        if not 1.0 <= subtract_ratio <= BlsDetector().trend_min_ratio:
+            raise ValueError(
+                "subtract_ratio must lie between the false-alarm level (1) and the detrending's "
+                f"own bar ({BlsDetector().trend_min_ratio:g}), got {subtract_ratio}"
+            )
         self.snr_threshold = snr_threshold
         self.durations_h = tuple(sorted(durations_h))
         self.min_in = min_in
@@ -927,6 +1002,8 @@ class SingleTransitDetector:
         self.trend_guard_ratio = trend_guard_ratio
         self.reread = reread
         self.ramp_box = ramp_box
+        self.subtract_first = subtract_first
+        self.subtract_ratio = subtract_ratio
         # the periodic searches this detector asks of `bls` (guard (b)'s mask, and its pulsation
         # rejection) keep the guard's own bar of 1: the relaxed bar of issue #66 is this detector's
         # (`trend_guard_ratio`, handed to the guard explicitly), not a change to the mask search
@@ -1091,6 +1168,7 @@ class SingleTransitDetector:
         night: np.ndarray,
         level: np.ndarray,
         cadence_s: int,
+        min_ratio: float | None = None,
     ) -> np.ndarray | None:
         """The star's flux with its pulsation subtracted, or None when no sinusoid stands out.
 
@@ -1099,21 +1177,31 @@ class SingleTransitDetector:
         per-night search finds a box on that residual, the sinusoid is fitted again with the
         box's window left out (a transit left in the fit pulls the sinusoid towards itself) and
         the nights are divided again.
+
+        The sinusoid counts from ``trend_min_ratio`` false-alarm levels, or from `min_ratio` when
+        it is given (the first-pass subtraction asks for less, see :meth:`_first_ratio`); the bar
+        of ``bls`` is put back before the call returns.
         """
         bls = self._bls
-        a = _Arrays(t, flux, night, level, c.t, c.night_of)
-        fit = bls._pulsation_trend(a, cadence_s)
-        if fit is None:
-            return None
-        resid = _renormalise_nights(flux - fit[0], night)
-        boxes = self._boxes(t, resid, night, cadence_s)
-        if not boxes:
-            return resid
-        best = max(boxes, key=lambda b: b.snr)
-        fit = bls._pulsation_trend(a, cadence_s, self._event_box(best, cadence_s, len(t)))
-        if fit is None:
-            return None
-        return _renormalise_nights(flux - fit[0], night)
+        kept = bls.trend_min_ratio
+        if min_ratio is not None:
+            bls.trend_min_ratio = min_ratio
+        try:
+            a = _Arrays(t, flux, night, level, c.t, c.night_of)
+            fit = bls._pulsation_trend(a, cadence_s)
+            if fit is None:
+                return None
+            resid = _renormalise_nights(flux - fit[0], night)
+            boxes = self._boxes(t, resid, night, cadence_s)
+            if not boxes:
+                return resid
+            best = max(boxes, key=lambda b: b.snr)
+            fit = bls._pulsation_trend(a, cadence_s, self._event_box(best, cadence_s, len(t)))
+            if fit is None:
+                return None
+            return _renormalise_nights(flux - fit[0], night)
+        finally:
+            bls.trend_min_ratio = kept
 
     def _stands_unflared(
         self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, b: NightBox
@@ -1202,6 +1290,7 @@ class SingleTransitDetector:
         night: np.ndarray,
         level: np.ndarray,
         cadence_s: int,
+        min_ratio: float | None = None,
     ) -> tuple[list[NightBox], np.ndarray] | None:
         """The star's boxes once its pulsation is subtracted, and that flux; None if there is none.
 
@@ -1210,7 +1299,7 @@ class SingleTransitDetector:
         planet whose other events stand out of the residual all fail it, and are left to the
         eclipse mask.
         """
-        resid = self._residual(c, t, flux, night, level, cadence_s)
+        resid = self._residual(c, t, flux, night, level, cadence_s, min_ratio)
         if resid is None:
             return None
         boxes = self._boxes(t, resid, night, cadence_s)
@@ -1241,6 +1330,44 @@ class SingleTransitDetector:
             return None
         return self._detrended(c, t, flux, night, level, cadence_s)
 
+    def _significant_peak(
+        self, t: np.ndarray, flux: np.ndarray, night: np.ndarray, cadence_s: int
+    ) -> bool:
+        """True when the star's strongest Fourier peak is over the guard's false-alarm level.
+
+        The guard's own test of a signal (:meth:`BlsDetector._pulsating` refuses a residual whose
+        peak power reaches the level, ``residual_bar`` times it): one transform of the star's
+        night-demeaned flux in the guard band, the same power and level the share check of ``bls``
+        reads first (:meth:`BlsDetector._pulsator_majority_possible`, issue #60). It costs about a
+        millisecond, against the 25 ms of placing a sinusoid by least squares, and a star under it
+        is left exactly as it was: of 4,578 stars whose fitted sinusoid reached the level, 4,547 had
+        a peak at or over it, and the exact fit of the detrending (3 levels) cannot be reached by a
+        peak under 1.7 levels, so no star the detrending subtracts is skipped.
+        """
+        bls = self._bls
+        if len(t) < 4:
+            return False
+        sigma = bls._white_sigma(flux, night)
+        if not sigma > 0:
+            return False
+        k = np.unique(night, return_inverse=True)[1]
+        spectrum = bls._band_power(t, _demean_by_night(flux - 1.0, k), sigma, cadence_s)
+        if spectrum is None:
+            return False
+        _, power, level, _ = spectrum
+        return float(power.max()) >= self.subtract_ratio * level
+
+    def _first_ratio(self, c: _Clean, t: np.ndarray) -> float:
+        """The sinusoid bar (in false-alarm levels) of the first-pass subtraction for this star.
+
+        The guard's own level (``subtract_ratio``) for a star under ``bls``'s ``flare_fraction`` of
+        masked samples; the detrending's own bar (``trend_min_ratio``) for a flare star, whose tails
+        and clouds read 1 to 3 levels as a sinusoid (the rule of :meth:`_relaxed_bar`).
+        """
+        if 1.0 - len(t) / len(c.t) >= self._bls.flare_fraction:
+            return self._bls.trend_min_ratio
+        return self.subtract_ratio
+
     def _star_boxes(
         self,
         star_id: int,
@@ -1253,6 +1380,20 @@ class SingleTransitDetector:
         none: list[NightBox] = []
         if len(t) < self.min_in + self.min_out:
             return none, (t, flux, night)
+        tried = False  # the detrend ran on this star and found nothing: it would again
+        if (
+            self.subtract_first
+            and self.guards
+            and self.detrend_pulsation
+            and self._significant_peak(t, flux, night, cadence_s)
+        ):
+            tried = True
+            found = self._detrended(c, t, flux, night, level, cadence_s, self._first_ratio(c, t))
+            if found is not None:
+                log.info("single_transit star %s: pulsation subtracted first", star_id)
+                boxes, flux = found
+                shaped = self._shaped(boxes, t, flux, night, cadence_s, masked=False)
+                return shaped, (t, flux, night)
         floor = None
         if self.near_snr is not None and self.guards and self.detrend_pulsation:
             floor = min(self.near_snr, self.snr_threshold)
@@ -1268,14 +1409,16 @@ class SingleTransitDetector:
         if not boxes:
             # a pulsator's raw scatter holds its pulsation, so its raw boxes read low: the star
             # is given to the detrend when its best box is near the bar and guard (a) refuses it
-            found = self._near_detrended(c, t, flux, night, level, seen, cadence_s)
+            found = (
+                None if tried else self._near_detrended(c, t, flux, night, level, seen, cadence_s)
+            )
             if found is None:
                 return none, (t, flux, night)
             log.info("single_transit star %s: pulsation subtracted (raw box near the bar)", star_id)
             boxes, flux = found
         else:
             refused = self.guards and self._pulsating(t, flux, night, boxes, cadence_s)
-        if refused and self.detrend_pulsation:
+        if refused and self.detrend_pulsation and not tried:
             found = self._detrended(c, t, flux, night, level, cadence_s)
             if found is not None:
                 log.info("single_transit star %s: pulsation subtracted", star_id)
@@ -1315,12 +1458,22 @@ class SingleTransitDetector:
             log.info(
                 "single_transit star %s: eclipses masked (%d windows)", star_id, len(cand.mask)
             )
-        if self.shape_threshold is not None:
-            ramp = self.ramp_box and not masked
-            boxes = [
-                replace(b, shape=self._shape(t, flux, night, b, cadence_s, ramp)) for b in boxes
-            ]
-        return boxes, (t, flux, night)
+        return self._shaped(boxes, t, flux, night, cadence_s, masked), (t, flux, night)
+
+    def _shaped(
+        self,
+        boxes: list[NightBox],
+        t: np.ndarray,
+        flux: np.ndarray,
+        night: np.ndarray,
+        cadence_s: int,
+        masked: bool,
+    ) -> list[NightBox]:
+        """`boxes` with the shape test's statistic filled in (the ramped box not after the mask)."""
+        if self.shape_threshold is None:
+            return boxes
+        ramp = self.ramp_box and not masked
+        return [replace(b, shape=self._shape(t, flux, night, b, cadence_s, ramp)) for b in boxes]
 
     def _star(
         self,

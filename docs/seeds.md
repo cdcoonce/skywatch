@@ -101,6 +101,8 @@ All runs are 200 stars. Planet-free runs (`pf-`) use the same seed with `planet_
 | 956-967 | 20 | planets | **held-out, reserved for #69** (every star sinusoidal, `planet_rate` 0.5) | not yet scored |
 | 968-973 | 20 | planets | **held-out, reserved for #69** (standard field) | not yet scored |
 | 974-977 | 20 | planet-free | **held-out, reserved for #69** (every star sinusoidal, `planet_rate` 0) | not yet scored |
+| 1000-1011 | 20 | planets | development | #69 design (every star sinusoidal, `planet_rate` 0.5, `scripts/bls_detrend_audit.py --simulate`, so not the standard field of the same seed numbers); the first-pass subtraction's flare-star rule was read on these and the other development runs (7 of the 13 detections the change adds on the 34 development runs are on 1000-1011 and 1020-1025); used |
+| 1020-1025 | 20 | planets | development | #69 design (standard field, `skywatch simulate`); used |
 
 Next unused range: 514-519, 576-579 and 592-599 (free), and 978 and up (862-883 are #66's `bls` half, scored; 884-905 are PR #67's review seeds, scored; 906-927 are #66's `single_transit` half, scored once with the reread on; now development; 928-955 are PR #68's review seeds, scored, reread off). (440-449 are #52's design seeds; 450-459 and 490-499 are #63's held-out seeds, scored once; 460-489, 520-559, 560-575 and 580-591 are used; 600-623 and 700-723 are review seeds; 800-833 are used.)
 

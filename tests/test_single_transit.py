@@ -354,10 +354,10 @@ def test_a_star_with_two_unequal_single_events_is_not_searched():
     t = night_times(10)
     prof = dip_profile(t, 2, 2.0, 3.0, 0.015) * dip_profile(t, 7, 4.0, 2.0, 0.006)
     cv = curve(0, t, prof, 0.005, rng)
-    assert detect({0: cv}, trend_guard_ratio=None) == []
+    assert detect({0: cv}, subtract_first=False, trend_guard_ratio=None) == []
     # ... and with the residual bar of issue #66 (3 levels) the guard reads the second event as
     # what it is, and both are reported
-    assert [d.t_start // DAY for d in detect({0: cv}, reread=True)] == [2, 7]
+    assert [d.t_start // DAY for d in detect({0: cv}, subtract_first=False, reread=True)] == [2, 7]
 
 
 # -- the shape test ----------------------------------------------------------------------
@@ -657,7 +657,7 @@ def test_the_detrend_does_not_search_a_star_the_guard_accepts():
         tried.append(1)
         return real(self, a, cadence_s, box)
 
-    st_det = SingleTransitDetector()
+    st_det = SingleTransitDetector(subtract_first=False)
     st_det._bls._pulsation_trend = spy.__get__(st_det._bls)
     assert len(st_det.detect({0: cv}, C)) == 1
     assert tried == []
@@ -774,7 +774,7 @@ def _residual_guard_calls(det, cv):
 def test_a_residual_the_guard_accepts_is_read_once():
     # one box: nothing to leave out, and a star the first read accepts is not read again
     _t, cv = pulsating_host(0)
-    calls = _residual_guard_calls(SingleTransitDetector(), cv)
+    calls = _residual_guard_calls(SingleTransitDetector(subtract_first=False), cv)
     assert len(calls) == 2  # the raw star, then its residual
     assert calls[1][1] == 1
 
@@ -783,8 +783,12 @@ def test_the_other_events_are_left_out_of_the_second_read_only():
     # two boxes whose first read refuses: the second read holds the strongest box alone, with
     # the other box's 1.5-times window (4.5 h of 60 s samples) cut out
     _t, cv = two_event_host(TWO_DIPS)
-    kept = SingleTransitDetector(trend_guard_ratio=None)  # the bar of 1: this read refuses
-    refused = SingleTransitDetector(leave_out_events=False, trend_guard_ratio=None)
+    kept = SingleTransitDetector(
+        subtract_first=False, trend_guard_ratio=None
+    )  # the bar of 1: this read refuses
+    refused = SingleTransitDetector(
+        subtract_first=False, leave_out_events=False, trend_guard_ratio=None
+    )
     full = _residual_guard_calls(refused, cv)
     cut = _residual_guard_calls(kept, cv)
     assert full[1][1] == 2 and cut[1][1] == 2  # the first read sees both boxes
@@ -1323,8 +1327,8 @@ def test_a_pulsator_whose_raw_box_is_under_the_bar_is_still_detrended(seed):
     # the bar of 8 and over the floor of 5; the residual reads 20 or more
     _t, cv = fast_pulsator(seed)
     assert 5.0 < _raw_best(cv) < 8.0
-    assert detect({0: cv}, near_snr=None) == []
-    out = detect({0: cv})
+    assert detect({0: cv}, subtract_first=False, near_snr=None) == []
+    out = detect({0: cv}, subtract_first=False)
     assert len(out) == 1 and out[0].score >= 8.0 and out[0].kind_guess == "transit"
     lo, hi = clipped_window(4, 2.5, 3.0)
     assert span_iou(out[0].t_start, out[0].t_end, lo, hi) >= 0.6
@@ -1333,14 +1337,20 @@ def test_a_pulsator_whose_raw_box_is_under_the_bar_is_still_detrended(seed):
 def test_the_floor_is_the_raw_s_n_a_star_needs_to_be_given_to_the_detrend():
     _t, cv = fast_pulsator(0)
     assert 6.0 < _raw_best(cv) < 7.0
-    assert len(detect({0: cv}, near_snr=6.0)) == 1
-    assert detect({0: cv}, near_snr=7.0) == []  # the raw box is under the floor: not tried
-    assert detect({0: cv}, near_snr=8.0) == []  # the floor at the bar is the old behaviour
+    assert len(detect({0: cv}, subtract_first=False, near_snr=6.0)) == 1
+    assert (
+        detect({0: cv}, subtract_first=False, near_snr=7.0) == []
+    )  # the raw box is under the floor: not tried
+    assert (
+        detect({0: cv}, subtract_first=False, near_snr=8.0) == []
+    )  # the floor at the bar is the old behaviour
     # a floor over the bar is the bar: a dip of 8.7 on a quiet star is found as before
     _t, quiet = one_dip(depth=0.0042)
     assert 8.0 < _raw_best(quiet) < 9.0
-    assert len(detect({0: quiet}, near_snr=9.0)) == 1
-    assert detect({0: quiet}, near_snr=9.0) == detect({0: quiet}, near_snr=None)
+    assert len(detect({0: quiet}, subtract_first=False, near_snr=9.0)) == 1
+    assert detect({0: quiet}, subtract_first=False, near_snr=9.0) == detect(
+        {0: quiet}, subtract_first=False, near_snr=None
+    )
 
 
 def test_the_floor_cannot_lower_the_bar_the_residual_has_to_reach():
@@ -1412,8 +1422,8 @@ def test_a_floor_of_4_would_detrend_a_pulsator_the_floor_of_5_leaves_alone():
     for seed in (0, 1, 2):
         _t, cv = pulsating_host(seed, amp=0.03, period_d=0.037)
         assert 4.0 < _raw_best(cv) < 5.0
-        assert detect({0: cv}) == []
-        out = detect({0: cv}, near_snr=4.0)
+        assert detect({0: cv}, subtract_first=False) == []
+        out = detect({0: cv}, subtract_first=False, near_snr=4.0)
         assert len(out) == 1 and out[0].score >= 8.0
 
 
@@ -1476,20 +1486,20 @@ def test_a_strong_planet_on_a_barely_pulsating_star_is_read_again_and_found():
     # the detrending finds no sinusoid at 3 times: the star was lost whole
     for seed in range(3):
         _t, cv = weak_host(seed)
-        assert detect({0: cv}, trend_guard_ratio=None) == []
-        (d,) = detect({0: cv}, reread=True)
+        assert detect({0: cv}, subtract_first=False, trend_guard_ratio=None) == []
+        (d,) = detect({0: cv}, subtract_first=False, reread=True)
         lo, hi = clipped_window(4, 2.5, 3.0)
         assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6 and d.score >= 8.0
 
 
 def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found_nothing():
     _t, cv = weak_host(0)
-    bars, out = _guard_bars(cv, reread=True)
+    bars, out = _guard_bars(cv, subtract_first=False, reread=True)
     assert len(out) == 1
     assert bars == [1.0, 3.0]  # the first read, then the same box again at 3 levels
     # a star the detrend rescues is not read again on its raw flux: its residual is judged at 3
     _t, host = pulsating_host(0)
-    det = SingleTransitDetector()
+    det = SingleTransitDetector(subtract_first=False)
     rescued: list[bool] = []
     real = SingleTransitDetector._detrended
 
@@ -1499,9 +1509,12 @@ def test_the_reread_is_the_raw_box_at_the_relaxed_bar_after_a_detrend_that_found
 
     det._detrended = spy.__get__(det)
     assert len(det.detect({0: host}, C)) == 1 and rescued == [True]
-    assert _guard_bars(host)[0] == [1.0, 3.0]  # the raw read, then the residual (no third read)
+    assert _guard_bars(host, subtract_first=False)[0] == [
+        1.0,
+        3.0,
+    ]  # the raw read, then the residual (no third read)
     # the old reading is the old bar and the old outcome
-    bars, out = _guard_bars(cv, trend_guard_ratio=None)
+    bars, out = _guard_bars(cv, subtract_first=False, trend_guard_ratio=None)
     assert out == [] and set(bars) == {1.0}
 
 
@@ -1509,9 +1522,9 @@ def test_the_raw_box_is_not_read_again_by_default():
     # opt-in since PR #68's held-out eclipse->transit cost (2 to 5 on the standard set): the
     # default keeps the residual bar of a detrended star and reads the raw box once, at 1
     _t, cv = weak_host(0)
-    bars, out = _guard_bars(cv)
+    bars, out = _guard_bars(cv, subtract_first=False)
     assert out == [] and bars == [1.0]
-    assert len(detect({0: cv}, reread=True)) == 1
+    assert len(detect({0: cv}, subtract_first=False, reread=True)) == 1
 
 
 def test_the_reread_needs_the_detrend():
@@ -1526,10 +1539,10 @@ def test_the_reread_has_its_own_switch_and_leaves_the_residual_bar_alone():
     # the raw box read again is one of the two uses of `trend_guard_ratio`; `reread=False` keeps
     # the residual bar of a detrended star and drops the second reading of the raw box
     _t, cv = weak_host(0)
-    bars, out = _guard_bars(cv, reread=False)
+    bars, out = _guard_bars(cv, subtract_first=False, reread=False)
     assert out == [] and bars == [1.0]
     _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
-    bars, out = _guard_bars(cv, reread=False)
+    bars, out = _guard_bars(cv, subtract_first=False, reread=False)
     assert len(out) == 1 and bars == [1.0, 3.0]
 
 
@@ -1546,10 +1559,10 @@ def test_the_relaxed_bar_does_not_admit_a_pulsator_the_detrend_cannot_clean():
 
 def test_the_residual_of_a_detrended_star_is_judged_at_the_relaxed_bar():
     _t, cv = two_event_host([(4, 2.5, 3.0, 0.02)], 0, mode2=(0.0005, 0.2))
-    bars, out = _guard_bars(cv)
+    bars, out = _guard_bars(cv, subtract_first=False)
     assert len(out) == 1 and bars == [1.0, 3.0]
     # the leave-out read of a residual that is refused uses the bar too
-    det = SingleTransitDetector()
+    det = SingleTransitDetector(subtract_first=False)
     seen: list[float] = []
     det._pulsating = lambda t, f, n, b, c, residual_bar=1.0: seen.append(residual_bar) is None
     n = 480
@@ -1651,3 +1664,114 @@ def test_the_ramp_is_not_used_for_boxes_found_after_the_eclipse_mask(monkeypatch
     used.clear()
     detect({0: one_dip()[1]}, ramp_box=False)
     assert used == [False]
+
+
+# -- a significant sinusoid is subtracted before the first search (issue #69) -------------------
+
+
+def _pulsation_fits(cv, **kw):
+    """The ``box`` argument of every sinusoid fit one detect asks of ``bls`` (None: the whole star)."""
+    calls: list = []
+    real = BlsDetector._pulsation_trend
+
+    def spy(self, a, cadence_s, box=None):
+        calls.append(box)
+        return real(self, a, cadence_s, box)
+
+    det = SingleTransitDetector(**kw)
+    det._bls._pulsation_trend = spy.__get__(det._bls)
+    out = det.detect({0: cv}, C)
+    return calls, out
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_planet_on_a_barely_pulsating_host_is_found_without_the_reread(seed):
+    # the sinusoid stands at 1 to 3 times the false-alarm level: the guard refuses the night's box
+    # on the residual test alone and the detrending (3 levels) subtracts nothing. The first pass
+    # subtracts it from the guard's own level, and the residual passes the guard
+    _t, cv = weak_host(seed)
+    assert detect({0: cv}, subtract_first=False) == []
+    (d,) = detect({0: cv})
+    lo, hi = clipped_window(4, 2.5, 3.0)
+    assert span_iou(d.t_start, d.t_end, lo, hi) >= 0.6 and d.score >= 8.0
+    assert d.kind_guess == "transit"
+
+
+def test_the_first_pass_reads_the_subtracted_flux_and_not_the_raw_star_first():
+    # a pulsator's raw boxes are not read by guard (a) any more: the one read is of the residual
+    _t, cv = pulsating_host(0)
+    assert len(_residual_guard_calls(SingleTransitDetector(subtract_first=False), cv)) == 2
+    calls = _residual_guard_calls(SingleTransitDetector(), cv)
+    assert len(calls) == 1 and calls[0][1] == 1
+
+
+def test_a_star_under_the_guards_level_is_not_fitted_and_is_left_as_it_was():
+    # white noise and a dip too small to be a signal: the Fourier peak is under the level, so no
+    # sinusoid is placed and the output is that of `subtract_first=False`
+    for seed in range(3):
+        _t, cv = one_dip(depth=0.0, seed=seed)
+        fits, out = _pulsation_fits(cv)
+        assert fits == [] and out == []
+        _t, small = one_dip(depth=0.0042, seed=seed)
+        assert detect({0: small}) == detect({0: small}, subtract_first=False)
+
+
+def test_a_dip_on_a_quiet_star_is_tried_and_gives_back_the_old_reading():
+    # a deep dip is itself a peak over the level, so a fit is placed; with the box out of the
+    # second fit nothing is left, the subtraction is dropped and the star is read as before
+    _t, cv = one_dip()
+    fits, out = _pulsation_fits(cv)
+    assert len(fits) >= 1 and len(out) == 1
+    assert out == detect({0: cv}, subtract_first=False)
+
+
+def test_the_bar_of_the_sinusoid_fit_is_put_back_after_the_first_pass():
+    _t, cv = weak_host(0)
+    det = SingleTransitDetector()
+    bar = det._bls.trend_min_ratio
+    assert len(det.detect({0: cv}, C)) == 1
+    assert det._bls.trend_min_ratio == bar == 3.0
+
+
+def test_a_flare_star_is_subtracted_only_from_the_detrendings_own_bar():
+    # a flare star's tails and clouds read 1 to 3 levels as a sinusoid (the rule of the relaxed
+    # residual bar): its first-pass bar is the detrending's 3, a quiet star's the guard's 1
+    _t, cv = weak_host(0)
+    flared = _with_spikes(cv)
+    det = SingleTransitDetector()
+    c = det._bls._clean(flared, C)
+    t, _, _, _ = det._bls._prepare(c, None)
+    assert 1.0 - len(t) / len(c.t) >= det._bls.flare_fraction
+    assert det._first_ratio(c, t) == det._bls.trend_min_ratio
+    quiet = det._bls._clean(cv, C)
+    tq, _, _, _ = det._bls._prepare(quiet, None)
+    assert det._first_ratio(quiet, tq) == 1.0
+    assert SingleTransitDetector(subtract_ratio=2.0)._first_ratio(quiet, tq) == 2.0
+    assert detect({0: flared}) == detect({0: flared}, subtract_first=False)
+
+
+def test_the_first_pass_needs_the_guards_and_the_detrend():
+    _t, cv = weak_host(0)
+    assert detect({0: cv}, guards=False) == detect({0: cv}, guards=False, subtract_first=False)
+    off = detect({0: cv}, detrend_pulsation=False)
+    assert off == detect({0: cv}, detrend_pulsation=False, subtract_first=False) == []
+
+
+def test_the_first_pass_bar_is_between_the_guards_level_and_the_detrendings():
+    for bad in (0.5, 3.5):
+        with pytest.raises(ValueError, match="subtract_ratio"):
+            SingleTransitDetector(subtract_ratio=bad)
+    assert SingleTransitDetector(subtract_ratio=3.0).subtract_ratio == 3.0
+
+
+def test_a_planet_with_several_events_on_a_pulsating_host_is_left_to_bls_by_the_first_pass():
+    # the first pass is the same guard (a) on the residual: a star whose other events stand out
+    # of it is refused there and goes on as before
+    _t, cv = pulsator(0)
+    assert detect({0: cv}) == detect({0: cv}, subtract_first=False)
+
+
+def test_an_eclipsing_binary_is_read_as_before_by_the_first_pass():
+    for dip in (None, (6, 0.5, 3.0, 0.02)):
+        _t, cv = eb_with_dip(dip=dip)
+        assert detect({0: cv}) == detect({0: cv}, subtract_first=False)
