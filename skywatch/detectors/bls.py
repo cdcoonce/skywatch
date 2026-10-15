@@ -786,6 +786,20 @@ there, and 11 detections and 3 fp on the planet-free standard runs.
 Named planets (before/after): 847 p76 0 of 6 events to 6, 847 p77 0 of 15 to 14, 861 p20 0 of 9 to 9;
 840 p26 stays at 0 of 6 (below).
 
+Held-out, scored once with the constants committed (9812abf; seeds 862-873 every star sinusoidal with
+``planet_rate`` 0.5, 874-879 standard, 880-883 every star sinusoidal and planet-free; ``main`` against the
+branch, ``bls`` byte-identical on 17 of the 22 runs and ``single_transit`` ``cmp``-identical on the four
+runs where it could differ): union planets 121 to 124 on 862-873 (``bls`` alone 82 to 86, transit labels
+bounded 335 to 351, bounded or touched 344 to 360, fp 0 to 0, detections 358 to 377) and 20 to 22 on 874-879
+(``bls`` 10 to 12, labels bounded 33 to 36, fp 3 to 3, eclipse->transit 4 to 4 for the union and 1 to 1 for
+``bls``, detections 41 to 45); the planet-free runs 880-883 are unchanged (3, 0, 0, 0 detections, the three on
+seed 880 pulsation claims). **One bar is missed**: pulsation->transit 14 to 16 on 862-873, both on one box
+(puls-seed872 star 137: five events, two on a transit, two on pulsation labels and one on a cosmic ray,
+S/N 17.2 against the bar of 9), the mixed box that the detrended bar can admit as the development runs'
+puls-seed547 star 49 did (four events, two on a transit); the other five stars gained (seed871 star
+41, seed872 star 174, seed873 star 116, seed876 star 38, seed878 star 14) are on transit labels only
+(17 bounded, 1 touched).
+
 What was tried and left. A ramped box in the shape test (a flat bottom with a ramp of a tenth of its width
 on each side, the transit the world draws, added to the box family and ``g_box`` the larger of the two):
 puls-seed840 star 50, the P/2 box of planet 26, reads 1.71 and a chi-square advantage of 35.7 (bars 1.5 and 14)

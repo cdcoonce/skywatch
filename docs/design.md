@@ -528,7 +528,11 @@ Planned detectors, in order:
    `main` to this: every star sinusoidal with planets (32 runs) planets 231 to 245, labels bounded
    934 to 1013, fp 0 to 0, pulsation->transit 50 to 51; standard (32 runs) planets 72 to 75, labels
    bounded 267 to 291, fp 40 to 40, eclipse->transit 4 to 4; planet-free (every star sinusoidal 22,
-   standard 20) detections 2 to 2 and 17 to 17. Planets 76, 77 and 20 are found; planet 26 stays
+   standard 20) detections 2 to 2 and 17 to 17. Held-out, scored once (862-883, constants committed
+   first): union planets 121 to 124 on the 12 all-sinusoidal runs and 20 to 22 on the 6 standard ones, fp 0
+   to 0 and 3 to 3, eclipse->transit 4 to 4, the planet-free runs unchanged; pulsation->transit 14 to 16 on
+   the all-sinusoidal runs, both on one mixed box (puls-seed872 star 137, five events, two on a transit),
+   which misses that bar. Planets 76, 77 and 20 are found; planet 26 stays
    refused by the shape test (four of its six events are cut by a night's edge and the ramp of
    a tenth of the duration is read as a V: 1.71 and a chi-square advantage of 35.7 against 1.5 and 14).
    A ramped box in the shape test fixes that and was left out: with the second reading it let in an
