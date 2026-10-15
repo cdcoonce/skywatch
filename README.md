@@ -121,6 +121,11 @@ pulsators reported as transits was measured against a rule written before the
 last seeds existed. It cut those claims from 20 to 4 but lost two real planets
 where one was allowed, so it stays off.
 
+[0015](docs/log/0015-where-the-missed-planets-were.md): a count of the
+planets both detectors still miss showed the standard field near its ceiling
+and pointed at strong planets refused whole; giving them a second look found
+more planets on unseen seeds with no new false alarms.
+
 Nothing is open.
 
 ## Develop
